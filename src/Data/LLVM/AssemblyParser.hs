@@ -277,6 +277,7 @@ data Type = TypeInteger Int -- bits
           | TypePointer Type
           | TypeStruct [Type]
           | TypePackedStruct [Type]
+          | TypeUpref Int
           deriving (Show)
 
 -- This is an internal-only data type used to track fragmentary parts
@@ -296,6 +297,7 @@ parseType = applyFragmentTypes <$> parseOneType <*> parseTypeModTail
                          , parseVectorType
                          , parseStructType
                          , parsePackedStructType
+                         , parseUprefType
                          ]
         mapping = [ ("float", TypeFloat)
                   , ("double", TypeDouble)
@@ -320,6 +322,7 @@ parseType = applyFragmentTypes <$> parseOneType <*> parseTypeModTail
         parseStructType = TypeStruct <$> (pCharT '{' *> parseTypeList <* pCharT '}')
         parsePackedStructType =
           TypePackedStruct <$> (parseTokens [pChar '<', pChar '{'] *> parseTypeList <* parseTokens [pChar '}', pChar '>'])
+        parseUprefType = TypeUpref <$> (pChar '\\' *> decimal)
 
         -- Applies type specifier fragments (for pointers and function
         -- types).  This is required because the type grammar is
