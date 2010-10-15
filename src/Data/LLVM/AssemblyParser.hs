@@ -24,6 +24,7 @@ pChar ch = word8 (c ch)
 pCharT ch = token (pChar ch)
 sToken s = token (string s)
 parseTokens tokens = sequence_ $ map token tokens
+between lp p rp = lp *> p <* rp
 
 data Identifier = LocalIdentifier ByteString
                 | GlobalIdentifier ByteString
@@ -278,11 +279,17 @@ data Type = TypeInteger Int -- bits
           | TypePackedStruct [Type]
           deriving (Show)
 
+-- This is an internal-only data type used to track fragmentary parts
+-- of type decls; see the comments below but this is needed due to
+-- the left recursion in the type grammar
+data TypeFragment = FuncFragment [Type] Bool
+                  | PointerFragment Int
+
 -- The type grammar is left recursive for pointer types; use the
 -- normal trick of parsing the recursive part and just slurping up all
 -- pointer chars with a many combinator
 parseType :: Parser Type
-parseType = (\x -> makePointerTypeWrappers x []) <$> parseOneType -- <*> many parseTypeModTail
+parseType = applyFragmentTypes <$> parseOneType <*> parseTypeModTail
   where parseOneType = choice (complexParsers ++ (map mappingToParser mapping))
         complexParsers = [ parseIntType
                          , parseArrayType
@@ -301,31 +308,48 @@ parseType = (\x -> makePointerTypeWrappers x []) <$> parseOneType -- <*> many pa
                   , ("metadata", TypeMetadata)
                   , ("opaque", TypeOpaque)
                   ]
+        -- Trivial helpers to parse the left and right parts of a
+        -- vector or array type
+        pVArrayLeft ch = pCharT ch *> decimal
+        pVArrayRight ch = pCharT 'x' *> parseType <* pCharT ch
+
+        -- Simple types
         parseIntType = TypeInteger <$> (pChar 'i' *> decimal)
-        parseArrayType = TypeArray <$> pVArray1 '[' <*> pVArray2 ']'
-        parseVectorType = TypeVector <$> pVArray1 '<' <*> pVArray2 '>'
-        pVArray1 ch = pCharT ch *> decimal
-        pVArray2 ch = pCharT 'x' *> parseType <* pCharT ch
+        parseArrayType = TypeArray <$> pVArrayLeft '[' <*> pVArrayRight ']'
+        parseVectorType = TypeVector <$> pVArrayLeft '<' <*> pVArrayRight '>'
+        parseStructType = TypeStruct <$> (pCharT '{' *> parseTypeList <* pCharT '}')
         parsePackedStructType =
           TypePackedStruct <$> (parseTokens [pChar '<', pChar '{'] *> parseTypeList <* parseTokens [pChar '}', pChar '>'])
-        -- For each ptrToken, wrap baseType in a PointerType
-        makePointerTypeWrappers :: Type -> [(Maybe ([Type], Bool), [Word8])] -> Type
-        makePointerTypeWrappers baseType [] = baseType
-        makePointerTypeWrappers baseType ((Nothing, []) : rest) =
-          makePointerTypeWrappers baseType rest
-        makePointerTypeWrappers baseType ((Nothing, p:ps) : rest) =
-          makePointerTypeWrappers (TypePointer baseType) ((Nothing, ps) : rest)
-        makePointerTypeWrappers baseType ((Just (paramTypes, isVararg), ps) : rest) =
-          makePointerTypeWrappers (TypeFunction baseType paramTypes isVararg) ((Nothing, ps) : rest)
+
+        -- Applies type specifier fragments (for pointers and function
+        -- types).  This is required because the type grammar is
+        -- left-recursive and we can't directly use left recursion
+        -- with parser combinator parsers.  This function will wrap
+        -- function or pointer types around a base type as required
+        applyFragmentTypes :: Type -> [TypeFragment] -> Type
+        applyFragmentTypes baseType [] = baseType
+        applyFragmentTypes baseType ((PointerFragment 0) : rest) =
+          applyFragmentTypes baseType rest
+        applyFragmentTypes baseType ((PointerFragment cnt) : rest) =
+          applyFragmentTypes (TypePointer baseType) ((PointerFragment (cnt-1)) : rest)
+        applyFragmentTypes baseType ((FuncFragment types vararg) : rest) =
+          applyFragmentTypes (TypeFunction baseType types vararg) rest
+
+        -- Parses a comma separated list of types
         parseTypeList = sepBy parseType (pCharT ',')
-        parseFuncTypeList :: Parser ([Type], Bool)
-        parseFuncTypeList = (,) <$> parseTypeList <*> option False (const True <$> (pCharT ',' *> sToken "..."))
-        parseFuncFragment :: Parser (Maybe ([Type], Bool))
-        parseFuncFragment = Just <$> (pCharT '(' *> parseFuncTypeList <* pCharT ')')
-        parseTypeModTail :: Parser (Maybe ([Type], Bool), [Word8])
-        parseTypeModTail = (,) <$> option Nothing parseFuncFragment <*> many (pCharT '*')
-        parsePointerFragment = many $ pCharT '*'
-        parseStructType = TypeStruct <$> (pCharT '{' *> parseTypeList <* pCharT '}')
+        -- This is a type list followed by an optional comma and
+        -- ... for the vararg parameter
+        parseFuncTypeList :: Parser TypeFragment
+        parseFuncTypeList = FuncFragment <$> parseTypeList <*> option False (const True <$> (pCharT ',' *> sToken "..."))
+        -- This is a func type list surrounded by parens
+        parseFuncFragment = pCharT '(' *> parseFuncTypeList <* pCharT ')'
+        parsePointerFragment :: Parser TypeFragment
+        parsePointerFragment = (PointerFragment . length) <$> (many1 $ pCharT '*')
+        -- This is the main part of the fragment parser; it uses
+        -- alternation and both of the parsers need to be able to
+        -- fail, otherwise you get infinite recursion due to the many
+        parseTypeModTail :: Parser [TypeFragment]
+        parseTypeModTail = many (parseFuncFragment <|> parsePointerFragment)
 
 parseGCName :: Parser ByteString
 parseGCName = string "gc \"" *> takeWhile (\w -> w /= c '"') <* pChar '"'
