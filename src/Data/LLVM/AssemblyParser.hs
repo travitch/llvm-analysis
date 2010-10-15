@@ -13,12 +13,16 @@ import Data.Attoparsec.Combinator
 import Data.Attoparsec.Char8 (char8, isHorizontalSpace, isEndOfLine, isDigit_w8, endOfLine, decimal)
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
+import Data.Word (Word8)
 
 import System.Environment ( getArgs )
 
 data Module = Module Int
 
 c = fromIntegral . ord
+pChar ch = word8 (c ch)
+pCharT ch = token (pChar ch)
+sToken s = token (string s)
 parseTokens tokens = sequence_ $ map token tokens
 
 data Identifier = LocalIdentifier ByteString
@@ -255,8 +259,76 @@ parseLayoutSpec = parseSpecifiers defaultDataLayout
             then parseSpecifiers lyt'
             else return lyt'
 
+data Type = TypeInteger Int -- bits
+          | TypeFloat
+          | TypeDouble
+          | TypeFP128
+          | TypeX86FP80
+          | TypePPCFP128
+          | TypeX86MMX
+          | TypeVoid
+          | TypeLabel
+          | TypeMetadata
+          | TypeArray Int Type
+          | TypeVector Int Type
+          | TypeFunction Type [Type] Bool -- Return type, arg types, vararg
+          | TypeOpaque
+          | TypePointer Type
+          | TypeStruct [Type]
+          | TypePackedStruct [Type]
+          deriving (Show)
+
+-- The type grammar is left recursive for pointer types; use the
+-- normal trick of parsing the recursive part and just slurping up all
+-- pointer chars with a many combinator
+parseType :: Parser Type
+parseType = (\x -> makePointerTypeWrappers x []) <$> parseOneType -- <*> many parseTypeModTail
+  where parseOneType = choice (complexParsers ++ (map mappingToParser mapping))
+        complexParsers = [ parseIntType
+                         , parseArrayType
+                         , parseVectorType
+                         , parseStructType
+                         , parsePackedStructType
+                         ]
+        mapping = [ ("float", TypeFloat)
+                  , ("double", TypeDouble)
+                  , ("fp128", TypeFP128)
+                  , ("x86_fp80", TypeX86FP80)
+                  , ("ppc_fp128", TypePPCFP128)
+                  , ("x86mmx", TypeX86MMX)
+                  , ("void", TypeVoid)
+                  , ("label", TypeLabel)
+                  , ("metadata", TypeMetadata)
+                  , ("opaque", TypeOpaque)
+                  ]
+        parseIntType = TypeInteger <$> (pChar 'i' *> decimal)
+        parseArrayType = TypeArray <$> pVArray1 '[' <*> pVArray2 ']'
+        parseVectorType = TypeVector <$> pVArray1 '<' <*> pVArray2 '>'
+        pVArray1 ch = pCharT ch *> decimal
+        pVArray2 ch = pCharT 'x' *> parseType <* pCharT ch
+        parsePackedStructType =
+          TypePackedStruct <$> (parseTokens [pChar '<', pChar '{'] *> parseTypeList <* parseTokens [pChar '}', pChar '>'])
+        -- For each ptrToken, wrap baseType in a PointerType
+        makePointerTypeWrappers :: Type -> [(Maybe ([Type], Bool), [Word8])] -> Type
+        makePointerTypeWrappers baseType [] = baseType
+        makePointerTypeWrappers baseType ((Nothing, []) : rest) =
+          makePointerTypeWrappers baseType rest
+        makePointerTypeWrappers baseType ((Nothing, p:ps) : rest) =
+          makePointerTypeWrappers (TypePointer baseType) ((Nothing, ps) : rest)
+        makePointerTypeWrappers baseType ((Just (paramTypes, isVararg), ps) : rest) =
+          makePointerTypeWrappers (TypeFunction baseType paramTypes isVararg) ((Nothing, ps) : rest)
+        parseTypeList = sepBy parseType (pCharT ',')
+        parseFuncTypeList :: Parser ([Type], Bool)
+        parseFuncTypeList = (,) <$> parseTypeList <*> option False (const True <$> (pCharT ',' *> sToken "..."))
+        parseFuncFragment :: Parser (Maybe ([Type], Bool))
+        parseFuncFragment = Just <$> (pCharT '(' *> parseFuncTypeList <* pCharT ')')
+        parseTypeModTail :: Parser (Maybe ([Type], Bool), [Word8])
+        parseTypeModTail = (,) <$> option Nothing parseFuncFragment <*> many (pCharT '*')
+        parsePointerFragment = many $ pCharT '*'
+        parseStructType = TypeStruct <$> (pCharT '{' *> parseTypeList <* pCharT '}')
+
 parseGCName :: Parser ByteString
-parseGCName = string "gc \"" *> takeWhile (\w -> w /= c '"') <* word8 (c '"')
+parseGCName = string "gc \"" *> takeWhile (\w -> w /= c '"') <* pChar '"'
 
 -- FIXME: Do this after type parsers are defined
 -- data NamedType
@@ -266,7 +338,7 @@ skipWhitespace = skipWhile isHorizontalSpace
 
 parseLineEnd :: Parser ()
 parseLineEnd = skipWhitespace *> option () parseComment *> skipWhile isEndOfLine
-  where parseComment = word8 (c ';') *> skipWhile notEOL
+  where parseComment = pChar ';' *> skipWhile notEOL
         notEOL c = not $ isEndOfLine c
 
 token :: Parser a -> Parser a
@@ -276,7 +348,7 @@ token p = skipWhitespace *> p <* skipWhitespace
 --testParser :: Parser [LinkageType]
 -- testParser = token parseLinkageType
 -- testParser = ((token parseCallingConvention) <* parseLineEnd)
-testParser = parseDataLayout
+testParser = parseType
 
 main = do
   [ filename ] <- getArgs
