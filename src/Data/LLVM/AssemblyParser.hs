@@ -354,6 +354,39 @@ parseType = applyFragmentTypes <$> parseOneType <*> parseTypeModTail
         parseTypeModTail :: Parser [TypeFragment]
         parseTypeModTail = many (parseFuncFragment <|> parsePointerFragment)
 
+data Value = Value { valueName :: String
+                   , valueType :: Type
+                   , valueContent :: ValueT
+                   , valueOperands :: [Value]
+                   }
+
+-- The first group of value types are unusual and are *not* "users".
+-- This distinction is not particularly important for my purposes,
+-- though, so I'm just giving all values a list of operands (which
+-- will be empty for these things)
+data ValueT = Argument [ParamAttr]
+            | BasicBlock [Value] -- Really instructions, which are values
+            | InlineAsm ByteString ByteString -- ASM String, Constraint String; can parse constraints still
+            | MDNode -- What is this?
+            | MDString -- And this? Might not need either
+
+              -- Constants
+            | BlockAddress BasicBlock
+            | ConstantAggregateZero
+            | ConstantArray -- This should have some parameters but I don't know what
+            | ConstantExpr Value -- change this to something else maybe?  Value should suffice... might even eliminate this one
+            | ConstantFP Double
+            | ConstantInt Int
+            | ConstantPointerNull
+            | ConstantStruct -- What to put here?
+            | ConstantVector -- again
+            | GlobalVariable VisibilityStyle LinkageType String
+            | GlobalAlias VisibilityStyle LinkageType String Value -- new name, real var
+            | Function [Value] [FunctionAttr] [BasicBlock] -- Arguments, function attrs
+            | UndefValue
+              deriving (Show)
+-- parseConstant :: ParserConstant
+
 parseGCName :: Parser ByteString
 parseGCName = string "gc \"" *> takeWhile (\w -> w /= c '"') <* pChar '"'
 
