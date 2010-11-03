@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- module Data.LLVM.AssemblyParser () where
 
-import Data.Char
+import Data.Char (ord)
+import Data.Monoid
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Map (Map)
@@ -10,10 +11,12 @@ import Prelude hiding (takeWhile)
 import Control.Applicative hiding (many)
 import Data.Attoparsec
 import Data.Attoparsec.Combinator
-import Data.Attoparsec.Char8 (char8, isHorizontalSpace, isEndOfLine, isDigit_w8, endOfLine, decimal)
+import Data.Attoparsec.Char8 (char8, isHorizontalSpace, isEndOfLine, isDigit_w8, endOfLine, decimal, signed)
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
-import Data.Word (Word8)
+import Data.ByteString.Internal (w2c)
+import Data.Word (Word8, Word64)
+import Data.Binary.IEEE754
 
 import System.Environment ( getArgs )
 
@@ -33,17 +36,18 @@ data Identifier = LocalIdentifier ByteString
 -- TODO: constants
 parseIdentifier :: Parser Identifier
 parseIdentifier = makeIdentifier <$> parseSigil <*> choice idents
-  where idents = [parseIdentifierString, parseIdentifierName, parseUnnamedValue]
+  where idents = [parseQuotedString, parseIdentifierName, parseUnnamedValue]
         parseSigil = satisfy (\w -> w == c '@' || w == c '%')
-        parseQuote = skip (\w -> w == c '"')
         startChar = inClass "a-zA-Z$._"
         identChar = inClass "a-zA-Z0-9$._"
-        parseIdentifierString = parseQuote *> takeWhile (\w -> w /= c '"') <* parseQuote
         parseIdentifierName = BS.cons <$> satisfy startChar <*> takeWhile identChar
         parseUnnamedValue = takeWhile isDigit_w8
         makeIdentifier sigil body = if sigil == (c '@')
                                     then GlobalIdentifier body
                                     else LocalIdentifier body
+
+parseQuotedString = parseQuote *> takeWhile (\w -> w /= c '"') <* parseQuote
+  where parseQuote = skip (\w -> w == c '"')
 
 data LinkageType = LTPrivate
                  | LTLinkerPrivate
@@ -354,38 +358,80 @@ parseType = applyFragmentTypes <$> parseOneType <*> parseTypeModTail
         parseTypeModTail :: Parser [TypeFragment]
         parseTypeModTail = many (parseFuncFragment <|> parsePointerFragment)
 
-data Value = Value { valueName :: String
+data Value = Value { valueName :: Identifier
                    , valueType :: Type
                    , valueContent :: ValueT
                    , valueOperands :: [Value]
                    }
+           | ConstantValue { constantType :: Type
+                           , constantContent :: ConstantT
+                           }
+           deriving (Show)
 
 -- The first group of value types are unusual and are *not* "users".
 -- This distinction is not particularly important for my purposes,
 -- though, so I'm just giving all values a list of operands (which
 -- will be empty for these things)
 data ValueT = Argument [ParamAttr]
-            | BasicBlock [Value] -- Really instructions, which are values
+            | BasicBlock ByteString [Value] -- Label, really instructions, which are values
             | InlineAsm ByteString ByteString -- ASM String, Constraint String; can parse constraints still
-            | MDNode -- What is this?
-            | MDString -- And this? Might not need either
+            -- | MDNode -- What is this?
+            -- | MDString -- And this? Might not need either
+            deriving (Show)
 
-              -- Constants
-            | BlockAddress BasicBlock
-            | ConstantAggregateZero
-            | ConstantArray -- This should have some parameters but I don't know what
-            | ConstantExpr Value -- change this to something else maybe?  Value should suffice... might even eliminate this one
-            | ConstantFP Double
-            | ConstantInt Int
-            | ConstantPointerNull
-            | ConstantStruct -- What to put here?
-            | ConstantVector -- again
-            | GlobalVariable VisibilityStyle LinkageType String
-            | GlobalAlias VisibilityStyle LinkageType String Value -- new name, real var
-            | Function [Value] [FunctionAttr] [BasicBlock] -- Arguments, function attrs
-            | UndefValue
-              deriving (Show)
--- parseConstant :: ParserConstant
+data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -- to be resolved into something useful later
+               | ConstantAggregateZero
+               | ConstantArray [Value] -- This should have some parameters but I don't know what
+               | ConstantExpr Value -- change this to something else maybe?  Value should suffice... might even eliminate this one
+               | ConstantFP Double
+               | ConstantInt Int
+               | ConstantPointerNull
+               | ConstantStruct [Value] -- Just a list of other constants
+               | ConstantVector [Value] -- again
+               | UndefValue
+               | MDNode [Value] -- A list of constants (and other metadata)
+               | MDString ByteString
+               | Function [Value] [FunctionAttr] [ValueT] -- Arguments, function attrs, block list
+               | GlobalVariable VisibilityStyle LinkageType ByteString
+               | GlobalAlias VisibilityStyle LinkageType ByteString Value -- new name, real var
+               | ConstantIdentifier Identifier -- Wrapper for globals - to be resolved later into a more useful direct references to a GlobalVariable
+               deriving (Show)
+
+-- FIXME: Can parse metadata constants...
+parseConstant :: Parser ConstantT
+parseConstant = choice constantParsers
+  where constantParsers = [ parseBoolConstant
+                          , parseIntConstant
+                          , parseFPConstant
+                          , parseNullConstant
+                          , parseStructConstant
+                          , parseArrayConstant
+                          , parseVectorConstant
+                          , parseZeroInit
+                          , parseMetadataNode
+                          , parseMetadataString
+                          , parseUndefValue
+                          , parseIdentRef
+                          , parseBlockAddr
+                          ]
+        parseBoolConstant = (ConstantInt 1 <$ sToken "true") <|> (ConstantInt 0 <$ sToken "false")
+        parseIntConstant = ConstantInt <$> token (signed decimal)
+        parseFPConstant = ConstantFP <$> token floating
+        parseNullConstant = ConstantPointerNull <$ string "null"
+        parseStructConstant = ConstantStruct <$> (sToken "{" *> sepBy parseField (sToken ",") <* sToken "}")
+        parseArrayConstant = ConstantArray <$> (sToken "[" *> sepBy parseField (sToken ",") <* sToken "]")
+        parseVectorConstant = ConstantVector <$> (sToken "<" *> sepBy parseField (sToken ",") <* sToken ">")
+        parseZeroInit = ConstantAggregateZero <$ sToken "zeroinitializer"
+        -- parseMetadataString = MDString <$> token (string "!" *> parseQuotedString)
+        -- FIXME: Metadata is more complicated than this.  It can
+        -- reference any value and other constants can be preceeded by
+        -- metadata markers (!)
+        -- parseMetadataNode = MDNode <$> (sToken "!{" *> sepBy parseField (sToken ",") <* sToken "}")
+        parseField = (\t c -> ConstantValue { constantType = t, constantContent = c} ) <$> token parseType <*> token parseConstant
+        parseUndefValue = UndefValue <$ sToken "undef"
+        parseIdentRef = ConstantIdentifier <$> token parseIdentifier
+        parseBlockAddr = BlockAddress <$> (sToken "blockaddress(" *> token parseIdentifier) <*> (sToken "," *> parseIdentifier <* sToken ")")
+
 
 parseGCName :: Parser ByteString
 parseGCName = string "gc \"" *> takeWhile (\w -> w /= c '"') <* pChar '"'
@@ -401,8 +447,38 @@ parseLineEnd = skipWhitespace *> option () parseComment *> skipWhile isEndOfLine
   where parseComment = pChar ';' *> skipWhile notEOL
         notEOL c = not $ isEndOfLine c
 
+floating :: Parser Double
+floating = parseNormal <|> parseHex
+  where parseNormal :: Parser Double
+        parseNormal = do
+          sign <- option "" (string "-")
+          whole <- parseDecimal
+          decPt <- string "."
+          frac <- parseDecimal
+          expt <- option "" parseExponent
+          let val :: Double
+              val = readBS (mconcat [sign, whole, decPt, frac, expt])
+          return val
+        parseDecimal :: Parser ByteString
+        parseDecimal = takeWhile1 isDigit_w8
+        parseExponent = (\x y z -> mconcat [x, y, z]) <$> string "e" <*> option "" (string "+" <|> string "-") <*> parseDecimal
+        parseHex :: Parser Double
+        parseHex = do
+                   digits <- (string "0x" *> takeWhile1 isHexDigit)
+                   return $ wordToDouble $ readBS digits
+
+isHexDigit w = (w >= 48 && w <= 57) || (x >= 97 && x <= 102)
+  where x = toLower w
+        toLower :: Word8 -> Word8
+        toLower w | w >= 65 && w <= 90 = w + 32
+                  | otherwise          = w
+
 token :: Parser a -> Parser a
 token p = skipWhitespace *> p <* skipWhitespace
+
+readBS :: (Read a) => ByteString -> a
+readBS = read . bs2s
+bs2s s = map w2c $ BS.unpack s
 
 -- testParser = many (token parseIdentifier)
 --testParser :: Parser [LinkageType]
