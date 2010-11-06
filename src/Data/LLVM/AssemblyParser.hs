@@ -401,15 +401,13 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
 parseConstant :: Parser ConstantT
 parseConstant = choice constantParsers
   where constantParsers = [ parseBoolConstant
-                          , parseIntConstant
                           , parseFPConstant
+                          , parseIntConstant
                           , parseNullConstant
                           , parseStructConstant
                           , parseArrayConstant
                           , parseVectorConstant
                           , parseZeroInit
-                          , parseMetadataNode
-                          , parseMetadataString
                           , parseUndefValue
                           , parseIdentRef
                           , parseBlockAddr
@@ -422,23 +420,26 @@ parseConstant = choice constantParsers
         parseArrayConstant = ConstantArray <$> (sToken "[" *> sepBy parseField (sToken ",") <* sToken "]")
         parseVectorConstant = ConstantVector <$> (sToken "<" *> sepBy parseField (sToken ",") <* sToken ">")
         parseZeroInit = ConstantAggregateZero <$ sToken "zeroinitializer"
-        -- parseMetadataString = MDString <$> token (string "!" *> parseQuotedString)
-        -- FIXME: Metadata is more complicated than this.  It can
-        -- reference any value and other constants can be preceeded by
-        -- metadata markers (!)
-        -- parseMetadataNode = MDNode <$> (sToken "!{" *> sepBy parseField (sToken ",") <* sToken "}")
         parseField = (\t c -> ConstantValue { constantType = t, constantContent = c} ) <$> token parseType <*> token parseConstant
         parseUndefValue = UndefValue <$ sToken "undef"
         parseIdentRef = ConstantIdentifier <$> token parseIdentifier
         parseBlockAddr = BlockAddress <$> (sToken "blockaddress(" *> token parseIdentifier) <*> (sToken "," *> parseIdentifier <* sToken ")")
 
+-- FIXME: Metadata
+-- parseMetadataString = MDString <$> token (string "!" *> parseQuotedString)
+-- FIXME: Metadata is more complicated than this.  It can
+-- reference any value and other constants can be preceeded by
+-- metadata markers (!)
+-- parseMetadataNode = MDNode <$> (sToken "!{" *> sepBy parseField (sToken ",") <* sToken "}")
+
+
+-- FIXME: Constant expressions
+-- FIXME: Inline assembler expressions
+-- FIXME: Intrinsic global variables
 
 parseGCName :: Parser ByteString
 parseGCName = string "gc \"" *> takeWhile (\w -> w /= c '"') <* pChar '"'
 
--- FIXME: Do this after type parsers are defined
--- data NamedType
--- parseNamedType :: Parser NamedType
 
 skipWhitespace = skipWhile isHorizontalSpace
 
@@ -484,7 +485,7 @@ bs2s s = map w2c $ BS.unpack s
 --testParser :: Parser [LinkageType]
 -- testParser = token parseLinkageType
 -- testParser = ((token parseCallingConvention) <* parseLineEnd)
-testParser = parseType
+testParser = many1 parseConstant
 
 main = do
   [ filename ] <- getArgs

@@ -1,7 +1,8 @@
 -- import LLVM.Core
-import Data.LLVM
+import Data.LLVM.Lexer
+import qualified Data.ByteString.Lazy as BS
 
-import Data.Maybe
+-- import Data.Maybe
 import System.Environment ( getArgs )
 
 -- getVal (name, mv) = do
@@ -16,7 +17,10 @@ import System.Environment ( getArgs )
 
 main = do
   [ filename ] <- getArgs
-  inputModule <- readBitcodeFromFile filename
-  putStrLn $ show inputModule
+  contents <- BS.readFile filename
+  let tokens = lexer contents
+  -- inputModule <- readBitcodeFromFile filename
+  -- putStrLn $ show inputModule
   -- vals <- getModuleValues inputModule
   -- mapM getVal vals
+  putStrLn $ show tokens

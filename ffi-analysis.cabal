@@ -48,12 +48,13 @@ Executable ffi-analysis
   Main-is: Main.hs
 
   -- Packages needed in order to build this package.
-  Build-depends: binary-strict, bytestring, hswip, base > 3, monad-loops, monads-tf
+  Build-depends: bytestring, base > 3 && < 5, array, data-binary-ieee754
   ghc-options: -dynamic
   hs-source-dirs: src
 
   -- Modules not exported by this package.
-  -- Other-modules:
+  Other-modules: Data.LLVM.Lexer
 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
-  -- Build-tools:
+  Build-tools: alex >= 2 && < 3
+  extensions: OverloadedStrings
