@@ -1,0 +1,15 @@
+private
+linker_private
+linker_private_weak
+linker_private_weak_def_auto
+internal
+available_externally
+linkonce
+weak
+common
+appending
+extern_weak
+linkonce_odr
+weak_odr
+dllimport
+dllexport
