@@ -425,6 +425,7 @@ parseConstant = choice constantParsers
         parseIdentRef = ConstantIdentifier <$> token parseIdentifier
         parseBlockAddr = BlockAddress <$> (sToken "blockaddress(" *> token parseIdentifier) <*> (sToken "," *> parseIdentifier <* sToken ")")
 
+-- FIXME: Named types
 -- FIXME: Metadata
 -- parseMetadataString = MDString <$> token (string "!" *> parseQuotedString)
 -- FIXME: Metadata is more complicated than this.  It can
