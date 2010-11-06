@@ -188,6 +188,8 @@ import Data.Monoid
 
 %%
 
+Test: Type { $1 }
+
 LinkageType:
     "private"   { LTPrivate }
   | "linker_private" { LTLinkerPrivate }
@@ -282,10 +284,22 @@ Type:
   | Type "*"    { TypePointer $1 } -- FIXME: Add support for address space annotations
   | "[" intlit "x" Type "]" { TypeArray $2 $4 }
   | "<" intlit "x" Type ">" { TypeVector $2 $4 }
-  | Type "(" sep(Type, ",") ")" { TypeFunction $1 $3 False }
-  | Type "(" sep(Type, ",") "," "..." ")" { TypeFunction $1 $3 True }
+  | Type "(" FuncTypeArgList ")" { TypeFunction $1 (fst $3) (snd $3) }
   | "{" sep(Type, ",") "}" { TypeStruct $2 }
   | "<" "{" sep(Type, ",") "}" ">" { TypePackedStruct $3 }
+
+-- Can't use the simple sep1 parameterized rule here since
+-- that generates a nasty shift/reduce conflict where the ,
+-- before a ... is slurped into the list but sep1 doesn't
+-- know what to do with ... since it isn't a type. Oh well.
+FuncTypeArgList:
+    Type MoreFuncTypeArgs { ($1 : fst $2, snd $2) }
+  |                       { ([], False) }
+
+MoreFuncTypeArgs:
+    "," Type MoreFuncTypeArgs { ($2 : (fst $3), snd $3) }
+  | "," "..."                 { ([], True) }
+  |                           { ([], False) }
 
 -- Helper parameterized parsers
 
