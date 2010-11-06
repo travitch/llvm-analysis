@@ -48,13 +48,13 @@ Executable ffi-analysis
   Main-is: Main.hs
 
   -- Packages needed in order to build this package.
-  Build-depends: bytestring, base > 3 && < 5, array, data-binary-ieee754
+  Build-depends: bytestring, base > 3 && < 5, array, data-binary-ieee754, containers
   ghc-options: -dynamic
   hs-source-dirs: src
 
   -- Modules not exported by this package.
-  Other-modules: Data.LLVM.Lexer
+  Other-modules: Data.LLVM.Lexer, Data.LLVM.AssemblyParser
 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
-  Build-tools: alex >= 2 && < 3
+  Build-tools: alex >= 2 && < 3, happy > 1.18.0
   extensions: OverloadedStrings

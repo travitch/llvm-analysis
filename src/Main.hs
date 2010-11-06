@@ -1,5 +1,6 @@
 -- import LLVM.Core
-import Data.LLVM.Lexer
+import Data.LLVM.AssemblyParser (llvmAssemblyParser)
+import Data.LLVM.Lexer (lexer)
 import qualified Data.ByteString.Lazy as BS
 
 -- import Data.Maybe
@@ -23,4 +24,5 @@ main = do
   -- putStrLn $ show inputModule
   -- vals <- getModuleValues inputModule
   -- mapM getVal vals
-  putStrLn $ show tokens
+      res = llvmAssemblyParser tokens
+  putStrLn $ show res

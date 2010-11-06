@@ -8,6 +8,9 @@ import Data.ByteString.Internal (w2c)
 import Data.Monoid
 }
 
+-- FIXME: Go through and conver all stored bytestrings into strict copies
+-- so that the underlying input can be GCed.
+
 %wrapper "basic-bytestring"
 
 $digit = 0-9
@@ -61,20 +64,21 @@ tokens :-
 
 
   -- Operator-like things
-  ","  { const TComma }
-  "="  { const TAssign }
-  "*"  { const TStar }
-  "("  { const TLParen }
-  ")"  { const TRParen }
-  "["  { const TLSquare }
-  "]"  { const TRSquare }
-  "{"  { const TLCurl }
-  "}"  { const TRCurl }
-  "<"  { const TLAngle }
-  ">"  { const TRAngle }
-  "!"  { const TBang }
-  "x"  { const TAggLen }
-  "to" { const TTo }
+  ","   { const TComma }
+  "="   { const TAssign }
+  "*"   { const TStar }
+  "("   { const TLParen }
+  ")"   { const TRParen }
+  "["   { const TLSquare }
+  "]"   { const TRSquare }
+  "{"   { const TLCurl }
+  "}"   { const TRCurl }
+  "<"   { const TLAngle }
+  ">"   { const TRAngle }
+  "!"   { const TBang }
+  "x"   { const TAggLen }
+  "to"  { const TTo }
+  "..." { const TDotDotDot }
 
   -- Linkage Types
   "private"   { const TPrivate }
@@ -255,6 +259,7 @@ data Token = TIntLit Integer
            | TBang
            | TAggLen
            | TTo
+           | TDotDotDot
 
            -- Identifiers
            | TLocalIdent ByteString

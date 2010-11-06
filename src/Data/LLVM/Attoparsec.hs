@@ -29,10 +29,6 @@ sToken s = token (string s)
 parseTokens tokens = sequence_ $ map token tokens
 between lp p rp = lp *> p <* rp
 
-data Identifier = LocalIdentifier ByteString
-                | GlobalIdentifier ByteString
-                  deriving (Show)
-
 -- TODO: constants
 parseIdentifier :: Parser Identifier
 parseIdentifier = makeIdentifier <$> parseSigil <*> choice idents
@@ -49,23 +45,6 @@ parseIdentifier = makeIdentifier <$> parseSigil <*> choice idents
 parseQuotedString = parseQuote *> takeWhile (\w -> w /= c '"') <* parseQuote
   where parseQuote = skip (\w -> w == c '"')
 
-data LinkageType = LTPrivate
-                 | LTLinkerPrivate
-                 | LTLinkerPrivateWeak
-                 | LTLinkerPrivateWeakDefAuto
-                 | LTInternal
-                 | LTAvailableExternally
-                 | LTLinkOnce
-                 | LTWeak
-                 | LTCommon
-                 | LTAppending
-                 | LTExternWeak
-                 | LTLinkOnceODR
-                 | LTWeakODR
-                 | LTExtern -- Default
-                 | LTDLLImport
-                 | LTDLLExport
-                   deriving (Show)
 
 mappingToParser (str, constr) = constr <$ string str
 
@@ -91,13 +70,6 @@ parseLinkageType = option LTExtern parseLinkageType'
                   , ("dllimport", LTDLLImport)
                   , ("dllexport", LTDLLExport)]
 
-data CallingConvention = CCC
-                       | CCFastCC
-                       | CCColdCC
-                       | CCGHC
-                       | CCN Int
-                       deriving (Show)
-
 parseCallingConvention :: Parser CallingConvention
 parseCallingConvention = option CCC parseCallingConvention'
   where parseCallingConvention' = choice convParsers
@@ -108,11 +80,6 @@ parseCallingConvention = option CCC parseCallingConvention'
                   , ("cc 10", CCGHC)]
         parseNumberedCC = CCN <$> (string "cc " *> decimal)
 
-data VisibilityStyle = VisibilityDefault
-                     | VisibilityHidden
-                     | VisibilityProtected
-                       deriving (Show)
-
 parseVisibilityStyle :: Parser VisibilityStyle
 parseVisibilityStyle = option VisibilityDefault parseVisibilityStyle'
   where parseVisibilityStyle' = choice visParsers
@@ -120,16 +87,6 @@ parseVisibilityStyle = option VisibilityDefault parseVisibilityStyle'
         mapping = [ ("default", VisibilityDefault)
                   , ("hidden", VisibilityHidden)
                   , ("protected", VisibilityProtected)]
-
-data ParamAttr = PAZeroExt
-               | PASignExt
-               | PAInReg
-               | PAByVal
-               | PASRet
-               | PANoAlias
-               | PANoCapture
-               | PANest
-               deriving (Show)
 
 -- These are optional for each parameter, and any number can be
 -- specified (space separated)
@@ -146,21 +103,6 @@ parseParameterAttributes = sepBy parseParameterAttributes' skipWhitespace
                   , ("nocapture", PANoCapture)
                   , ("nest", PANest)]
 
-data FunctionAttr = FAAlignStack Int
-                  | FAAlwaysInline
-                  | FAInlineHint
-                  | FANaked
-                  | FANoImplicitFloat
-                  | FANoInline
-                  | FANoRedZone
-                  | FANoReturn
-                  | FANoUnwind
-                  | FAOptSize
-                  | FAReadNone
-                  | FAReadOnly
-                  | FASSP
-                  | FASSPReq
-                    deriving (Show)
 
 -- Again, zero or more separated by spaces
 parseFunctionAttributes :: Parser [FunctionAttr]
@@ -186,45 +128,6 @@ parseModuleAsm :: Parser ByteString
 parseModuleAsm = parsePrefix *> takeWhile (\w -> w /= c '"') <* word8 (c '"')
   where parsePrefix = parseTokens [string "module", string "asm", string "\""]
 
-data Endian = EBig
-            | ELittle
-              deriving (Show)
-
--- Track the ABI alignment and preferred alignment
-data AlignSpec = AlignSpec Int Int
-                 deriving (Show)
-
-data DataLayout = DataLayout { endianness :: Endian
-                             , pointerAlign :: (Int, AlignSpec)
-                             , intAlign :: Map Int AlignSpec
-                             , vectorAlign :: Map Int AlignSpec
-                             , floatAlign :: Map Int AlignSpec
-                             , aggregateAlign :: Map Int AlignSpec
-                             , stackAlign :: Map Int AlignSpec
-                             , nativeWidths :: Set Int
-                             }
-                  deriving (Show)
-
--- Defaults specified by LLVM.  I think there can only be one pointer
--- align specification, though it isn't explicitly stated
-defaultDataLayout = DataLayout { endianness = EBig
-                               , pointerAlign = (64, AlignSpec 64 64)
-                               , intAlign = Map.fromList [ (1, AlignSpec 8 8)
-                                                         , (8, AlignSpec 8 8)
-                                                         , (16, AlignSpec 16 16)
-                                                         , (32, AlignSpec 32 32)
-                                                         , (64, AlignSpec 32 64)
-                                                         ]
-                               , vectorAlign = Map.fromList [ (64, AlignSpec 64 64)
-                                                            , (128, AlignSpec 128 128)
-                                                            ]
-                               , floatAlign = Map.fromList [ (32, AlignSpec 32 32)
-                                                           , (64, AlignSpec 64 64)
-                                                           ]
-                               , aggregateAlign = Map.fromList [ (0, AlignSpec 0 1) ]
-                               , stackAlign = Map.fromList [ (0, AlignSpec 64 64) ]
-                               , nativeWidths = Set.empty
-                               }
 
 -- target datalayout = "<spec>"
 parseDataLayout :: Parser DataLayout
@@ -264,25 +167,6 @@ parseLayoutSpec = parseSpecifiers defaultDataLayout
             then parseSpecifiers lyt'
             else return lyt'
 
-data Type = TypeInteger Int -- bits
-          | TypeFloat
-          | TypeDouble
-          | TypeFP128
-          | TypeX86FP80
-          | TypePPCFP128
-          | TypeX86MMX
-          | TypeVoid
-          | TypeLabel
-          | TypeMetadata
-          | TypeArray Int Type
-          | TypeVector Int Type
-          | TypeFunction Type [Type] Bool -- Return type, arg types, vararg
-          | TypeOpaque
-          | TypePointer Type
-          | TypeStruct [Type]
-          | TypePackedStruct [Type]
-          | TypeUpref Int
-          deriving (Show)
 
 -- This is an internal-only data type used to track fragmentary parts
 -- of type decls; see the comments below but this is needed due to
@@ -358,44 +242,7 @@ parseType = applyFragmentTypes <$> parseOneType <*> parseTypeModTail
         parseTypeModTail :: Parser [TypeFragment]
         parseTypeModTail = many (parseFuncFragment <|> parsePointerFragment)
 
-data Value = Value { valueName :: Identifier
-                   , valueType :: Type
-                   , valueContent :: ValueT
-                   , valueOperands :: [Value]
-                   }
-           | ConstantValue { constantType :: Type
-                           , constantContent :: ConstantT
-                           }
-           deriving (Show)
 
--- The first group of value types are unusual and are *not* "users".
--- This distinction is not particularly important for my purposes,
--- though, so I'm just giving all values a list of operands (which
--- will be empty for these things)
-data ValueT = Argument [ParamAttr]
-            | BasicBlock ByteString [Value] -- Label, really instructions, which are values
-            | InlineAsm ByteString ByteString -- ASM String, Constraint String; can parse constraints still
-            -- | MDNode -- What is this?
-            -- | MDString -- And this? Might not need either
-            deriving (Show)
-
-data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -- to be resolved into something useful later
-               | ConstantAggregateZero
-               | ConstantArray [Value] -- This should have some parameters but I don't know what
-               | ConstantExpr Value -- change this to something else maybe?  Value should suffice... might even eliminate this one
-               | ConstantFP Double
-               | ConstantInt Int
-               | ConstantPointerNull
-               | ConstantStruct [Value] -- Just a list of other constants
-               | ConstantVector [Value] -- again
-               | UndefValue
-               | MDNode [Value] -- A list of constants (and other metadata)
-               | MDString ByteString
-               | Function [Value] [FunctionAttr] [ValueT] -- Arguments, function attrs, block list
-               | GlobalVariable VisibilityStyle LinkageType ByteString
-               | GlobalAlias VisibilityStyle LinkageType ByteString Value -- new name, real var
-               | ConstantIdentifier Identifier -- Wrapper for globals - to be resolved later into a more useful direct references to a GlobalVariable
-               deriving (Show)
 
 -- FIXME: Can parse metadata constants...
 parseConstant :: Parser ConstantT
