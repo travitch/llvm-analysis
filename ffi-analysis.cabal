@@ -42,19 +42,40 @@ Build-type:          Simple
 -- Constraint on the version of Cabal needed to build this package.
 Cabal-version:       >=1.2
 
+flag tests
+  description: Build the tests
+  default:     False
 
-Executable ffi-analysis
+executable ffi-analysis
   -- .hs or .lhs file containing the Main module.
-  Main-is: Main.hs
+  main-is: Main.hs
 
   -- Packages needed in order to build this package.
-  Build-depends: bytestring, base > 3 && < 5, array, data-binary-ieee754, containers
+  build-depends: bytestring, base > 3 && < 5, array, data-binary-ieee754, containers
   ghc-options: -dynamic
   hs-source-dirs: src
 
   -- Modules not exported by this package.
-  Other-modules: Data.LLVM.Lexer, Data.LLVM.AssemblyParser
+  other-modules: Data.LLVM.Lexer, Data.LLVM.AssemblyParser
 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
-  Build-tools: alex >= 2 && < 3, happy > 1.18.0
+  build-tools: alex >= 2 && < 3, happy > 1.18.0
   extensions: OverloadedStrings
+
+executable test-assembly-parser
+  main-is: AssemblyParserTest.hs
+  if !flag(tests)
+    buildable: False
+  else
+    hs-source-dirs: tests src
+    ghc-options: -dynamic
+    build-depends: bytestring,
+                   base > 3 && < 5,
+                   array,
+                   data-binary-ieee754,
+                   containers,
+                   test-framework,
+                   test-framework-hunit,
+                   HUnit
+    other-modules: Data.LLVM.Lexer, Data.LLVM.AssemblyParser
+    extensions: OverloadedStrings
