@@ -301,6 +301,42 @@ MoreFuncTypeArgs:
   | "," "..."                 { ([], True) }
   |                           { ([], False) }
 
+
+SimpleConstant:
+    "true"     { ConstantInt 1 }
+  | "false"    { ConstantInt 0 }
+  | intlit     { ConstantInt $1 }
+  | floatlit   { ConstantFP $1 }
+  | "null"     { ConstantPointerNull }
+  | Identifier { ConstantIdentifier $1 }
+
+TypedConstant:
+    Type Constant  { ConstantValue { constantType = $1, constantContent = $2 } }
+
+ComplexConstant:
+    "{" sep(TypedConstant, ",") "}"   { ConstantStruct $2 }
+  | "[" sep(TypedConstant, ",") "]"   { ConstantArray $2 }
+  | "<" sep(TypedConstant, ",") ">"   { ConstantVector $2 }
+--  | "zeroinitializer"            { ConstantAggregateZero }
+
+Constant:
+    SimpleConstant   { $1 }
+  | ComplexConstant  { $1 }
+
+
+Value:
+    Constant
+--  | Identifier "=" Instruction
+
+-- FIXME | "undef"   {  } constant
+-- FIXME: Inline asm
+-- FIXME: Handle metadata
+
+Instruction:
+    "ret" Type Value  {}
+  | "ret" "void"      {}
+  |
+
 -- Helper parameterized parsers
 
 -- Possibly empty list of 'p' separated by 's'

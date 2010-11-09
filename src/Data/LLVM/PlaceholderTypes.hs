@@ -43,7 +43,7 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
                | ConstantArray [Value] -- This should have some parameters but I don't know what
                | ConstantExpr Value -- change this to something else maybe?  Value should suffice... might even eliminate this one
                | ConstantFP Double
-               | ConstantInt Int
+               | ConstantInt Integer
                | ConstantPointerNull
                | ConstantStruct [Value] -- Just a list of other constants
                | ConstantVector [Value] -- again
