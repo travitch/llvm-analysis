@@ -301,7 +301,6 @@ MoreFuncTypeArgs:
   | "," "..."                 { ([], True) }
   |                           { ([], False) }
 
-
 SimpleConstant:
     "true"     { ConstantInt 1 }
   | "false"    { ConstantInt 0 }
@@ -311,21 +310,25 @@ SimpleConstant:
   | Identifier { ConstantIdentifier $1 }
 
 TypedConstant:
-    Type Constant  { ConstantValue { constantType = $1, constantContent = $2 } }
+  Type Constant  { TypedValue $1 $2 }
+
+TypedValue:
+  Type Value     { TypedValue $1 $2 }
 
 ComplexConstant:
     "{" sep(TypedConstant, ",") "}"   { ConstantStruct $2 }
   | "[" sep(TypedConstant, ",") "]"   { ConstantArray $2 }
   | "<" sep(TypedConstant, ",") ">"   { ConstantVector $2 }
---  | "zeroinitializer"            { ConstantAggregateZero }
+  | "zeroinitializer"                 { ConstantAggregateZero }
 
 Constant:
-    SimpleConstant   { $1 }
-  | ComplexConstant  { $1 }
+    SimpleConstant   { ConstantValue $1 }
+  | ComplexConstant  { ConstantValue $1 }
 
 
 Value:
-    Constant
+    Constant    { $1 }
+  | Instruction { $1 }
 --  | Identifier "=" Instruction
 
 -- FIXME | "undef"   {  } constant
@@ -333,9 +336,19 @@ Value:
 -- FIXME: Handle metadata
 
 Instruction:
-    "ret" Type Value  {}
-  | "ret" "void"      {}
-  |
+    "ret" Type Value  { UnnamedValue $ RetInst (Just $ TypedValue $2 $3) }
+  | "ret" "void"      { UnnamedValue $ RetInst Nothing }
+  | "br" "label" label { UnnamedValue $ UnconditionalBranchInst $3 }
+  | "br" TypedValue "," "label" label "," "label" label { UnnamedValue $ BranchInst $2 $5 $8 }
+  | "switch" TypedValue "," "label" label "[" list(SwitchBranch) "]" { UnnamedValue $ SwitchInst $2 $5 $7 }
+  -- FIXME: indirectbr requires some kind of blockaddress constant
+  -- FIXME: "invoke"
+  | "unwind" { UnnamedValue UnwindInst }
+  | "unreachable" { UnnamedValue UnreachableInst }
+  | Identifier "=" "add" Type Value "," Value { Value { valueName = $1, valueContent = AddInst (TypedValue $4 $5) (TypedValue $4 $7) } }
+
+SwitchBranch:
+  TypedValue "," "label" label { ($1, $4) }
 
 -- Helper parameterized parsers
 
@@ -369,6 +382,7 @@ snd(p,q): p q { $2 }
 {
 parseError :: [Token] -> a
 parseError ts = error ("Parse Error: " `mappend` show ts)
+
 
 -- FIXME: Parse the bytestring - have the code for this already in the
 -- old attoparsec-based parser

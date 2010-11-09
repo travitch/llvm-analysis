@@ -2,6 +2,7 @@ module Data.LLVM.PlaceholderTypes ( Identifier(..)
                                   , Value(..)
                                   , ValueT(..)
                                   , ConstantT(..)
+                                  , TypedValue(..)
                                   ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -18,15 +19,19 @@ data Identifier = LocalIdentifier ByteString
                   deriving (Show)
 
 data Value = Value { valueName :: Identifier
-                   , valueType :: Type
+                   -- , valueType :: Type
                    , valueContent :: ValueT
-                   , valueOperands :: [Value]
+                   -- , valueOperands :: [TypedValue]
                    }
-           | ConstantValue { constantType :: Type
-                           , constantContent :: ConstantT
-                           }
+           | UnnamedValue ValueT
+           | ConstantValue ConstantT
+             -- { constantType :: Type
+             --               , constantContent :: ConstantT
+             --               }
            deriving (Show)
 
+data TypedValue = TypedValue Type Value
+                deriving (Show)
 -- The first group of value types are unusual and are *not* "users".
 -- This distinction is not particularly important for my purposes,
 -- though, so I'm just giving all values a list of operands (which
@@ -34,19 +39,28 @@ data Value = Value { valueName :: Identifier
 data ValueT = Argument [ParamAttribute]
             | BasicBlock ByteString [Value] -- Label, really instructions, which are values
             | InlineAsm ByteString ByteString -- ASM String, Constraint String; can parse constraints still
+            | RetInst (Maybe TypedValue)
+            | UnconditionalBranchInst ByteString
+            | BranchInst TypedValue ByteString ByteString
+            | SwitchInst TypedValue ByteString [(TypedValue, ByteString)]
+              -- IndirectBranchInst
+              -- InvokeInst
+            | UnwindInst
+            | UnreachableInst
+            | AddInst TypedValue TypedValue -- FIXME: Add flags
             -- | MDNode -- What is this?
             -- | MDString -- And this? Might not need either
             deriving (Show)
 
 data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -- to be resolved into something useful later
                | ConstantAggregateZero
-               | ConstantArray [Value] -- This should have some parameters but I don't know what
+               | ConstantArray [TypedValue] -- This should have some parameters but I don't know what
                | ConstantExpr Value -- change this to something else maybe?  Value should suffice... might even eliminate this one
                | ConstantFP Double
                | ConstantInt Integer
                | ConstantPointerNull
-               | ConstantStruct [Value] -- Just a list of other constants
-               | ConstantVector [Value] -- again
+               | ConstantStruct [TypedValue] -- Just a list of other constants
+               | ConstantVector [TypedValue] -- again
                | UndefValue
                | MDNode [Value] -- A list of constants (and other metadata)
                | MDString ByteString
