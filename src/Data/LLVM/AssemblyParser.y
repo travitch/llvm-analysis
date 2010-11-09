@@ -10,6 +10,7 @@ import Data.Monoid
 %name llvmAssemblyParser
 %tokentype { Token }
 %error { parseError }
+%monad { E } { thenE } { returnE }
 
 %token
   gident      { TGlobalIdent $$ }
@@ -320,6 +321,8 @@ ComplexConstant:
   | "[" sep(TypedConstant, ",") "]"   { ConstantArray $2 }
   | "<" sep(TypedConstant, ",") ">"   { ConstantVector $2 }
   | "zeroinitializer"                 { ConstantAggregateZero }
+  | "undef"                           { UndefValue }
+  | "blockaddress" "(" Identifier "," Identifier ")" { BlockAddress $3 $5 }
 
 Constant:
     SimpleConstant   { ConstantValue $1 }
@@ -329,9 +332,8 @@ Constant:
 Value:
     Constant    { $1 }
   | Instruction { $1 }
---  | Identifier "=" Instruction
 
--- FIXME | "undef"   {  } constant
+
 -- FIXME: Inline asm
 -- FIXME: Handle metadata
 
@@ -341,14 +343,56 @@ Instruction:
   | "br" "label" label { UnnamedValue $ UnconditionalBranchInst $3 }
   | "br" TypedValue "," "label" label "," "label" label { UnnamedValue $ BranchInst $2 $5 $8 }
   | "switch" TypedValue "," "label" label "[" list(SwitchBranch) "]" { UnnamedValue $ SwitchInst $2 $5 $7 }
-  -- FIXME: indirectbr requires some kind of blockaddress constant
+  | "indirectbr" TypedValue "," "[" sep(LabelVal, ",") "]" { UnnamedValue $ IndirectBranchInst $2 $5 }
   -- FIXME: "invoke"
   | "unwind" { UnnamedValue UnwindInst }
   | "unreachable" { UnnamedValue UnreachableInst }
-  | Identifier "=" "add" Type Value "," Value { Value { valueName = $1, valueContent = AddInst (TypedValue $4 $5) (TypedValue $4 $7) } }
+  | Identifier "=" AddInst list(ArithFlag) Type Value "," Value { Value { valueName = $1, valueType = $5, valueContent = AddInst $4 $6 $8 } }
+  | Identifier "=" SubInst list(ArithFlag) Type Value "," Value { Value { valueName = $1, valueType = $5, valueContent = SubInst $4 $6 $8 } }
+  | Identifier "=" MulInst list(ArithFlag) Type Value "," Value { Value { valueName = $1, valueType = $5, valueContent = MulInst $4 $6 $8 } }
+  | Identifier "=" DivInst Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = DivInst $5 $7 } }
+  | Identifier "=" RemInst Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = RemInst $5 $7 } }
+  | Identifier "=" "shl"  Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = ShlInst $5 $7 } }
+  | Identifier "=" "lshr" Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = LshrInst $5 $7 } }
+  | Identifier "=" "ashr" Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = AshrInst $5 $7 } }
+  | Identifier "=" "and"  Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = AndInst $5 $7 } }
+  | Identifier "=" "or"   Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = OrInst $5 $7 } }
+  | Identifier "=" "xor"  Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = XorInst $5 $7 } }
+  | Identifier "=" "extractelement" Type Value "," Type Value {% mkExtractElement $1 $4 $5 $8 }
+  | Identifier "=" "insertelement" Type Value "," Type Value "," Type Value { Value { valueName = $1, valueType = $4, valueContent = InsertElementInst $5 $8 $11 } }
+  | Identifier "=" "shufflevector" Type Value "," Type Value "," Type Value {% mkShuffleVector $1 $4 $5 $8 $10 $11 }
+
+AddInst:
+    "add"  { $1 }
+  | "fadd" { $1 }
+
+SubInst:
+    "sub"  { $1 }
+  | "fsub" { $1 }
+
+MulInst:
+    "mul"  { $1 }
+  | "fmul" { $1 }
+
+DivInst:
+    "udiv" { $1 }
+  | "sdiv" { $1 }
+  | "fdiv" { $1 }
+
+RemInst:
+    "urem" { $1 }
+  | "srem" { $1 }
+  | "frem" { $1 }
 
 SwitchBranch:
   TypedValue "," "label" label { ($1, $4) }
+
+LabelVal:
+  "label" Value { $2 }
+
+ArithFlag:
+    "nsw" { AFNSW }
+  | "nuw" { AFNUW }
 
 -- Helper parameterized parsers
 
@@ -380,12 +424,45 @@ rev_list1(p):
 snd(p,q): p q { $2 }
 
 {
-parseError :: [Token] -> a
-parseError ts = error ("Parse Error: " `mappend` show ts)
+
+data E a = Ok a | Failed String deriving (Show)
+
+thenE :: E a -> (a -> E b) -> E b
+m `thenE` k =
+  case m of
+    Ok a -> k a
+    Failed e -> Failed e
+
+returnE :: a -> E a
+returnE a = Ok a
+
+failE :: String -> E a
+failE s = Failed s
+
+catchE :: E a -> (String -> E a) -> E a
+catchE m k =
+  case m of
+    Ok a -> Ok a
+    Failed e -> k e
+
+parseError :: [Token] -> E a
+parseError ts = failE ("Parse Error: " `mappend` show ts)
 
 
 -- FIXME: Parse the bytestring - have the code for this already in the
 -- old attoparsec-based parser
 mkDataLayout s = defaultDataLayout
+
+mkExtractElement name ty v1 v2 =
+  case ty of
+    TypeVector _ t -> returnE Value { valueName = name, valueType = t, valueContent = ExtractElementInst v1 v2 }
+    _ -> failE "Non-vector type in extractelement"
+
+mkShuffleVector name t1 val1 val2 t2 mask =
+  case (t1, t2) of
+    (TypeVector _ t, TypeVector n _) -> returnE Value { valueName = name, valueType = (TypeVector n t), valueContent = ShuffleVectorInst val1 val2 mask }
+    _ -> failE "Non-vector type for vec or mask in shufflevector"
+
+-- mkExtractValue name aggT val idx
 
 }

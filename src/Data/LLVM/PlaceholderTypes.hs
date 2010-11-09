@@ -3,6 +3,7 @@ module Data.LLVM.PlaceholderTypes ( Identifier(..)
                                   , ValueT(..)
                                   , ConstantT(..)
                                   , TypedValue(..)
+                                  , ArithFlag(..)
                                   ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -19,9 +20,8 @@ data Identifier = LocalIdentifier ByteString
                   deriving (Show)
 
 data Value = Value { valueName :: Identifier
-                   -- , valueType :: Type
+                   , valueType :: Type
                    , valueContent :: ValueT
-                   -- , valueOperands :: [TypedValue]
                    }
            | UnnamedValue ValueT
            | ConstantValue ConstantT
@@ -43,15 +43,29 @@ data ValueT = Argument [ParamAttribute]
             | UnconditionalBranchInst ByteString
             | BranchInst TypedValue ByteString ByteString
             | SwitchInst TypedValue ByteString [(TypedValue, ByteString)]
-              -- IndirectBranchInst
+            | IndirectBranchInst TypedValue [Value]
               -- InvokeInst
             | UnwindInst
             | UnreachableInst
-            | AddInst TypedValue TypedValue -- FIXME: Add flags
-            -- | MDNode -- What is this?
-            -- | MDString -- And this? Might not need either
+            | AddInst [ArithFlag] Value Value
+            | SubInst [ArithFlag] Value Value
+            | MulInst [ArithFlag] Value Value
+            | DivInst Value Value -- Does not encode the exact flag of sdiv.  Convince me to
+            | RemInst Value Value
+            | ShlInst Value Value
+            | LshrInst Value Value
+            | AshrInst Value Value
+            | AndInst Value Value
+            | OrInst Value Value
+            | XorInst Value Value
+            | ExtractElementInst Value Value
+            | InsertElementInst Value Value Value
+            | ShuffleVectorInst Value Value Value
             deriving (Show)
 
+data ArithFlag = AFNSW | AFNUW deriving (Show)
+
+-- FIXME: Convert the second ident to a Value (basic blocks are values)
 data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -- to be resolved into something useful later
                | ConstantAggregateZero
                | ConstantArray [TypedValue] -- This should have some parameters but I don't know what
