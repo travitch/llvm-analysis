@@ -61,6 +61,10 @@ data ValueT = Argument [ParamAttribute]
             | ExtractElementInst Value Value
             | InsertElementInst Value Value Value
             | ShuffleVectorInst Value Value Value
+              -- FIXME: extractvalue
+            | InsertValueInst Value Value Integer
+            | AllocaInst Type Value Integer -- Type, NumElems, align
+            | LoadInst Bool Type Value Integer -- Volatile? Type Dest align
             deriving (Show)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show)

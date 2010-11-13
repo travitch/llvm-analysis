@@ -361,6 +361,22 @@ Instruction:
   | Identifier "=" "extractelement" Type Value "," Type Value {% mkExtractElement $1 $4 $5 $8 }
   | Identifier "=" "insertelement" Type Value "," Type Value "," Type Value { Value { valueName = $1, valueType = $4, valueContent = InsertElementInst $5 $8 $11 } }
   | Identifier "=" "shufflevector" Type Value "," Type Value "," Type Value {% mkShuffleVector $1 $4 $5 $8 $10 $11 }
+  -- FIXME: extractvalue
+  | Identifier "=" "insertvalue" Type Value "," Type Value "," intlit { Value { valueName = $1, valueType = $4, valueContent = InsertValueInst $5 $8 $10 } }
+  | Identifier "=" "alloca" Type AllocaNumElems AlignmentSpec { Value { valueName = $1, valueType = (TypePointer $4), valueContent = AllocaInst $4 $5 $6 } }
+  -- FIXME: Add support for the !nontemporal metadata thing
+  | Identifier "=" "load" Type Value AlignmentSpec { Value { valueName = $1, valueType =  (TypePointer $4), valueContent = LoadInst False $4 $5 $6 } }
+  | Identifier "=" "volatile" "load" Type Value AlignmentSpec { Value { valueName = $1, valueType =  (TypePointer $5), valueContent = LoadInst False $5 $6 $7 } }
+  -- FIXME: Add support for !<index> = !{ <ty> <val> } form
+
+-- If unspecified, allocates 1 element
+AllocaNumElems:
+    "," Type Value { $3 }
+  |                { ConstantValue $ ConstantInt 1 }
+
+AlignmentSpec:
+    "," "align" intlit { $3 }
+  |                    { 0 }
 
 AddInst:
     "add"  { $1 }
@@ -395,6 +411,10 @@ ArithFlag:
   | "nuw" { AFNUW }
 
 -- Helper parameterized parsers
+
+optional(p):
+    p { Just $1 }
+  |   { Nothing }
 
 -- Possibly empty list of 'p' separated by 's'
 sep(p,s):
