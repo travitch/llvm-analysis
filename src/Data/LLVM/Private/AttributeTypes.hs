@@ -1,16 +1,16 @@
-module Data.LLVM.AttributeTypes ( LinkageType(..)
-                                , CallingConvention(..)
-                                , VisibilityStyle(..)
-                                , ParamAttribute(..)
-                                , FunctionAttribute(..)
-                                , Endian(..)
-                                , DataLayout(..)
-                                , AlignSpec(..)
-                                , defaultDataLayout
-                                , Type(..)
-                                , GCName(..)
-                                , ModuleAssembly(..)
-                                ) where
+module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
+                                        , CallingConvention(..)
+                                        , VisibilityStyle(..)
+                                        , ParamAttribute(..)
+                                        , FunctionAttribute(..)
+                                        , Endian(..)
+                                        , DataLayout(..)
+                                        , AlignSpec(..)
+                                        , defaultDataLayout
+                                        , Type(..)
+                                        , GCName(..)
+                                        , ModuleAssembly(..)
+                                        ) where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set

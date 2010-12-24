@@ -1,16 +1,20 @@
 {
-module Data.LLVM.AssemblyParser (llvmAssemblyParser) where
+module Data.LLVM.AssemblyParser ( llvmAssemblyParser
+                                , llvmIdentifierParser
+                                ) where
 
-import Data.LLVM.AttributeTypes
 import Data.LLVM.Lexer
-import Data.LLVM.PlaceholderTypes
+import Data.LLVM.Private.AttributeTypes
+import Data.LLVM.Private.PlaceholderTypes
+import Data.LLVM.Private.ParsingMonad
 import Data.Monoid
 }
 
 %name llvmAssemblyParser
+%name llvmIdentifierParser Identifier
 %tokentype { Token }
 %error { parseError }
-%monad { E } { thenE } { returnE }
+%monad { ParsingMonad }
 
 %token
   gident      { TGlobalIdent $$ }
@@ -188,8 +192,6 @@ import Data.Monoid
   "va_arg"         { TVaArg }
 
 %%
-
-Test: Type { $1 }
 
 LinkageType:
     "private"   { LTPrivate }
@@ -445,28 +447,8 @@ snd(p,q): p q { $2 }
 
 {
 
-data E a = Ok a | Failed String deriving (Show)
-
-thenE :: E a -> (a -> E b) -> E b
-m `thenE` k =
-  case m of
-    Ok a -> k a
-    Failed e -> Failed e
-
-returnE :: a -> E a
-returnE a = Ok a
-
-failE :: String -> E a
-failE s = Failed s
-
-catchE :: E a -> (String -> E a) -> E a
-catchE m k =
-  case m of
-    Ok a -> Ok a
-    Failed e -> k e
-
-parseError :: [Token] -> E a
-parseError ts = failE ("Parse Error: " `mappend` show ts)
+parseError :: [Token] -> ParsingMonad a
+parseError ts = fail $ show ts -- failE ("Parse Error: " `mappend` show ts)
 
 
 -- FIXME: Parse the bytestring - have the code for this already in the
@@ -475,13 +457,13 @@ mkDataLayout s = defaultDataLayout
 
 mkExtractElement name ty v1 v2 =
   case ty of
-    TypeVector _ t -> returnE Value { valueName = name, valueType = t, valueContent = ExtractElementInst v1 v2 }
-    _ -> failE "Non-vector type in extractelement"
+    TypeVector _ t -> return Value { valueName = name, valueType = t, valueContent = ExtractElementInst v1 v2 }
+    _ -> fail "Non-vector type in extractelement"
 
 mkShuffleVector name t1 val1 val2 t2 mask =
   case (t1, t2) of
-    (TypeVector _ t, TypeVector n _) -> returnE Value { valueName = name, valueType = (TypeVector n t), valueContent = ShuffleVectorInst val1 val2 mask }
-    _ -> failE "Non-vector type for vec or mask in shufflevector"
+    (TypeVector _ t, TypeVector n _) -> return Value { valueName = name, valueType = (TypeVector n t), valueContent = ShuffleVectorInst val1 val2 mask }
+    _ -> fail "Non-vector type for vec or mask in shufflevector"
 
 -- mkExtractValue name aggT val idx
 
