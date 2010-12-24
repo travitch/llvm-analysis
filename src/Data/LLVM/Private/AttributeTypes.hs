@@ -134,5 +134,5 @@ data Type = TypeInteger Int -- bits
           | TypeUpref Int
           deriving (Show, Eq)
 
-data GCName = GCName ByteString
-data ModuleAssembly = ModuleAssembly ByteString
+data GCName = GCName ByteString deriving (Show, Eq)
+data ModuleAssembly = ModuleAssembly ByteString deriving (Show, Eq)
