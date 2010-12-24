@@ -1,4 +1,4 @@
-module Data.LLVM ( llvmAssemblyParser, runLLVMParser ) where
+module Data.LLVM ( parser, runLLVMParser ) where
 
 import Data.LLVM.AssemblyParser
 import Data.LLVM.Lexer

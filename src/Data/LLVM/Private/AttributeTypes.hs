@@ -34,19 +34,19 @@ data LinkageType = LTPrivate
                  | LTExtern -- Default
                  | LTDLLImport
                  | LTDLLExport
-                   deriving (Show)
+                   deriving (Show, Eq)
 
 data CallingConvention = CCC
                        | CCFastCC
                        | CCColdCC
                        | CCGHC
                        | CCN Int
-                       deriving (Show)
+                       deriving (Show, Eq)
 
 data VisibilityStyle = VisibilityDefault
                      | VisibilityHidden
                      | VisibilityProtected
-                       deriving (Show)
+                       deriving (Show, Eq)
 
 data ParamAttribute = PAZeroExt
                     | PASignExt
@@ -56,7 +56,7 @@ data ParamAttribute = PAZeroExt
                     | PANoAlias
                     | PANoCapture
                     | PANest
-                    deriving (Show)
+                    deriving (Show, Eq)
 
 data FunctionAttribute = FAAlignStack Int
                        | FAAlwaysInline
@@ -73,15 +73,15 @@ data FunctionAttribute = FAAlignStack Int
                        | FAReadOnly
                        | FASSP
                        | FASSPReq
-                       deriving (Show)
+                       deriving (Show, Eq)
 
 data Endian = EBig
             | ELittle
-              deriving (Show)
+              deriving (Show, Eq)
 
 -- Track the ABI alignment and preferred alignment
 data AlignSpec = AlignSpec Int Int
-                 deriving (Show)
+                 deriving (Show, Eq)
 
 data DataLayout = DataLayout { endianness :: Endian
                              , pointerAlign :: (Int, AlignSpec)
@@ -92,7 +92,7 @@ data DataLayout = DataLayout { endianness :: Endian
                              , stackAlign :: Map Int AlignSpec
                              , nativeWidths :: Set Int
                              }
-                  deriving (Show)
+                  deriving (Show, Eq)
 
 -- Defaults specified by LLVM.  I think there can only be one pointer
 -- align specification, though it isn't explicitly stated

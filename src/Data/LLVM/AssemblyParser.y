@@ -1,6 +1,7 @@
 {
-module Data.LLVM.AssemblyParser ( llvmAssemblyParser
-                                , llvmIdentifierParser
+module Data.LLVM.AssemblyParser ( parser
+                                , identifierParser
+                                , callingConventionParser
                                 ) where
 
 import Data.LLVM.Lexer
@@ -10,8 +11,9 @@ import Data.LLVM.Private.ParsingMonad
 import Data.Monoid
 }
 
-%name llvmAssemblyParser
-%name llvmIdentifierParser Identifier
+%name parser
+%name identifierParser Identifier
+%name callingConventionParser CallingConvention
 %tokentype { Token }
 %error { parseError }
 %monad { ParsingMonad }
