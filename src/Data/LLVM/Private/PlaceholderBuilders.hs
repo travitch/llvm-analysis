@@ -1,6 +1,7 @@
 module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElement
                                              , mkDataLayout
                                              , mkShuffleVector
+                                             , mkStore
                                              ) where
 
 import Data.LLVM.Private.AttributeTypes
@@ -24,3 +25,7 @@ mkShuffleVector name t1 val1 val2 t2 mask =
     _ -> fail "Non-vector type for vec or mask in shufflevector"
 
 -- mkExtractValue name aggT val idx
+
+mkStore :: (Monad m) => Bool -> Value -> Type -> Identifier -> Integer -> m Value
+mkStore volatile val t1 ident align =
+  return $ UnnamedValue $ StoreInst volatile t1 val align

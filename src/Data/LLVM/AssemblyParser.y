@@ -376,15 +376,20 @@ Instruction:
   | Identifier "=" "insertvalue" Type Value "," Type Value "," intlit { Value { valueName = $1, valueType = $4, valueContent = InsertValueInst $5 $8 $10 } }
   | Identifier "=" "alloca" Type AllocaNumElems AlignmentSpec { Value { valueName = $1, valueType = (TypePointer $4), valueContent = AllocaInst $4 $5 $6 } }
   -- FIXME: Add support for the !nontemporal metadata thing
-  | Identifier "=" "load" Type Value AlignmentSpec { Value { valueName = $1, valueType =  (TypePointer $4), valueContent = LoadInst False $4 $5 $6 } }
-  | Identifier "=" "volatile" "load" Type Value AlignmentSpec { Value { valueName = $1, valueType =  (TypePointer $5), valueContent = LoadInst False $5 $6 $7 } }
+  | Identifier "=" VolatileFlag "load" Type Value AlignmentSpec { Value { valueName = $1, valueType =  (TypePointer $5), valueContent = LoadInst $3 $5 $6 $7 } }
   -- FIXME: Add support for !<index> = !{ <ty> <val> } form
+  -- FIXME: There is also an optional nontemporal thing
+  | VolatileFlag "store" Type Value "," Type Identifier AlignmentSpec {% mkStore $1 $4 $6 $7 $8 }
+
 
 -- If unspecified, allocates 1 element
 AllocaNumElems:
     "," Type Value { $3 }
   |                { ConstantValue $ ConstantInt 1 }
 
+VolatileFlag:
+    "volatile" { True  }
+  |            { False }
 AlignmentSpec:
     "," "align" intlit { $3 }
   |                    { 0 }

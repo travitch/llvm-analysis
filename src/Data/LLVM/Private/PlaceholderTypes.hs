@@ -65,6 +65,7 @@ data ValueT = Argument [ParamAttribute]
             | InsertValueInst Value Value Integer
             | AllocaInst Type Value Integer -- Type, NumElems, align
             | LoadInst Bool Type Value Integer -- Volatile? Type Dest align
+            | StoreInst Bool Type Value Integer -- Volatile? Type Dest align
             deriving (Show)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show)
