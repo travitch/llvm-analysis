@@ -61,11 +61,13 @@ library
                    Data.LLVM.AssemblyParser,
                    Data.LLVM.Private.PlaceholderTypes,
                    Data.LLVM.Private.ParsingMonad,
-                   Data.LLVM.Private.AttributeTypes
+                   Data.LLVM.Private.AttributeTypes,
+                   Data.LLVM.Private.PlaceholderBuilders
 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   build-tools: alex >= 2 && < 3, happy > 1.18.0
   extensions: OverloadedStrings
+  ghc-options: -fwarn-missing-signatures
 
 executable parser-tests
   if flag(buildTests)
