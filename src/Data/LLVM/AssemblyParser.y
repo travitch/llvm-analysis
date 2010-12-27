@@ -376,10 +376,37 @@ Instruction:
   | Identifier "=" "insertvalue" Type Value "," Type Value "," intlit { Value { valueName = $1, valueType = $4, valueContent = InsertValueInst $5 $8 $10 } }
   | Identifier "=" "alloca" Type AllocaNumElems AlignmentSpec { Value { valueName = $1, valueType = (TypePointer $4), valueContent = AllocaInst $4 $5 $6 } }
   -- FIXME: Add support for the !nontemporal metadata thing
-  | Identifier "=" VolatileFlag "load" Type Value AlignmentSpec { Value { valueName = $1, valueType =  (TypePointer $5), valueContent = LoadInst $3 $5 $6 $7 } }
+  | Identifier "=" VolatileFlag "load" Type Value AlignmentSpec
+    {% mkLoadInst $1 $3 $5 $6 $7 }
   -- FIXME: Add support for !<index> = !{ <ty> <val> } form
   -- FIXME: There is also an optional nontemporal thing
-  | VolatileFlag "store" Type Value "," Type Identifier AlignmentSpec {% mkStore $1 $4 $6 $7 $8 }
+  | VolatileFlag "store" Type Value "," Type Identifier AlignmentSpec
+    {% mkStoreInst $1 $4 $6 $7 $8 }
+  -- FIXME: Add GetElementPtr
+  | Identifier "=" "trunc" Type Value "to" Type
+    {% mkConversionInst TruncInst $1 $4 $5 $7 }
+  | Identifier "=" "zext" Type Value "to" Type
+    {% mkConversionInst ZExtInst $1 $4 $5 $7 }
+  | Identifier "=" "sext" Type Value "to" Type
+    {% mkConversionInst SExtInst $1 $4 $5 $7 }
+  | Identifier "=" "fptrunc" Type Value "to" Type
+    {% mkConversionInst FPTruncInst $1 $4 $5 $7 }
+  | Identifier "=" "fpext" Type Value "to" Type
+    {% mkConversionInst FPExtInst $1 $4 $5 $7 }
+  | Identifier "=" "fptoui" Type Value "to" Type
+    {% mkConversionInst FPToUIInst $1 $4 $5 $7 }
+  | Identifier "=" "fptosi" Type Value "to" Type
+    {% mkConversionInst FPToSIInst $1 $4 $5 $7 }
+  | Identifier "=" "uitofp" Type Value "to" Type
+    {% mkConversionInst UIToFPInst $1 $4 $5 $7 }
+  | Identifier "=" "sitofp" Type Value "to" Type
+    {% mkConversionInst SIToFPInst $1 $4 $5 $7 }
+  | Identifier "=" "ptrtoint" Type Value "to" Type
+    {% mkConversionInst PtrToIntInst $1 $4 $5 $7 }
+  | Identifier "=" "inttoptr" Type Value "to" Type
+    {% mkConversionInst IntToPtrInst $1 $4 $5 $7 }
+  | Identifier "=" "bitcast" Type Value "to" Type
+    {% mkConversionInst BitcastInst $1 $4 $5 $7 }
 
 
 -- If unspecified, allocates 1 element
