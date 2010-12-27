@@ -10,6 +10,8 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , Type(..)
                                         , GCName(..)
                                         , ModuleAssembly(..)
+                                        , ICmpCondition(..)
+                                        , FCmpCondition(..)
                                         ) where
 
 import qualified Data.Map as Map
@@ -136,3 +138,33 @@ data Type = TypeInteger Int -- bits
 
 data GCName = GCName ByteString deriving (Show, Eq)
 data ModuleAssembly = ModuleAssembly ByteString deriving (Show, Eq)
+
+data ICmpCondition = ICmpEq
+                   | ICmpNe
+                   | ICmpUgt
+                   | ICmpUge
+                   | ICmpUlt
+                   | ICmpUle
+                   | ICmpSgt
+                   | ICmpSge
+                   | ICmpSlt
+                   | ICmpSle
+                     deriving (Show, Eq)
+
+data FCmpCondition = FCmpFalse
+                   | FCmpOeq
+                   | FCmpOgt
+                   | FCmpOge
+                   | FCmpOlt
+                   | FCmpOle
+                   | FCmpOne
+                   | FCmpOrd
+                   | FCmpUeq
+                   | FCmpUgt
+                   | FCmpUge
+                   | FCmpUlt
+                   | FCmpUle
+                   | FCmpUne
+                   | FCmpUno
+                   | FCmpTrue
+                     deriving (Show, Eq)

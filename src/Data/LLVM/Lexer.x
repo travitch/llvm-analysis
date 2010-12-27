@@ -238,6 +238,28 @@ tokens :-
   "phi"            { const TPhi }
   "va_arg"         { const TVaArg }
 
+-- cmp styles
+  "eq"             { const Teq }
+  "ne"             { const Tne }
+  "ugt"            { const Tugt }
+  "uge"            { const Tuge }
+  "ult"            { const Tult }
+  "ule"            { const Tule }
+  "sgt"            { const Tsgt }
+  "sge"            { const Tsge }
+  "slt"            { const Tslt }
+  "sle"            { const Tsle }
+  "oeq"            { const Toeq }
+  "ogt"            { const Togt }
+  "oge"            { const Toge }
+  "olt"            { const Tolt }
+  "ole"            { const Tole }
+  "one"            { const Tone }
+  "ord"            { const Tord }
+  "ueq"            { const Tueq }
+  "une"            { const Tune }
+  "uno"            { const Tuno }
+
 {
 data Token = TIntLit Integer
            | TFloatLit Double
@@ -427,6 +449,27 @@ data Token = TIntLit Integer
            | TStore
            | TPhi
            | TVaArg
+           -- cmp styles
+           | Teq
+           | Tne
+           | Tugt
+           | Tuge
+           | Tult
+           | Tule
+           | Tsgt
+           | Tsge
+           | Tslt
+           | Tsle
+           | Toeq
+           | Togt
+           | Toge
+           | Tolt
+           | Tole
+           | Tone
+           | Tord
+           | Tueq
+           | Tune
+           | Tuno
          deriving (Show)
 
 -- Helpers for constructing identifiers

@@ -200,6 +200,27 @@ import Data.Monoid
   "phi"            { TPhi }
   "va_arg"         { TVaArg }
 
+  "eq"             { Teq }
+  "ne"             { Tne }
+  "ugt"            { Tugt }
+  "uge"            { Tuge }
+  "ult"            { Tult }
+  "ule"            { Tule }
+  "sgt"            { Tsgt }
+  "sge"            { Tsge }
+  "slt"            { Tslt }
+  "sle"            { Tsle }
+  "oeq"            { Toeq }
+  "ogt"            { Togt }
+  "oge"            { Toge }
+  "olt"            { Tolt }
+  "ole"            { Tole }
+  "one"            { Tone }
+  "ord"            { Tord }
+  "ueq"            { Tueq }
+  "une"            { Tune }
+  "uno"            { Tuno }
+
 %%
 
 LinkageType:
@@ -407,7 +428,40 @@ Instruction:
     {% mkConversionInst IntToPtrInst $1 $4 $5 $7 }
   | Identifier "=" "bitcast" Type Value "to" Type
     {% mkConversionInst BitcastInst $1 $4 $5 $7 }
+  | Identifier "=" "icmp" ICmpCondition Type Value "," Value
+    {% mkIcmpInst $1 $4 $5 $6 $8 }
+  | Identifier "=" "fcmp" FCmpCondition Type Value "," Value
+    {% mkFcmpInst $1 $4 $5 $6 $8 }
 
+ICmpCondition:
+    "eq"  { ICmpEq }
+  | "ne"  { ICmpNe }
+  | "ugt" { ICmpUgt }
+  | "uge" { ICmpUge }
+  | "ult" { ICmpUlt }
+  | "ule" { ICmpUle }
+  | "sgt" { ICmpSgt }
+  | "sge" { ICmpSge }
+  | "slt" { ICmpSlt }
+  | "sle" { ICmpSle }
+
+FCmpCondition:
+    "false" { FCmpFalse }
+  | "oeq"   { FCmpOeq }
+  | "ogt"   { FCmpOgt }
+  | "oge"   { FCmpOge }
+  | "olt"   { FCmpOlt }
+  | "ole"   { FCmpOle }
+  | "one"   { FCmpOne }
+  | "ord"   { FCmpOrd }
+  | "ueq"   { FCmpUeq }
+  | "ugt"   { FCmpUgt }
+  | "uge"   { FCmpUge }
+  | "ult"   { FCmpUlt }
+  | "ule"   { FCmpUle }
+  | "une"   { FCmpUne }
+  | "uno"   { FCmpUno }
+  | "true"  { FCmpTrue }
 
 -- If unspecified, allocates 1 element
 AllocaNumElems:

@@ -4,6 +4,8 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElement
                                              , mkLoadInst
                                              , mkStoreInst
                                              , mkConversionInst
+                                             , mkIcmpInst
+                                             , mkFcmpInst
                                              ) where
 
 import Data.LLVM.Private.AttributeTypes
@@ -52,3 +54,28 @@ mkConversionInst inst ident t1 val t2 =
                  , valueType = t2
                  , valueContent = inst val t2
                  }
+
+mkIcmpInst :: (Monad m) => Identifier -> ICmpCondition -> Type -> Value -> Value -> m Value
+mkIcmpInst ident cond t v1 v2 =
+  return $ Value { valueName = ident
+                 , valueType = t'
+                 , valueContent = ICmpInst cond v1 v2
+                 }
+  -- The result type is i1 for scalars, or a vector of i1 with one
+  -- entry per element in the input vectors
+  where t' = case t of
+          TypeVector n innerType -> TypeVector n (TypeInteger 1)
+          _ -> TypeInteger 1
+
+
+mkFcmpInst :: (Monad m) => Identifier -> FCmpCondition -> Type -> Value -> Value -> m Value
+mkFcmpInst ident cond t v1 v2 =
+  return $ Value { valueName = ident
+                 , valueType = t'
+                 , valueContent = FCmpInst cond v1 v2
+                 }
+  -- The result type is i1 for scalars, or a vector of i1 with one
+  -- entry per element in the input vectors
+  where t' = case t of
+          TypeVector n innerType -> TypeVector n (TypeInteger 1)
+          _ -> TypeInteger 1

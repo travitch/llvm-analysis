@@ -78,6 +78,8 @@ data ValueT = Argument [ParamAttribute]
             | PtrToIntInst Value Type
             | IntToPtrInst Value Type
             | BitcastInst Value Type
+            | ICmpInst ICmpCondition Value Value
+            | FCmpInst FCmpCondition Value Value
             deriving (Show)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show)
