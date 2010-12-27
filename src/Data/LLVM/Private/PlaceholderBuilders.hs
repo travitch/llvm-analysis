@@ -6,7 +6,11 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElement
                                              , mkConversionInst
                                              , mkIcmpInst
                                              , mkFcmpInst
+                                             , mkPhiNode
+                                             , mkSelectInst
                                              ) where
+
+import Data.ByteString.Lazy (ByteString)
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.PlaceholderTypes
@@ -79,3 +83,24 @@ mkFcmpInst ident cond t v1 v2 =
   where t' = case t of
           TypeVector n innerType -> TypeVector n (TypeInteger 1)
           _ -> TypeInteger 1
+
+mkPhiNode :: (Monad m) => Identifier -> Type -> [(Value, ByteString)] -> m Value
+mkPhiNode ident ty vals =
+  return $ Value { valueName = ident
+                 , valueType = ty
+                 , valueContent = PhiNode vals
+                 }
+
+-- this doesn't encode the semantics very well (though they are
+-- represented).  If selty is a vector i1, then the selection is
+-- performed element-wise in the vectors.  That said, this behavior
+-- isn't implemented in LLVM yet so it is a moot point, for now.
+mkSelectInst :: (Monad m) => Identifier -> Type -> Value -> Type -> Value -> Type -> Value -> m Value
+mkSelectInst ident selty sel t1 v1 t2 v2 = do
+  if t1 /= t2
+    then fail "Vectors must be of the same type"
+    else mk'
+  where mk' = return Value { valueName = ident
+                           , valueType = t1
+                           , valueContent = SelectInst sel v1 v2
+                           }

@@ -432,6 +432,14 @@ Instruction:
     {% mkIcmpInst $1 $4 $5 $6 $8 }
   | Identifier "=" "fcmp" FCmpCondition Type Value "," Value
     {% mkFcmpInst $1 $4 $5 $6 $8 }
+  | Identifier "=" "phi" Type sep1(PhiPair, ",")
+    {% mkPhiNode $1 $4 $5 }
+  | Identifier "=" "select" Type Value "," Type Value "," Type Value
+    {% mkSelectInst $1 $4 $5 $7 $8 $10 $11 }
+
+
+PhiPair:
+  Value "," label { ($1, $3) }
 
 ICmpCondition:
     "eq"  { ICmpEq }

@@ -80,6 +80,8 @@ data ValueT = Argument [ParamAttribute]
             | BitcastInst Value Type
             | ICmpInst ICmpCondition Value Value
             | FCmpInst FCmpCondition Value Value
+            | PhiNode [(Value, ByteString)]
+            | SelectInst Value Value Value
             deriving (Show)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show)
