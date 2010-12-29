@@ -4,6 +4,7 @@ module Data.LLVM.Private.PlaceholderTypes ( Identifier(..)
                                           , Constant(..)
                                           , ConstantT(..)
                                           , ArithFlag(..)
+                                          , PartialConstant
                                           , voidInst
                                           , namedInst
                                           , maybeNamedInst
@@ -30,6 +31,8 @@ data Instruction = Instruction { instName :: Maybe Identifier
                                }
            deriving (Show)
 
+type PartialConstant = Type -> Constant
+
 voidInst :: InstructionT -> Instruction
 voidInst v = Instruction { instName = Nothing
                          , instType = TypeVoid
@@ -54,16 +57,10 @@ data Constant = ConstValue ConstantT Type
 
 valueRef ident = const (ValueRef ident)
 
--- data TypedValue = TypedValue Type Value
---                 deriving (Show)
-
 -- The first group of value types are unusual and are *not* "users".
 -- This distinction is not particularly important for my purposes,
 -- though, so I'm just giving all values a list of operands (which
 -- will be empty for these things)
--- data ValueT -- = ConstantValue ConstantT
-            -- | Argument [ParamAttribute]
-            -- | BasicBlock ByteString [Value] -- Label, really instructions, which are values
 data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint String; can parse constraints still
             | RetInst (Maybe Constant)
             | UnconditionalBranchInst ByteString

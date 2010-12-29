@@ -21,8 +21,6 @@ import Data.ByteString.Lazy (ByteString)
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.PlaceholderTypes
 
-type PartialConstant = Type -> Constant
-
 mkExtractElementInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Constant -> m Instruction
 mkExtractElementInst name ty1 v1 v2 =
   case ty1 of
