@@ -5,12 +5,12 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkInsertValueInst
                                              , mkAllocaInst
                                              , mkLoadInst
-                                             -- , mkStoreInst
-                                             -- , mkConversionInst
-                                             -- , mkIcmpInst
-                                             -- , mkFcmpInst
-                                             -- , mkPhiNode
-                                             -- , mkSelectInst
+                                             , mkStoreInst
+                                             , mkConversionInst
+                                             , mkIcmpInst
+                                             , mkFcmpInst
+                                             , mkPhiNode
+                                             , mkSelectInst
                                              , mkFlaggedArithInst
                                              , mkArithInst
                                              -- , mkCallInst
@@ -62,12 +62,14 @@ mkAllocaInst name ty num align =
 -- The input *must* be a pointer type
 mkLoadInst :: Identifier -> Bool -> Type -> PartialConstant -> Integer -> Instruction
 mkLoadInst ident volatile ty val align =
-  namedInst ident ty' $ LoadInst volatile ty (val ty) align
+  namedInst ident ty' $ LoadInst volatile (val ty) align
   where (TypePointer ty') = ty
 
--- mkStoreInst :: (Monad m) => Bool -> Value -> Type -> Identifier -> Integer -> m Value
--- mkStoreInst volatile val t1 ident align =
---   return $ voidValue $ StoreInst volatile t1 val align
+mkStoreInst :: (Monad m) => Bool -> Type -> PartialConstant -> Type -> PartialConstant -> Integer -> m Instruction
+mkStoreInst volatile t1 val t2 dest align
+  | t2 == t1 = return $ voidInst $ StoreInst volatile (val t1) (dest t2) align
+  | otherwise = fail "Store type mismatch"
+  where (TypePointer t2') = t2
 
 mkFlaggedArithInst :: (Monad m) => (a -> Constant -> Constant -> InstructionT) -> Identifier -> Type -> a -> PartialConstant -> PartialConstant -> m Instruction
 mkFlaggedArithInst inst ident ty flags v1 v2 =
@@ -80,43 +82,44 @@ mkArithInst inst ident ty v1 v2 =
 -- Build a conversion instruction using the provided type constructor.
 -- Examples: TruncInst, ZextInst
 -- These all follow the same pattern: convert a value of t1 to t2.
--- mkConversionInst :: (Monad m) => (Value -> Type -> ValueT) -> Identifier -> Type -> Value -> Type -> m Value
--- mkConversionInst inst ident t1 val t2 =
---   return $ namedValue ident t2 $ inst val t2
+mkConversionInst :: (Monad m) => (Constant -> Type -> InstructionT) -> Identifier -> Constant -> Type -> m Instruction
+mkConversionInst inst ident val t =
+  return $ namedInst ident t $ inst val t
 
--- mkIcmpInst :: (Monad m) => Identifier -> ICmpCondition -> Type -> Value -> Value -> m Value
--- mkIcmpInst ident cond t v1 v2 =
---   return $ namedValue ident t' $ ICmpInst cond v1 v2
---   -- The result type is i1 for scalars, or a vector of i1 with one
---   -- entry per element in the input vectors
---   where t' = case t of
---           TypeVector n innerType -> TypeVector n (TypeInteger 1)
---           _ -> TypeInteger 1
+mkIcmpInst :: (Monad m) => Identifier -> ICmpCondition -> Type -> PartialConstant -> PartialConstant -> m Instruction
+mkIcmpInst ident cond t v1 v2 =
+  return $ namedInst ident t' $ ICmpInst cond (v1 t) (v2 t)
+  -- The result type is i1 for scalars, or a vector of i1 with one
+  -- entry per element in the input vectors
+  where t' = case t of
+          TypeVector n innerType -> TypeVector n (TypeInteger 1)
+          _ -> TypeInteger 1
 
 
--- mkFcmpInst :: (Monad m) => Identifier -> FCmpCondition -> Type -> Value -> Value -> m Value
--- mkFcmpInst ident cond t v1 v2 =
---   return $ namedValue ident t' $ FCmpInst cond v1 v2
---   -- The result type is i1 for scalars, or a vector of i1 with one
---   -- entry per element in the input vectors
---   where t' = case t of
---           TypeVector n innerType -> TypeVector n (TypeInteger 1)
---           _ -> TypeInteger 1
+mkFcmpInst :: (Monad m) => Identifier -> FCmpCondition -> Type -> PartialConstant -> PartialConstant -> m Instruction
+mkFcmpInst ident cond t v1 v2 =
+  return $ namedInst ident t' $ FCmpInst cond (v1 t) (v2 t)
+  -- The result type is i1 for scalars, or a vector of i1 with one
+  -- entry per element in the input vectors
+  where t' = case t of
+          TypeVector n innerType -> TypeVector n (TypeInteger 1)
+          _ -> TypeInteger 1
 
--- mkPhiNode :: (Monad m) => Identifier -> Type -> [(Value, ByteString)] -> m Value
--- mkPhiNode ident ty vals =
---   return $ namedValue ident ty $ PhiNode vals
+mkPhiNode :: (Monad m) => Identifier -> Type -> [(PartialConstant, Identifier)] -> m Instruction
+mkPhiNode ident ty vals =
+  return $ namedInst ident ty $ PhiNode (map applicator vals)
+  where applicator (pc, id) = (pc ty, id)
 
--- -- this doesn't encode the semantics very well (though they are
--- -- represented).  If selty is a vector i1, then the selection is
--- -- performed element-wise in the vectors.  That said, this behavior
--- -- isn't implemented in LLVM yet so it is a moot point, for now.
--- mkSelectInst :: (Monad m) => Identifier -> Type -> Value -> Type -> Value -> Type -> Value -> m Value
--- mkSelectInst ident selty sel t1 v1 t2 v2 = do
---   if t1 /= t2
---     then fail "Vectors must be of the same type"
---     else mk'
---   where mk' = return $ namedValue ident t1 $ SelectInst sel v1 v2
+-- this doesn't encode the semantics very well (though they are
+-- represented).  If selty is a vector i1, then the selection is
+-- performed element-wise in the vectors.  That said, this behavior
+-- isn't implemented in LLVM yet so it is a moot point, for now.
+mkSelectInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Type -> PartialConstant -> m Instruction
+mkSelectInst ident selty sel t1 v1 t2 v2 = do
+  if t1 /= t2
+    then fail "Vectors must be of the same type"
+    else mk'
+  where mk' = return $ namedInst ident t1 $ SelectInst (sel selty) (v1 t1) (v2 t2)
 
 -- bleh all values should probably get an optional name
 -- mkCallInst :: (Monad m) => Maybe Identifier -> Bool -> CallingConvention -> [ParamAttribute] -> Type -> Maybe Type -> Value -> [Value] -> [FunctionAttribute] -> m Value

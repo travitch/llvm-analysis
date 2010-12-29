@@ -353,9 +353,6 @@ ComplexConstant:
   | "undef"                           { UndefValue }
   | "blockaddress" "(" Identifier "," Identifier ")" { BlockAddress $3 $5 }
 
-Constant:
-  Type PartialConstant { $2 $1 }
-
 AllConstants:
     SimpleConstant  { $1 }
   | ComplexConstant { $1 }
@@ -365,6 +362,10 @@ AllConstants:
 PartialConstant:
     AllConstants { ConstValue $1 }
   | Identifier   { valueRef $1 }
+
+-- These are full constants
+Constant:
+  Type PartialConstant { $2 $1 }
 
 -- FIXME: Inline asm
 -- FIXME: Handle metadata
@@ -418,43 +419,43 @@ Instruction:
   -- FIXME: Add support for the !nontemporal metadata thing
   | Identifier "=" VolatileFlag "load" Type PartialConstant AlignmentSpec
     { mkLoadInst $1 $3 $5 $6 $7 }
-  -- -- FIXME: Add support for !<index> = !{ <ty> <val> } form
-  -- -- FIXME: There is also an optional nontemporal thing
-  -- | VolatileFlag "store" Type Value "," Type Identifier AlignmentSpec
-  --   {% mkStoreInst $1 $4 $6 $7 $8 }
-  -- -- FIXME: Add GetElementPtr
-  -- | Identifier "=" "trunc" Type Value "to" Type
-  --   {% mkConversionInst TruncInst $1 $4 $5 $7 }
-  -- | Identifier "=" "zext" Type Value "to" Type
-  --   {% mkConversionInst ZExtInst $1 $4 $5 $7 }
-  -- | Identifier "=" "sext" Type Value "to" Type
-  --   {% mkConversionInst SExtInst $1 $4 $5 $7 }
-  -- | Identifier "=" "fptrunc" Type Value "to" Type
-  --   {% mkConversionInst FPTruncInst $1 $4 $5 $7 }
-  -- | Identifier "=" "fpext" Type Value "to" Type
-  --   {% mkConversionInst FPExtInst $1 $4 $5 $7 }
-  -- | Identifier "=" "fptoui" Type Value "to" Type
-  --   {% mkConversionInst FPToUIInst $1 $4 $5 $7 }
-  -- | Identifier "=" "fptosi" Type Value "to" Type
-  --   {% mkConversionInst FPToSIInst $1 $4 $5 $7 }
-  -- | Identifier "=" "uitofp" Type Value "to" Type
-  --   {% mkConversionInst UIToFPInst $1 $4 $5 $7 }
-  -- | Identifier "=" "sitofp" Type Value "to" Type
-  --   {% mkConversionInst SIToFPInst $1 $4 $5 $7 }
-  -- | Identifier "=" "ptrtoint" Type Value "to" Type
-  --   {% mkConversionInst PtrToIntInst $1 $4 $5 $7 }
-  -- | Identifier "=" "inttoptr" Type Value "to" Type
-  --   {% mkConversionInst IntToPtrInst $1 $4 $5 $7 }
-  -- | Identifier "=" "bitcast" Type Value "to" Type
-  --   {% mkConversionInst BitcastInst $1 $4 $5 $7 }
-  -- | Identifier "=" "icmp" ICmpCondition Type Value "," Value
-  --   {% mkIcmpInst $1 $4 $5 $6 $8 }
-  -- | Identifier "=" "fcmp" FCmpCondition Type Value "," Value
-  --   {% mkFcmpInst $1 $4 $5 $6 $8 }
-  -- | Identifier "=" "phi" Type sep1(PhiPair, ",")
-  --   {% mkPhiNode $1 $4 $5 }
-  -- | Identifier "=" "select" Type Value "," Type Value "," Type Value
-  --   {% mkSelectInst $1 $4 $5 $7 $8 $10 $11 }
+  -- FIXME: Add support for !<index> = !{ <ty> <val> } form
+  -- FIXME: There is also an optional nontemporal thing
+  | VolatileFlag "store" Type PartialConstant "," Type PartialConstant AlignmentSpec
+    {% mkStoreInst $1 $3 $4 $6 $7 $8 }
+  -- FIXME: Add GetElementPtr
+  | Identifier "=" "trunc" Constant "to" Type
+    {% mkConversionInst TruncInst $1 $4 $6 }
+  | Identifier "=" "zext" Constant "to" Type
+    {% mkConversionInst ZExtInst $1 $4 $6 }
+  | Identifier "=" "sext" Constant "to" Type
+    {% mkConversionInst SExtInst $1 $4 $6 }
+  | Identifier "=" "fptrunc" Constant "to" Type
+    {% mkConversionInst FPTruncInst $1 $4 $6 }
+  | Identifier "=" "fpext" Constant "to" Type
+    {% mkConversionInst FPExtInst $1 $4 $6 }
+  | Identifier "=" "fptoui" Constant "to" Type
+    {% mkConversionInst FPToUIInst $1 $4 $6 }
+  | Identifier "=" "fptosi" Constant "to" Type
+    {% mkConversionInst FPToSIInst $1 $4 $6 }
+  | Identifier "=" "uitofp" Constant "to" Type
+    {% mkConversionInst UIToFPInst $1 $4 $6 }
+  | Identifier "=" "sitofp" Constant "to" Type
+    {% mkConversionInst SIToFPInst $1 $4 $6 }
+  | Identifier "=" "ptrtoint" Constant "to" Type
+    {% mkConversionInst PtrToIntInst $1 $4 $6 }
+  | Identifier "=" "inttoptr" Constant "to" Type
+    {% mkConversionInst IntToPtrInst $1 $4 $6 }
+  | Identifier "=" "bitcast" Constant "to" Type
+    {% mkConversionInst BitcastInst $1 $4 $6 }
+  | Identifier "=" "icmp" ICmpCondition Type PartialConstant "," PartialConstant
+    {% mkIcmpInst $1 $4 $5 $6 $8 }
+  | Identifier "=" "fcmp" FCmpCondition Type PartialConstant "," PartialConstant
+    {% mkFcmpInst $1 $4 $5 $6 $8 }
+  | Identifier "=" "phi" Type sep1(PhiPair, ",")
+    {% mkPhiNode $1 $4 $5 }
+  | Identifier "=" "select" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
+    {% mkSelectInst $1 $4 $5 $7 $8 $10 $11 }
 
 
 --  | optional(CallIdentifier) TailMarker "call" CallingConvention list(ParameterAttribute) Type optional(Type) Value "(" sep(Value, ",") ")" list(FunctionAttribute)
@@ -467,8 +468,9 @@ TailMarker:
     "tail" { True }
   |        { False }
 
+-- Actually, just a local identifier...
 PhiPair:
-  Identifier "," label { (ValueRef $1, $3) }
+  PartialConstant "," Identifier { ($1, $3) }
 
 ICmpCondition:
     "eq"  { ICmpEq }

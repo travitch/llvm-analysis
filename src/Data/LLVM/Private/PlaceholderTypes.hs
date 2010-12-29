@@ -89,8 +89,8 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
               -- FIXME: extractvalue
             | InsertValueInst Constant Constant Integer
             | AllocaInst Type Constant Integer -- Type, NumElems, align
-            | LoadInst Bool Type Constant Integer -- Volatile? Type Dest align
-            | StoreInst Bool Type Constant Integer -- Volatile? Type Dest align
+            | LoadInst Bool Constant Integer -- Volatile? Type Dest align
+            | StoreInst Bool Constant Constant Integer -- Volatile? Type Dest align
             | TruncInst Constant Type -- The value being truncated, and the type truncted to
             | ZExtInst Constant Type
             | SExtInst Constant Type
@@ -105,7 +105,7 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
             | BitcastInst Constant Type
             | ICmpInst ICmpCondition Constant Constant
             | FCmpInst FCmpCondition Constant Constant
-            | PhiNode [(Constant, ByteString)]
+            | PhiNode [(Constant, Identifier)]
             | SelectInst Constant Constant Constant
             deriving (Show)
 
