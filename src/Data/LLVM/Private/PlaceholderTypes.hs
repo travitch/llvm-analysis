@@ -6,6 +6,7 @@ module Data.LLVM.Private.PlaceholderTypes ( Identifier(..)
                                           , ArithFlag(..)
                                           , voidInst
                                           , namedInst
+                                          , maybeNamedInst
                                           , valueRef
                                           ) where
 
@@ -24,9 +25,9 @@ data Identifier = LocalIdentifier ByteString
                   deriving (Show, Eq)
 
 data Instruction = Instruction { instName :: Maybe Identifier
-                   , instType :: Type
-                   , instContent :: InstructionT
-                   }
+                               , instType :: Type
+                               , instContent :: InstructionT
+                               }
            deriving (Show)
 
 voidInst :: InstructionT -> Instruction
@@ -35,17 +36,17 @@ voidInst v = Instruction { instName = Nothing
                          , instContent = v
                          }
 
--- constInst :: Type -> ConstantT -> Value
--- constInst t v = Value { valueName = Nothing
---                        , valueType = t
---                        , valueContent = ConstantValue v
---                        }
-
 namedInst :: Identifier -> Type -> InstructionT -> Instruction
 namedInst i t v = Instruction { instName = Just i
-                         , instType = t
-                         , instContent = v
-                         }
+                              , instType = t
+                              , instContent = v
+                              }
+
+maybeNamedInst :: Maybe Identifier -> Type -> InstructionT -> Instruction
+maybeNamedInst i t v = Instruction { instName = i
+                                   , instType = t
+                                   , instContent = v
+                                   }
 
 data Constant = ConstValue ConstantT Type
               | ValueRef Identifier
@@ -107,6 +108,14 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
             | FCmpInst FCmpCondition Constant Constant
             | PhiNode [(Constant, Identifier)]
             | SelectInst Constant Constant Constant
+            | CallInst { callIsTail :: Bool
+                       , callConvention :: CallingConvention
+                       , callParamAttrs :: [ParamAttribute]
+                       , callRetType :: Type
+                       , callFunction :: Constant
+                       , callArguments :: [Constant]
+                       , callAttrs :: [FunctionAttribute]
+                       }
             deriving (Show)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show)

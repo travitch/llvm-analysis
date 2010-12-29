@@ -13,7 +13,7 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkSelectInst
                                              , mkFlaggedArithInst
                                              , mkArithInst
-                                             -- , mkCallInst
+                                             , mkCallInst
                                              ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -121,10 +121,18 @@ mkSelectInst ident selty sel t1 v1 t2 v2 = do
     else mk'
   where mk' = return $ namedInst ident t1 $ SelectInst (sel selty) (v1 t1) (v2 t2)
 
--- bleh all values should probably get an optional name
--- mkCallInst :: (Monad m) => Maybe Identifier -> Bool -> CallingConvention -> [ParamAttribute] -> Type -> Maybe Type -> Value -> [Value] -> [FunctionAttribute] -> m Value
--- mkCallInst mident isTail cc pattrs rtype mftype func params funcAttrs =
---   case mident of
---     Just ident -> return Value { valueName = ident
---                                , valueType = rtype
---                                , valueContent = Call
+mkCallInst :: (Monad m) => Maybe Identifier -> Bool -> CallingConvention -> [ParamAttribute] -> Type -> Maybe Type -> PartialConstant -> [Constant] -> [FunctionAttribute] -> m Instruction
+mkCallInst mident isTail cc pattrs rtype mftype func params funcAttrs =
+  return $ maybeNamedInst mident rtype i
+  where i = CallInst { callIsTail = isTail
+                     , callConvention = cc
+                     , callParamAttrs = pattrs
+                     , callRetType = rtype
+                     , callFunction = realFunc
+                     , callArguments = params
+                     , callAttrs = funcAttrs
+                     }
+        realFunc = case (func rtype, mftype) of
+          (ValueRef _, _) -> func rtype
+          (_, Just t) -> func t
+          _ -> error "Should not have a constant function without full functype"

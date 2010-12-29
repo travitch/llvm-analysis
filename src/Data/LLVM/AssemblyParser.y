@@ -456,10 +456,8 @@ Instruction:
     {% mkPhiNode $1 $4 $5 }
   | Identifier "=" "select" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
     {% mkSelectInst $1 $4 $5 $7 $8 $10 $11 }
-
-
---  | optional(CallIdentifier) TailMarker "call" CallingConvention list(ParameterAttribute) Type optional(Type) Value "(" sep(Value, ",") ")" list(FunctionAttribute)
---    {% mkCallInst $1 $2 $4 $5 $6 $7 $8 $10 $12 }
+  | optional(CallIdentifier) TailMarker "call" CallingConvention list(ParameterAttribute) Type optional(Type) PartialConstant "(" sep(Constant, ",") ")" list(FunctionAttribute)
+    {% mkCallInst $1 $2 $4 $5 $6 $7 $8 $10 $12 }
 
 CallIdentifier:
   Identifier "=" { $1 }
