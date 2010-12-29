@@ -15,6 +15,9 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkArithInst
                                              , mkCallInst
                                              , mkInvokeInst
+                                             , mkVaArgInst
+                                             , mkExtractValueInst
+                                             , mkGetElementPtrInst
                                              ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -52,6 +55,12 @@ mkShuffleVectorInst name t1 val1 t2 val2 t3 mask
 mkInsertValueInst :: Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Integer -> Instruction
 mkInsertValueInst name t1 v1 t2 v2 idx =
   namedInst name t1 $ InsertValueInst (v1 t1) (v2 t2) idx
+
+mkExtractValueInst :: (Monad m) => Identifier -> Type -> PartialConstant -> [Integer] -> m Instruction
+mkExtractValueInst ident inType val indices =
+  return UnresolvedInst { unresInstName = Just ident
+                        , unresInstContent = ExtractValueInst (val inType) indices
+                        }
 
 mkAllocaInst :: Identifier -> Type -> Constant -> Integer -> Instruction
 mkAllocaInst name ty num align =
@@ -151,3 +160,14 @@ mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
         realFunc = case func rtype of
           ValueRef _ -> func rtype
           _ -> error "Cannot invoke anything besides a named constant..."
+
+-- Ident, va_arg type, the va_list arg, the type being extracted
+mkVaArgInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> m Instruction
+mkVaArgInst ident ty1 val ty2 =
+  return $ namedInst ident ty2 $ VaArgInst (val ty1) ty2
+
+mkGetElementPtrInst :: (Monad m) => Identifier -> Bool -> Type -> PartialConstant -> [Constant] -> m Instruction
+mkGetElementPtrInst ident inBounds ty val indices =
+  return UnresolvedInst { unresInstName = Just ident
+                        , unresInstContent = GetElementPtrInst inBounds (val ty) indices
+                        }

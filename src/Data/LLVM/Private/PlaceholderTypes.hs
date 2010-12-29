@@ -29,6 +29,13 @@ data Instruction = Instruction { instName :: Maybe Identifier
                                , instType :: Type
                                , instContent :: InstructionT
                                }
+                   -- This variant is used if we can't build the type
+                   -- yet.  It can be resolved after everything is
+                   -- made properly referential.  This is useful for
+                   -- getelementptr and extractvalue.
+                 | UnresolvedInst { unresInstName :: Maybe Identifier
+                                  , unresInstContent :: InstructionT
+                                  }
            deriving (Show)
 
 type PartialConstant = Type -> Constant
@@ -67,7 +74,6 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
             | BranchInst Constant ByteString ByteString
             | SwitchInst Constant ByteString [(Constant, ByteString)]
             | IndirectBranchInst Constant [Constant]
-              -- InvokeInst
             | UnwindInst
             | UnreachableInst
             | AddInst [ArithFlag] Constant Constant
@@ -84,7 +90,7 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
             | ExtractElementInst Constant Constant
             | InsertElementInst Constant Constant Constant
             | ShuffleVectorInst Constant Constant Constant
-              -- FIXME: extractvalue
+            | ExtractValueInst Constant [Integer]
             | InsertValueInst Constant Constant Integer
             | AllocaInst Type Constant Integer -- Type, NumElems, align
             | LoadInst Bool Constant Integer -- Volatile? Type Dest align
@@ -105,6 +111,7 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
             | FCmpInst FCmpCondition Constant Constant
             | PhiNode [(Constant, Identifier)]
             | SelectInst Constant Constant Constant
+            | GetElementPtrInst Bool Constant [Constant]
             | CallInst { callIsTail :: Bool
                        , callConvention :: CallingConvention
                        , callParamAttrs :: [ParamAttribute]
@@ -122,6 +129,7 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
                          , invokeNormalLabel :: Constant
                          , invokeUnwindLabel :: Constant
                          }
+            | VaArgInst Constant Type
             deriving (Show)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show)

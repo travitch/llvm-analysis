@@ -412,7 +412,8 @@ Instruction:
     { mkInsertElementInst $1 $4 $5 $7 $9 }
   | Identifier "=" "shufflevector" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
     {% mkShuffleVectorInst $1 $4 $5 $7 $8 $10 $11 }
-  -- FIXME: extractvalue
+  | Identifier "=" "extractvalue" Type PartialConstant "," intlit list(ExtraIntLitIndex)
+    {% mkExtractValueInst $1 $4 $5 ($7 : $8) }
   | Identifier "=" "insertvalue" Type PartialConstant "," Type PartialConstant "," intlit
     { mkInsertValueInst $1 $4 $5 $7 $8 $10 }
   | Identifier "=" "alloca" Type AllocaNumElems AlignmentSpec
@@ -424,7 +425,8 @@ Instruction:
   -- FIXME: There is also an optional nontemporal thing
   | VolatileFlag "store" Type PartialConstant "," Type PartialConstant AlignmentSpec
     {% mkStoreInst $1 $3 $4 $6 $7 $8 }
-  -- FIXME: Add GetElementPtr
+  | Identifier "=" "getelementptr" InBounds Type PartialConstant "," sep1(Constant, ",")
+    {% mkGetElementPtrInst $1 $4 $5 $6 $8 }
   | Identifier "=" "trunc" Constant "to" Type
     {% mkConversionInst TruncInst $1 $4 $6 }
   | Identifier "=" "zext" Constant "to" Type
@@ -459,6 +461,15 @@ Instruction:
     {% mkSelectInst $1 $4 $5 $7 $8 $10 $11 }
   | optional(CallIdentifier) TailMarker "call" CallingConvention list(ParameterAttribute) Type optional(Type) PartialConstant "(" sep(Constant, ",") ")" list(FunctionAttribute)
     {% mkCallInst $1 $2 $4 $5 $6 $7 $8 $10 $12 }
+  | Identifier "=" "va_arg" Type PartialConstant "," Type
+    {% mkVaArgInst $1 $4 $5 $7 }
+
+InBounds:
+    "inbounds" { True  }
+  |            { False }
+
+ExtraIntLitIndex:
+  "," intlit { $2 }
 
 CallIdentifier:
   Identifier "=" { $1 }
