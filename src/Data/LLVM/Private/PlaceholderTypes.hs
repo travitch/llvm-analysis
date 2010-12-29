@@ -4,6 +4,8 @@ module Data.LLVM.Private.PlaceholderTypes ( Identifier(..)
                                           , Constant(..)
                                           , ConstantT(..)
                                           , ArithFlag(..)
+                                          , ExternalDecl(..)
+                                          , NamedType(..)
                                           , PartialConstant
                                           , voidInst
                                           , namedInst
@@ -133,6 +135,11 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
             deriving (Show)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show)
+data ExternalDecl = ExternalDecl Type Identifier
+                    deriving (Show, Eq)
+
+data NamedType = NamedType Identifier Type
+                 deriving (Show, Eq)
 
 -- FIXME: Convert the second ident to a Value (basic blocks are values)
 data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -- to be resolved into something useful later

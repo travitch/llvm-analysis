@@ -143,6 +143,7 @@ import Data.Monoid
   "inbounds"     { TInbounds }
   "global"       { TGlobal }
   "tail"         { TTail }
+  "triple"       { TTriple }
 
   "nuw"          { TNUW }
   "nsw"          { TNSW }
@@ -258,11 +259,15 @@ VisibilityStyle:
   | "hidden"    { VisibilityHidden }
   | "protected" { VisibilityProtected }
 
+GlobalIdentifier:
+  gident { GlobalIdentifier $1 }
+
+LocalIdentifier:
+  lident { LocalIdentifier $1 }
 
 Identifier:
-    gident { GlobalIdentifier $1 }
-  | lident { LocalIdentifier $1 }
-
+    LocalIdentifier { $1 }
+  | GlobalIdentifier { $1 }
 
 ParameterAttribute:
     "zeroext"   { PAZeroExt }
@@ -304,6 +309,9 @@ ModuleInlineAssembly:
 DataLayout:
   "target" "datalayout" "=" string newline { mkDataLayout $4 }
 
+Triple:
+  "target" "triple" "=" string newline { mkTriple $4 }
+
 Type:
     iN          { TypeInteger $1 }
   | "float"     { TypeFloat }
@@ -320,7 +328,8 @@ Type:
   | Type "*"    { TypePointer $1 } -- FIXME: Add support for address space annotations
   | "[" intlit "x" Type "]" { TypeArray $2 $4 }
   | "<" intlit "x" Type ">" { TypeVector $2 $4 }
-  | Type "(" FuncTypeArgList ")" { TypeFunction $1 (fst $3) (snd $3) }
+--Might need to fix this to actually have attributes in the type
+  | Type "(" FuncTypeArgList ")" { TypeFunction $1 (fst $3) (snd $3) [] }
   | "{" sep(Type, ",") "}" { TypeStruct $2 }
   | "<" "{" sep(Type, ",") "}" ">" { TypePackedStruct $3 }
 
@@ -337,6 +346,28 @@ MoreFuncTypeArgs:
   | "," "..."                 { ([], True) }
   |                           { ([], False) }
 
+TypeDeclaration:
+  LocalIdentifier "=" "type" Type { NamedType $1 $4 }
+
+ExternalDecl:
+    "declare" Type GlobalIdentifier "(" FuncTypeArgList ")" list(FunctionAttribute)
+    { mkExternalFuncDecl $2 $3 $5 $7 }
+  | "declare" Type GlobalIdentifier
+    { ExternalDecl $2 $3 }
+
+AddrSpace:
+    addrspace { $1 }
+  |           { 0 }
+
+ConstantAnnot:
+    "constant" { True }
+  |            { False }
+
+--GlobalDecl:
+--  GlobalIdentifier "=" AddrSpace ConstantAnnot
+
+-- FIXME: Need the constant instructions
+
 SimpleConstant:
     "true"     { ConstantInt 1 }
   | "false"    { ConstantInt 0 }
@@ -344,6 +375,7 @@ SimpleConstant:
   | floatlit   { ConstantFP $1 }
   | "null"     { ConstantPointerNull }
   -- | Identifier { ConstantIdentifier $1 }
+
 
 ComplexConstant:
     "{" sep(Constant, ",") "}"   { ConstantStruct $2 }
@@ -384,84 +416,84 @@ Instruction:
     {% mkInvokeInst $1 $3 $4 $5 $6 $8 $10 $12 $14 }
   | "unwind" { voidInst UnwindInst }
   | "unreachable" { voidInst UnreachableInst }
-  | Identifier "=" AddInst list(ArithFlag) Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" AddInst list(ArithFlag) Type PartialConstant "," PartialConstant
     {% mkFlaggedArithInst AddInst $1 $5 $4 $6 $8 }
-  | Identifier "=" SubInst list(ArithFlag) Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" SubInst list(ArithFlag) Type PartialConstant "," PartialConstant
     {% mkFlaggedArithInst SubInst $1 $5 $4 $6 $8 }
-  | Identifier "=" MulInst list(ArithFlag) Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" MulInst list(ArithFlag) Type PartialConstant "," PartialConstant
     {% mkFlaggedArithInst MulInst $1 $5 $4 $6 $8 }
-  | Identifier "=" DivInst Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" DivInst Type PartialConstant "," PartialConstant
     {% mkArithInst DivInst $1 $4 $5 $7 }
-  | Identifier "=" RemInst Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" RemInst Type PartialConstant "," PartialConstant
     {% mkArithInst RemInst $1 $4 $5 $7 }
-  | Identifier "=" "shl"  Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" "shl"  Type PartialConstant "," PartialConstant
     {% mkArithInst ShlInst $1 $4 $5 $7 }
-  | Identifier "=" "lshr" Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" "lshr" Type PartialConstant "," PartialConstant
     {% mkArithInst LshrInst $1 $4 $5 $7 }
-  | Identifier "=" "ashr" Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" "ashr" Type PartialConstant "," PartialConstant
     {% mkArithInst AshrInst $1 $4 $5 $7 }
-  | Identifier "=" "and"  Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" "and"  Type PartialConstant "," PartialConstant
     {% mkArithInst AndInst $1 $4 $5 $7 }
-  | Identifier "=" "or"   Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" "or"   Type PartialConstant "," PartialConstant
     {% mkArithInst OrInst $1 $4 $5 $7 }
-  | Identifier "=" "xor"  Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" "xor"  Type PartialConstant "," PartialConstant
     {% mkArithInst XorInst $1 $4 $5 $7 }
-  | Identifier "=" "extractelement" Type PartialConstant "," Constant
+  | LocalIdentifier "=" "extractelement" Type PartialConstant "," Constant
     {% mkExtractElementInst $1 $4 $5 $7 }
-  | Identifier "=" "insertelement" Type PartialConstant "," Constant "," Constant
+  | LocalIdentifier "=" "insertelement" Type PartialConstant "," Constant "," Constant
     { mkInsertElementInst $1 $4 $5 $7 $9 }
-  | Identifier "=" "shufflevector" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
+  | LocalIdentifier "=" "shufflevector" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
     {% mkShuffleVectorInst $1 $4 $5 $7 $8 $10 $11 }
-  | Identifier "=" "extractvalue" Type PartialConstant "," intlit list(ExtraIntLitIndex)
+  | LocalIdentifier "=" "extractvalue" Type PartialConstant "," intlit list(ExtraIntLitIndex)
     {% mkExtractValueInst $1 $4 $5 ($7 : $8) }
-  | Identifier "=" "insertvalue" Type PartialConstant "," Type PartialConstant "," intlit
+  | LocalIdentifier "=" "insertvalue" Type PartialConstant "," Type PartialConstant "," intlit
     { mkInsertValueInst $1 $4 $5 $7 $8 $10 }
-  | Identifier "=" "alloca" Type AllocaNumElems AlignmentSpec
+  | LocalIdentifier "=" "alloca" Type AllocaNumElems AlignmentSpec
     { mkAllocaInst $1 $4 $5 $6 }
   -- FIXME: Add support for the !nontemporal metadata thing
-  | Identifier "=" VolatileFlag "load" Type PartialConstant AlignmentSpec
+  | LocalIdentifier "=" VolatileFlag "load" Type PartialConstant AlignmentSpec
     { mkLoadInst $1 $3 $5 $6 $7 }
   -- FIXME: Add support for !<index> = !{ <ty> <val> } form
   -- FIXME: There is also an optional nontemporal thing
   | VolatileFlag "store" Type PartialConstant "," Type PartialConstant AlignmentSpec
     {% mkStoreInst $1 $3 $4 $6 $7 $8 }
-  | Identifier "=" "getelementptr" InBounds Type PartialConstant "," sep1(Constant, ",")
+  | LocalIdentifier "=" "getelementptr" InBounds Type PartialConstant "," sep1(Constant, ",")
     {% mkGetElementPtrInst $1 $4 $5 $6 $8 }
-  | Identifier "=" "trunc" Constant "to" Type
+  | LocalIdentifier "=" "trunc" Constant "to" Type
     {% mkConversionInst TruncInst $1 $4 $6 }
-  | Identifier "=" "zext" Constant "to" Type
+  | LocalIdentifier "=" "zext" Constant "to" Type
     {% mkConversionInst ZExtInst $1 $4 $6 }
-  | Identifier "=" "sext" Constant "to" Type
+  | LocalIdentifier "=" "sext" Constant "to" Type
     {% mkConversionInst SExtInst $1 $4 $6 }
-  | Identifier "=" "fptrunc" Constant "to" Type
+  | LocalIdentifier "=" "fptrunc" Constant "to" Type
     {% mkConversionInst FPTruncInst $1 $4 $6 }
-  | Identifier "=" "fpext" Constant "to" Type
+  | LocalIdentifier "=" "fpext" Constant "to" Type
     {% mkConversionInst FPExtInst $1 $4 $6 }
-  | Identifier "=" "fptoui" Constant "to" Type
+  | LocalIdentifier "=" "fptoui" Constant "to" Type
     {% mkConversionInst FPToUIInst $1 $4 $6 }
-  | Identifier "=" "fptosi" Constant "to" Type
+  | LocalIdentifier "=" "fptosi" Constant "to" Type
     {% mkConversionInst FPToSIInst $1 $4 $6 }
-  | Identifier "=" "uitofp" Constant "to" Type
+  | LocalIdentifier "=" "uitofp" Constant "to" Type
     {% mkConversionInst UIToFPInst $1 $4 $6 }
-  | Identifier "=" "sitofp" Constant "to" Type
+  | LocalIdentifier "=" "sitofp" Constant "to" Type
     {% mkConversionInst SIToFPInst $1 $4 $6 }
-  | Identifier "=" "ptrtoint" Constant "to" Type
+  | LocalIdentifier "=" "ptrtoint" Constant "to" Type
     {% mkConversionInst PtrToIntInst $1 $4 $6 }
-  | Identifier "=" "inttoptr" Constant "to" Type
+  | LocalIdentifier "=" "inttoptr" Constant "to" Type
     {% mkConversionInst IntToPtrInst $1 $4 $6 }
-  | Identifier "=" "bitcast" Constant "to" Type
+  | LocalIdentifier "=" "bitcast" Constant "to" Type
     {% mkConversionInst BitcastInst $1 $4 $6 }
-  | Identifier "=" "icmp" ICmpCondition Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" "icmp" ICmpCondition Type PartialConstant "," PartialConstant
     {% mkIcmpInst $1 $4 $5 $6 $8 }
-  | Identifier "=" "fcmp" FCmpCondition Type PartialConstant "," PartialConstant
+  | LocalIdentifier "=" "fcmp" FCmpCondition Type PartialConstant "," PartialConstant
     {% mkFcmpInst $1 $4 $5 $6 $8 }
-  | Identifier "=" "phi" Type sep1(PhiPair, ",")
+  | LocalIdentifier "=" "phi" Type sep1(PhiPair, ",")
     {% mkPhiNode $1 $4 $5 }
-  | Identifier "=" "select" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
+  | LocalIdentifier "=" "select" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
     {% mkSelectInst $1 $4 $5 $7 $8 $10 $11 }
   | optional(CallIdentifier) TailMarker "call" CallingConvention list(ParameterAttribute) Type optional(Type) PartialConstant "(" sep(Constant, ",") ")" list(FunctionAttribute)
     {% mkCallInst $1 $2 $4 $5 $6 $7 $8 $10 $12 }
-  | Identifier "=" "va_arg" Type PartialConstant "," Type
+  | LocalIdentifier "=" "va_arg" Type PartialConstant "," Type
     {% mkVaArgInst $1 $4 $5 $7 }
 
 InBounds:
@@ -472,15 +504,14 @@ ExtraIntLitIndex:
   "," intlit { $2 }
 
 CallIdentifier:
-  Identifier "=" { $1 }
+  LocalIdentifier "=" { $1 }
 
 TailMarker:
     "tail" { True }
   |        { False }
 
--- Actually, just a local identifier...
 PhiPair:
-  PartialConstant "," Identifier { ($1, $3) }
+  PartialConstant "," LocalIdentifier { ($1, $3) }
 
 ICmpCondition:
     "eq"  { ICmpEq }

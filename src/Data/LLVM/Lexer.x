@@ -184,6 +184,7 @@ tokens :-
   "exact"      { const TExact }
   "volatile"   { const TVolatile }
   "tail"       { const TTail }
+  "triple"     { const TTriple }
 
   -- Instructions
   "trunc"          { const TTrunc }
@@ -387,6 +388,7 @@ data Token = TIntLit Integer
            | TInbounds
            | TGlobal
            | TTail
+           | TTriple
 
            -- Add modifiers
            | TNUW

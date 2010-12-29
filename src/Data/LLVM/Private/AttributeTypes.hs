@@ -5,6 +5,7 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , FunctionAttribute(..)
                                         , Endian(..)
                                         , DataLayout(..)
+                                        , TargetTriple(..)
                                         , AlignSpec(..)
                                         , defaultDataLayout
                                         , Type(..)
@@ -85,6 +86,9 @@ data Endian = EBig
 data AlignSpec = AlignSpec Int Int
                  deriving (Show, Eq)
 
+data TargetTriple = TargetTriple ByteString
+                    deriving (Show, Eq)
+
 data DataLayout = DataLayout { endianness :: Endian
                              , pointerAlign :: (Int, AlignSpec)
                              , intAlign :: Map Int AlignSpec
@@ -128,7 +132,7 @@ data Type = TypeInteger Int -- bits
           | TypeMetadata
           | TypeArray Integer Type
           | TypeVector Integer Type
-          | TypeFunction Type [Type] Bool -- Return type, arg types, vararg
+          | TypeFunction Type [Type] Bool [FunctionAttribute] -- Return type, arg types, vararg
           | TypeOpaque
           | TypePointer Type -- (Maybe Int) -- Address Space
           | TypeStruct [Type]

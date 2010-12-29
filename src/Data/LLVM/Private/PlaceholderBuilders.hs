@@ -1,6 +1,7 @@
 module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkInsertElementInst
                                              , mkDataLayout
+                                             , mkTriple
                                              , mkShuffleVectorInst
                                              , mkInsertValueInst
                                              , mkAllocaInst
@@ -18,6 +19,7 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkVaArgInst
                                              , mkExtractValueInst
                                              , mkGetElementPtrInst
+                                             , mkExternalFuncDecl
                                              ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -39,6 +41,9 @@ mkInsertElementInst name tyr val sclr idx =
 -- old attoparsec-based parser
 mkDataLayout :: a -> DataLayout
 mkDataLayout s = defaultDataLayout
+
+mkTriple :: ByteString -> TargetTriple
+mkTriple = TargetTriple
 
 mkShuffleVectorInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Type -> PartialConstant -> m Instruction
 mkShuffleVectorInst name t1 val1 t2 val2 t3 mask
@@ -171,3 +176,7 @@ mkGetElementPtrInst ident inBounds ty val indices =
   return UnresolvedInst { unresInstName = Just ident
                         , unresInstContent = GetElementPtrInst inBounds (val ty) indices
                         }
+
+mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) -> [FunctionAttribute] -> ExternalDecl
+mkExternalFuncDecl retType ident (argTypes, isVararg) attrs = ExternalDecl t ident
+  where t = TypeFunction retType argTypes isVararg attrs
