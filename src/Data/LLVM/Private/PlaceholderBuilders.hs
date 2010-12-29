@@ -14,6 +14,7 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkFlaggedArithInst
                                              , mkArithInst
                                              , mkCallInst
+                                             , mkInvokeInst
                                              ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -134,3 +135,19 @@ mkCallInst mident isTail cc pattrs rtype mftype func params funcAttrs =
           (ValueRef _, _) -> func rtype
           (_, Just t) -> func t
           _ -> error "Should not have a constant function without full functype"
+
+mkInvokeInst :: (Monad m) => Maybe Identifier -> CallingConvention -> [ParamAttribute] -> Type -> PartialConstant -> [Constant] -> [FunctionAttribute] -> Constant -> Constant -> m Instruction
+mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
+  return $ maybeNamedInst mident rtype i
+  where i = InvokeInst { invokeConvention = cc
+                       , invokeParamAttrs = pattrs
+                       , invokeRetType = rtype
+                       , invokeFunction = realFunc
+                       , invokeArguments = params
+                       , invokeAttrs = fattrs
+                       , invokeNormalLabel = normal
+                       , invokeUnwindLabel = unwind
+                       }
+        realFunc = case func rtype of
+          ValueRef _ -> func rtype
+          _ -> error "Cannot invoke anything besides a named constant..."

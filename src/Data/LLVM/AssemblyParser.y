@@ -380,7 +380,8 @@ Instruction:
     { voidInst $ SwitchInst ($3 $2) $6 $8 }
   | "indirectbr" Type PartialConstant "," "[" sep(LabelVal, ",") "]"
     { voidInst $ IndirectBranchInst ($3 $2) $6 }
-  -- FIXME: "invoke"
+  | optional(CallIdentifier) "invoke" CallingConvention list(ParameterAttribute) Type PartialConstant "(" sep(Constant, ",") ")" list(FunctionAttribute) "to" Constant "unwind" Constant
+    {% mkInvokeInst $1 $3 $4 $5 $6 $8 $10 $12 $14 }
   | "unwind" { voidInst UnwindInst }
   | "unreachable" { voidInst UnreachableInst }
   | Identifier "=" AddInst list(ArithFlag) Type PartialConstant "," PartialConstant

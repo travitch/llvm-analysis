@@ -113,6 +113,15 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
                        , callArguments :: [Constant]
                        , callAttrs :: [FunctionAttribute]
                        }
+            | InvokeInst { invokeConvention :: CallingConvention
+                         , invokeParamAttrs :: [ParamAttribute]
+                         , invokeRetType :: Type
+                         , invokeFunction :: Constant
+                         , invokeArguments :: [Constant]
+                         , invokeAttrs :: [FunctionAttribute]
+                         , invokeNormalLabel :: Constant
+                         , invokeUnwindLabel :: Constant
+                         }
             deriving (Show)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show)
