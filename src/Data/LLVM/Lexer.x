@@ -183,6 +183,7 @@ tokens :-
   "nsw"        { const TNSW }
   "exact"      { const TExact }
   "volatile"   { const TVolatile }
+  "tail"       { const TTail }
 
   -- Instructions
   "trunc"          { const TTrunc }
@@ -385,6 +386,7 @@ data Token = TIntLit Integer
            | TBlockAddress
            | TInbounds
            | TGlobal
+           | TTail
 
            -- Add modifiers
            | TNUW

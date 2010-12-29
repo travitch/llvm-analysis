@@ -1,9 +1,12 @@
 module Data.LLVM.Private.PlaceholderTypes ( Identifier(..)
-                                          , Value(..)
-                                          , ValueT(..)
+                                          , Instruction(..)
+                                          , InstructionT(..)
+                                          , Constant(..)
                                           , ConstantT(..)
-                                          , TypedValue(..)
                                           , ArithFlag(..)
+                                          , voidInst
+                                          , namedInst
+                                          , valueRef
                                           ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -17,71 +20,93 @@ import Data.LLVM.Private.AttributeTypes
 
 data Identifier = LocalIdentifier ByteString
                 | GlobalIdentifier ByteString
+                | DebugIdentifier ByteString
                   deriving (Show, Eq)
 
-data Value = Value { valueName :: Identifier
-                   , valueType :: Type
-                   , valueContent :: ValueT
+data Instruction = Instruction { instName :: Maybe Identifier
+                   , instType :: Type
+                   , instContent :: InstructionT
                    }
-           | UnnamedValue ValueT
-           | ConstantValue ConstantT
-             -- { constantType :: Type
-             --               , constantContent :: ConstantT
-             --               }
            deriving (Show)
 
-data TypedValue = TypedValue Type Value
-                deriving (Show)
+voidInst :: InstructionT -> Instruction
+voidInst v = Instruction { instName = Nothing
+                         , instType = TypeVoid
+                         , instContent = v
+                         }
+
+-- constInst :: Type -> ConstantT -> Value
+-- constInst t v = Value { valueName = Nothing
+--                        , valueType = t
+--                        , valueContent = ConstantValue v
+--                        }
+
+namedInst :: Identifier -> Type -> InstructionT -> Instruction
+namedInst i t v = Instruction { instName = Just i
+                         , instType = t
+                         , instContent = v
+                         }
+
+data Constant = ConstValue ConstantT Type
+              | ValueRef Identifier
+              deriving (Show)
+
+valueRef ident = const (ValueRef ident)
+
+-- data TypedValue = TypedValue Type Value
+--                 deriving (Show)
+
 -- The first group of value types are unusual and are *not* "users".
 -- This distinction is not particularly important for my purposes,
 -- though, so I'm just giving all values a list of operands (which
 -- will be empty for these things)
-data ValueT = Argument [ParamAttribute]
-            | BasicBlock ByteString [Value] -- Label, really instructions, which are values
-            | InlineAsm ByteString ByteString -- ASM String, Constraint String; can parse constraints still
-            | RetInst (Maybe TypedValue)
+-- data ValueT -- = ConstantValue ConstantT
+            -- | Argument [ParamAttribute]
+            -- | BasicBlock ByteString [Value] -- Label, really instructions, which are values
+data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint String; can parse constraints still
+            | RetInst (Maybe Constant)
             | UnconditionalBranchInst ByteString
-            | BranchInst TypedValue ByteString ByteString
-            | SwitchInst TypedValue ByteString [(TypedValue, ByteString)]
-            | IndirectBranchInst TypedValue [Value]
+            | BranchInst Constant ByteString ByteString
+            | SwitchInst Constant ByteString [(Constant, ByteString)]
+            | IndirectBranchInst Constant [Constant]
               -- InvokeInst
             | UnwindInst
             | UnreachableInst
-            | AddInst [ArithFlag] Value Value
-            | SubInst [ArithFlag] Value Value
-            | MulInst [ArithFlag] Value Value
-            | DivInst Value Value -- Does not encode the exact flag of sdiv.  Convince me to
-            | RemInst Value Value
-            | ShlInst Value Value
-            | LshrInst Value Value
-            | AshrInst Value Value
-            | AndInst Value Value
-            | OrInst Value Value
-            | XorInst Value Value
-            | ExtractElementInst Value Value
-            | InsertElementInst Value Value Value
-            | ShuffleVectorInst Value Value Value
+            | AddInst [ArithFlag] Constant Constant
+            | SubInst [ArithFlag] Constant Constant
+            | MulInst [ArithFlag] Constant Constant
+            | DivInst Constant Constant -- Does not encode the exact flag of sdiv.  Convince me to
+            | RemInst Constant Constant
+            | ShlInst Constant Constant
+            | LshrInst Constant Constant
+            | AshrInst Constant Constant
+            | AndInst Constant Constant
+            | OrInst Constant Constant
+            | XorInst Constant Constant
+            | ExtractElementInst Constant Constant
+            | InsertElementInst Constant Constant Constant
+            | ShuffleVectorInst Constant Constant Constant
               -- FIXME: extractvalue
-            | InsertValueInst Value Value Integer
-            | AllocaInst Type Value Integer -- Type, NumElems, align
-            | LoadInst Bool Type Value Integer -- Volatile? Type Dest align
-            | StoreInst Bool Type Value Integer -- Volatile? Type Dest align
-            | TruncInst Value Type -- The value being truncated, and the type truncted to
-            | ZExtInst Value Type
-            | SExtInst Value Type
-            | FPTruncInst Value Type
-            | FPExtInst Value Type
-            | FPToUIInst Value Type
-            | FPToSIInst Value Type
-            | UIToFPInst Value Type
-            | SIToFPInst Value Type
-            | PtrToIntInst Value Type
-            | IntToPtrInst Value Type
-            | BitcastInst Value Type
-            | ICmpInst ICmpCondition Value Value
-            | FCmpInst FCmpCondition Value Value
-            | PhiNode [(Value, ByteString)]
-            | SelectInst Value Value Value
+            | InsertValueInst Constant Constant Integer
+            | AllocaInst Type Constant Integer -- Type, NumElems, align
+            | LoadInst Bool Type Constant Integer -- Volatile? Type Dest align
+            | StoreInst Bool Type Constant Integer -- Volatile? Type Dest align
+            | TruncInst Constant Type -- The value being truncated, and the type truncted to
+            | ZExtInst Constant Type
+            | SExtInst Constant Type
+            | FPTruncInst Constant Type
+            | FPExtInst Constant Type
+            | FPToUIInst Constant Type
+            | FPToSIInst Constant Type
+            | UIToFPInst Constant Type
+            | SIToFPInst Constant Type
+            | PtrToIntInst Constant Type
+            | IntToPtrInst Constant Type
+            | BitcastInst Constant Type
+            | ICmpInst ICmpCondition Constant Constant
+            | FCmpInst FCmpCondition Constant Constant
+            | PhiNode [(Constant, ByteString)]
+            | SelectInst Constant Constant Constant
             deriving (Show)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show)
@@ -89,18 +114,18 @@ data ArithFlag = AFNSW | AFNUW deriving (Show)
 -- FIXME: Convert the second ident to a Value (basic blocks are values)
 data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -- to be resolved into something useful later
                | ConstantAggregateZero
-               | ConstantArray [TypedValue] -- This should have some parameters but I don't know what
-               | ConstantExpr Value -- change this to something else maybe?  Value should suffice... might even eliminate this one
+               | ConstantArray [Constant] -- This should have some parameters but I don't know what
+               | ConstantExpr Constant -- change this to something else maybe?  Value should suffice... might even eliminate this one
                | ConstantFP Double
                | ConstantInt Integer
                | ConstantPointerNull
-               | ConstantStruct [TypedValue] -- Just a list of other constants
-               | ConstantVector [TypedValue] -- again
+               | ConstantStruct [Constant] -- Just a list of other constants
+               | ConstantVector [Constant] -- again
                | UndefValue
-               | MDNode [Value] -- A list of constants (and other metadata)
+               | MDNode [Constant] -- A list of constants (and other metadata)
                | MDString ByteString
-               | Function [Value] [FunctionAttribute] [ValueT] -- Arguments, function attrs, block list
+--               | Function [Value] [FunctionAttribute] [ValueT] -- Arguments, function attrs, block list
                | GlobalVariable VisibilityStyle LinkageType ByteString
-               | GlobalAlias VisibilityStyle LinkageType ByteString Value -- new name, real var
-               | ConstantIdentifier Identifier -- Wrapper for globals - to be resolved later into a more useful direct references to a GlobalVariable
+--               | GlobalAlias VisibilityStyle LinkageType ByteString Value -- new name, real var
+               -- | ConstantIdentifier Identifier -- Wrapper for globals - to be resolved later into a more useful direct references to a GlobalVariable
                deriving (Show)

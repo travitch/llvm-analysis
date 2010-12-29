@@ -4,6 +4,7 @@ module Data.LLVM.AssemblyParser ( parser
                                 , parseCallingConvention
                                 , parseGCName
                                 , parseType
+                                , parseInstruction
                                 ) where
 
 import Data.LLVM.Lexer
@@ -20,6 +21,7 @@ import Data.Monoid
 %name parseCallingConvention CallingConvention
 %name parseGCName GCName
 %name parseType Type
+%name parseInstruction Instruction
 
 %tokentype { Token }
 %error { parseError }
@@ -140,6 +142,7 @@ import Data.Monoid
   "blockaddress" { TBlockAddress }
   "inbounds"     { TInbounds }
   "global"       { TGlobal }
+  "tail"         { TTail }
 
   "nuw"          { TNUW }
   "nsw"          { TNSW }
@@ -248,7 +251,7 @@ CallingConvention:
   | "coldcc"  { CCColdCC }
   | "ghc"     { CCGHC }
   | ccN       { CCN $1 }
-
+  |           { CCC } -- C calling convention is the default
 
 VisibilityStyle:
     "default"   { VisibilityDefault }
@@ -340,106 +343,132 @@ SimpleConstant:
   | intlit     { ConstantInt $1 }
   | floatlit   { ConstantFP $1 }
   | "null"     { ConstantPointerNull }
-  | Identifier { ConstantIdentifier $1 }
-
-TypedConstant:
-  Type Constant  { TypedValue $1 $2 }
-
-TypedValue:
-  Type Value     { TypedValue $1 $2 }
+  -- | Identifier { ConstantIdentifier $1 }
 
 ComplexConstant:
-    "{" sep(TypedConstant, ",") "}"   { ConstantStruct $2 }
-  | "[" sep(TypedConstant, ",") "]"   { ConstantArray $2 }
-  | "<" sep(TypedConstant, ",") ">"   { ConstantVector $2 }
+    "{" sep(Constant, ",") "}"   { ConstantStruct $2 }
+  | "[" sep(Constant, ",") "]"   { ConstantArray $2 }
+  | "<" sep(Constant, ",") ">"   { ConstantVector $2 }
   | "zeroinitializer"                 { ConstantAggregateZero }
   | "undef"                           { UndefValue }
   | "blockaddress" "(" Identifier "," Identifier ")" { BlockAddress $3 $5 }
 
 Constant:
-    SimpleConstant   { ConstantValue $1 }
-  | ComplexConstant  { ConstantValue $1 }
+  Type PartialConstant { $2 $1 }
 
+AllConstants:
+    SimpleConstant  { $1 }
+  | ComplexConstant { $1 }
 
-Value:
-    Constant    { $1 }
-  | Instruction { $1 }
-
+-- These "constants" are actually partial - they need to be applied to a type
+-- before they are actually constants.
+PartialConstant:
+    AllConstants { ConstValue $1 }
+  | Identifier   { valueRef $1 }
 
 -- FIXME: Inline asm
 -- FIXME: Handle metadata
 
 Instruction:
-    "ret" Type Value  { UnnamedValue $ RetInst (Just $ TypedValue $2 $3) }
-  | "ret" "void"      { UnnamedValue $ RetInst Nothing }
-  | "br" "label" label { UnnamedValue $ UnconditionalBranchInst $3 }
-  | "br" TypedValue "," "label" label "," "label" label { UnnamedValue $ BranchInst $2 $5 $8 }
-  | "switch" TypedValue "," "label" label "[" list(SwitchBranch) "]" { UnnamedValue $ SwitchInst $2 $5 $7 }
-  | "indirectbr" TypedValue "," "[" sep(LabelVal, ",") "]" { UnnamedValue $ IndirectBranchInst $2 $5 }
+    "ret" Type PartialConstant  { voidInst $ RetInst (Just ($3 $2)) }
+  | "ret" "void"         { voidInst $ RetInst Nothing }
+  | "br" "label" label   { voidInst $ UnconditionalBranchInst $3 }
+  | "br" Type PartialConstant "," "label" label "," "label" label
+    { voidInst $ BranchInst ($3 $2) $6 $9 }
+  | "switch" Type PartialConstant "," "label" label "[" list(SwitchBranch) "]"
+    { voidInst $ SwitchInst ($3 $2) $6 $8 }
+  | "indirectbr" Type PartialConstant "," "[" sep(LabelVal, ",") "]"
+    { voidInst $ IndirectBranchInst ($3 $2) $6 }
   -- FIXME: "invoke"
-  | "unwind" { UnnamedValue UnwindInst }
-  | "unreachable" { UnnamedValue UnreachableInst }
-  | Identifier "=" AddInst list(ArithFlag) Type Value "," Value { Value { valueName = $1, valueType = $5, valueContent = AddInst $4 $6 $8 } }
-  | Identifier "=" SubInst list(ArithFlag) Type Value "," Value { Value { valueName = $1, valueType = $5, valueContent = SubInst $4 $6 $8 } }
-  | Identifier "=" MulInst list(ArithFlag) Type Value "," Value { Value { valueName = $1, valueType = $5, valueContent = MulInst $4 $6 $8 } }
-  | Identifier "=" DivInst Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = DivInst $5 $7 } }
-  | Identifier "=" RemInst Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = RemInst $5 $7 } }
-  | Identifier "=" "shl"  Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = ShlInst $5 $7 } }
-  | Identifier "=" "lshr" Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = LshrInst $5 $7 } }
-  | Identifier "=" "ashr" Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = AshrInst $5 $7 } }
-  | Identifier "=" "and"  Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = AndInst $5 $7 } }
-  | Identifier "=" "or"   Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = OrInst $5 $7 } }
-  | Identifier "=" "xor"  Type Value "," Value { Value { valueName = $1, valueType = $4, valueContent = XorInst $5 $7 } }
-  | Identifier "=" "extractelement" Type Value "," Type Value {% mkExtractElement $1 $4 $5 $8 }
-  | Identifier "=" "insertelement" Type Value "," Type Value "," Type Value { Value { valueName = $1, valueType = $4, valueContent = InsertElementInst $5 $8 $11 } }
-  | Identifier "=" "shufflevector" Type Value "," Type Value "," Type Value {% mkShuffleVector $1 $4 $5 $8 $10 $11 }
+  | "unwind" { voidInst UnwindInst }
+  | "unreachable" { voidInst UnreachableInst }
+  | Identifier "=" AddInst list(ArithFlag) Type PartialConstant "," PartialConstant
+    {% mkFlaggedArithInst AddInst $1 $5 $4 $6 $8 }
+  | Identifier "=" SubInst list(ArithFlag) Type PartialConstant "," PartialConstant
+    {% mkFlaggedArithInst SubInst $1 $5 $4 $6 $8 }
+  | Identifier "=" MulInst list(ArithFlag) Type PartialConstant "," PartialConstant
+    {% mkFlaggedArithInst MulInst $1 $5 $4 $6 $8 }
+  | Identifier "=" DivInst Type PartialConstant "," PartialConstant
+    {% mkArithInst DivInst $1 $4 $5 $7 }
+  | Identifier "=" RemInst Type PartialConstant "," PartialConstant
+    {% mkArithInst RemInst $1 $4 $5 $7 }
+  | Identifier "=" "shl"  Type PartialConstant "," PartialConstant
+    {% mkArithInst ShlInst $1 $4 $5 $7 }
+  | Identifier "=" "lshr" Type PartialConstant "," PartialConstant
+    {% mkArithInst LshrInst $1 $4 $5 $7 }
+  | Identifier "=" "ashr" Type PartialConstant "," PartialConstant
+    {% mkArithInst AshrInst $1 $4 $5 $7 }
+  | Identifier "=" "and"  Type PartialConstant "," PartialConstant
+    {% mkArithInst AndInst $1 $4 $5 $7 }
+  | Identifier "=" "or"   Type PartialConstant "," PartialConstant
+    {% mkArithInst OrInst $1 $4 $5 $7 }
+  | Identifier "=" "xor"  Type PartialConstant "," PartialConstant
+    {% mkArithInst XorInst $1 $4 $5 $7 }
+  | Identifier "=" "extractelement" Type PartialConstant "," Constant
+    {% mkExtractElementInst $1 $4 $5 $7 }
+  | Identifier "=" "insertelement" Type PartialConstant "," Constant "," Constant
+    { mkInsertElementInst $1 $4 $5 $7 $9 }
+  | Identifier "=" "shufflevector" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
+    {% mkShuffleVectorInst $1 $4 $5 $7 $8 $10 $11 }
   -- FIXME: extractvalue
-  | Identifier "=" "insertvalue" Type Value "," Type Value "," intlit { Value { valueName = $1, valueType = $4, valueContent = InsertValueInst $5 $8 $10 } }
-  | Identifier "=" "alloca" Type AllocaNumElems AlignmentSpec { Value { valueName = $1, valueType = (TypePointer $4), valueContent = AllocaInst $4 $5 $6 } }
+  | Identifier "=" "insertvalue" Type PartialConstant "," Type PartialConstant "," intlit
+    { mkInsertValueInst $1 $4 $5 $7 $8 $10 }
+  | Identifier "=" "alloca" Type AllocaNumElems AlignmentSpec
+    { mkAllocaInst $1 $4 $5 $6 }
   -- FIXME: Add support for the !nontemporal metadata thing
-  | Identifier "=" VolatileFlag "load" Type Value AlignmentSpec
-    {% mkLoadInst $1 $3 $5 $6 $7 }
-  -- FIXME: Add support for !<index> = !{ <ty> <val> } form
-  -- FIXME: There is also an optional nontemporal thing
-  | VolatileFlag "store" Type Value "," Type Identifier AlignmentSpec
-    {% mkStoreInst $1 $4 $6 $7 $8 }
-  -- FIXME: Add GetElementPtr
-  | Identifier "=" "trunc" Type Value "to" Type
-    {% mkConversionInst TruncInst $1 $4 $5 $7 }
-  | Identifier "=" "zext" Type Value "to" Type
-    {% mkConversionInst ZExtInst $1 $4 $5 $7 }
-  | Identifier "=" "sext" Type Value "to" Type
-    {% mkConversionInst SExtInst $1 $4 $5 $7 }
-  | Identifier "=" "fptrunc" Type Value "to" Type
-    {% mkConversionInst FPTruncInst $1 $4 $5 $7 }
-  | Identifier "=" "fpext" Type Value "to" Type
-    {% mkConversionInst FPExtInst $1 $4 $5 $7 }
-  | Identifier "=" "fptoui" Type Value "to" Type
-    {% mkConversionInst FPToUIInst $1 $4 $5 $7 }
-  | Identifier "=" "fptosi" Type Value "to" Type
-    {% mkConversionInst FPToSIInst $1 $4 $5 $7 }
-  | Identifier "=" "uitofp" Type Value "to" Type
-    {% mkConversionInst UIToFPInst $1 $4 $5 $7 }
-  | Identifier "=" "sitofp" Type Value "to" Type
-    {% mkConversionInst SIToFPInst $1 $4 $5 $7 }
-  | Identifier "=" "ptrtoint" Type Value "to" Type
-    {% mkConversionInst PtrToIntInst $1 $4 $5 $7 }
-  | Identifier "=" "inttoptr" Type Value "to" Type
-    {% mkConversionInst IntToPtrInst $1 $4 $5 $7 }
-  | Identifier "=" "bitcast" Type Value "to" Type
-    {% mkConversionInst BitcastInst $1 $4 $5 $7 }
-  | Identifier "=" "icmp" ICmpCondition Type Value "," Value
-    {% mkIcmpInst $1 $4 $5 $6 $8 }
-  | Identifier "=" "fcmp" FCmpCondition Type Value "," Value
-    {% mkFcmpInst $1 $4 $5 $6 $8 }
-  | Identifier "=" "phi" Type sep1(PhiPair, ",")
-    {% mkPhiNode $1 $4 $5 }
-  | Identifier "=" "select" Type Value "," Type Value "," Type Value
-    {% mkSelectInst $1 $4 $5 $7 $8 $10 $11 }
+  | Identifier "=" VolatileFlag "load" Type PartialConstant AlignmentSpec
+    { mkLoadInst $1 $3 $5 $6 $7 }
+  -- -- FIXME: Add support for !<index> = !{ <ty> <val> } form
+  -- -- FIXME: There is also an optional nontemporal thing
+  -- | VolatileFlag "store" Type Value "," Type Identifier AlignmentSpec
+  --   {% mkStoreInst $1 $4 $6 $7 $8 }
+  -- -- FIXME: Add GetElementPtr
+  -- | Identifier "=" "trunc" Type Value "to" Type
+  --   {% mkConversionInst TruncInst $1 $4 $5 $7 }
+  -- | Identifier "=" "zext" Type Value "to" Type
+  --   {% mkConversionInst ZExtInst $1 $4 $5 $7 }
+  -- | Identifier "=" "sext" Type Value "to" Type
+  --   {% mkConversionInst SExtInst $1 $4 $5 $7 }
+  -- | Identifier "=" "fptrunc" Type Value "to" Type
+  --   {% mkConversionInst FPTruncInst $1 $4 $5 $7 }
+  -- | Identifier "=" "fpext" Type Value "to" Type
+  --   {% mkConversionInst FPExtInst $1 $4 $5 $7 }
+  -- | Identifier "=" "fptoui" Type Value "to" Type
+  --   {% mkConversionInst FPToUIInst $1 $4 $5 $7 }
+  -- | Identifier "=" "fptosi" Type Value "to" Type
+  --   {% mkConversionInst FPToSIInst $1 $4 $5 $7 }
+  -- | Identifier "=" "uitofp" Type Value "to" Type
+  --   {% mkConversionInst UIToFPInst $1 $4 $5 $7 }
+  -- | Identifier "=" "sitofp" Type Value "to" Type
+  --   {% mkConversionInst SIToFPInst $1 $4 $5 $7 }
+  -- | Identifier "=" "ptrtoint" Type Value "to" Type
+  --   {% mkConversionInst PtrToIntInst $1 $4 $5 $7 }
+  -- | Identifier "=" "inttoptr" Type Value "to" Type
+  --   {% mkConversionInst IntToPtrInst $1 $4 $5 $7 }
+  -- | Identifier "=" "bitcast" Type Value "to" Type
+  --   {% mkConversionInst BitcastInst $1 $4 $5 $7 }
+  -- | Identifier "=" "icmp" ICmpCondition Type Value "," Value
+  --   {% mkIcmpInst $1 $4 $5 $6 $8 }
+  -- | Identifier "=" "fcmp" FCmpCondition Type Value "," Value
+  --   {% mkFcmpInst $1 $4 $5 $6 $8 }
+  -- | Identifier "=" "phi" Type sep1(PhiPair, ",")
+  --   {% mkPhiNode $1 $4 $5 }
+  -- | Identifier "=" "select" Type Value "," Type Value "," Type Value
+  --   {% mkSelectInst $1 $4 $5 $7 $8 $10 $11 }
 
+
+--  | optional(CallIdentifier) TailMarker "call" CallingConvention list(ParameterAttribute) Type optional(Type) Value "(" sep(Value, ",") ")" list(FunctionAttribute)
+--    {% mkCallInst $1 $2 $4 $5 $6 $7 $8 $10 $12 }
+
+CallIdentifier:
+  Identifier "=" { $1 }
+
+TailMarker:
+    "tail" { True }
+  |        { False }
 
 PhiPair:
-  Value "," label { ($1, $3) }
+  Identifier "," label { (ValueRef $1, $3) }
 
 ICmpCondition:
     "eq"  { ICmpEq }
@@ -473,8 +502,8 @@ FCmpCondition:
 
 -- If unspecified, allocates 1 element
 AllocaNumElems:
-    "," Type Value { $3 }
-  |                { ConstantValue $ ConstantInt 1 }
+    "," Constant { $2 }
+  |              { ConstValue (ConstantInt 1) (TypeInteger 32) }
 
 VolatileFlag:
     "volatile" { True  }
@@ -506,10 +535,10 @@ RemInst:
   | "frem" { $1 }
 
 SwitchBranch:
-  TypedValue "," "label" label { ($1, $4) }
+  Type PartialConstant "," "label" label { ($2 $1, $5) }
 
 LabelVal:
-  "label" Value { $2 }
+  "label" PartialConstant { $2 TypeLabel }
 
 ArithFlag:
     "nsw" { AFNSW }
