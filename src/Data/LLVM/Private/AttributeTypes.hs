@@ -13,6 +13,7 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , ModuleAssembly(..)
                                         , ICmpCondition(..)
                                         , FCmpCondition(..)
+                                        , GlobalAnnotation(..)
                                         ) where
 
 import qualified Data.Map as Map
@@ -172,3 +173,9 @@ data FCmpCondition = FCmpFalse
                    | FCmpUno
                    | FCmpTrue
                      deriving (Show, Eq)
+
+data GlobalAnnotation = GAConstant
+                      | GAGlobal
+                      | GACommon
+                      | GAPrivate
+                        deriving (Show, Eq)

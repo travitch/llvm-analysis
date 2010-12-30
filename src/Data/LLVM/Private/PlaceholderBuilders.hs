@@ -20,6 +20,7 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkExtractValueInst
                                              , mkGetElementPtrInst
                                              , mkExternalFuncDecl
+                                             , mkGlobalDecl
                                              ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -180,3 +181,9 @@ mkGetElementPtrInst ident inBounds ty val indices =
 mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) -> [FunctionAttribute] -> ExternalDecl
 mkExternalFuncDecl retType ident (argTypes, isVararg) attrs = ExternalDecl t ident
   where t = TypeFunction retType argTypes isVararg attrs
+
+mkGlobalDecl :: Identifier -> Int -> [GlobalAnnotation] -> Type -> PartialConstant -> Integer -> GlobalDeclaration
+mkGlobalDecl ident addrSpace annots initType init align =
+  GlobalDeclaration ident addrSpace annots t i align
+  where t = TypePointer initType
+        i = init initType

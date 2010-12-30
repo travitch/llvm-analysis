@@ -6,6 +6,7 @@ module Data.LLVM.Private.PlaceholderTypes ( Identifier(..)
                                           , ArithFlag(..)
                                           , ExternalDecl(..)
                                           , NamedType(..)
+                                          , GlobalDeclaration(..)
                                           , PartialConstant
                                           , voidInst
                                           , namedInst
@@ -62,7 +63,7 @@ maybeNamedInst i t v = Instruction { instName = i
 
 data Constant = ConstValue ConstantT Type
               | ValueRef Identifier
-              deriving (Show)
+              deriving (Show, Eq)
 
 valueRef ident = const (ValueRef ident)
 
@@ -141,6 +142,10 @@ data ExternalDecl = ExternalDecl Type Identifier
 data NamedType = NamedType Identifier Type
                  deriving (Show, Eq)
 
+-- Ident AddrSpace Annotations Type(aptr) Initializer alignment
+data GlobalDeclaration = GlobalDeclaration Identifier Int [GlobalAnnotation] Type Constant Integer
+                         deriving (Show, Eq)
+
 -- FIXME: Convert the second ident to a Value (basic blocks are values)
 data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -- to be resolved into something useful later
                | ConstantAggregateZero
@@ -158,4 +163,4 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
                | GlobalVariable VisibilityStyle LinkageType ByteString
 --               | GlobalAlias VisibilityStyle LinkageType ByteString Value -- new name, real var
                -- | ConstantIdentifier Identifier -- Wrapper for globals - to be resolved later into a more useful direct references to a GlobalVariable
-               deriving (Show)
+               deriving (Show, Eq)

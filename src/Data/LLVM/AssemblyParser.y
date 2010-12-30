@@ -359,12 +359,15 @@ AddrSpace:
     addrspace { $1 }
   |           { 0 }
 
-ConstantAnnot:
-    "constant" { True }
-  |            { False }
+GlobalAnnotation:
+    "constant" { GAConstant }
+  | "global"   { GAGlobal }
+  | "common"   { GACommon }
+  | "private"  { GAPrivate }
 
---GlobalDecl:
---  GlobalIdentifier "=" AddrSpace ConstantAnnot
+GlobalDecl:
+  GlobalIdentifier "=" AddrSpace list(GlobalAnnotation) Type PartialConstant AlignmentSpec
+  { mkGlobalDecl $1 $3 $4 $5 $6 $7 }
 
 -- FIXME: Need the constant instructions
 
@@ -551,6 +554,7 @@ AllocaNumElems:
 VolatileFlag:
     "volatile" { True  }
   |            { False }
+
 AlignmentSpec:
     "," "align" intlit { $3 }
   |                    { 0 }
