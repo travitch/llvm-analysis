@@ -227,6 +227,46 @@ import Data.Monoid
 
 %%
 
+Module:
+  DataLayout Triple list(GlobalEntity)
+  { Module $1 $2 $3 }
+
+GlobalEntity:
+    GlobalDecl          { $1 }
+  | FunctionDefinition  { $1 }
+  | ModuleLevelAssembly { $1 }
+  | ExternalDecl        { $1 }
+  | TypeDeclaration     { $1 }
+
+TypeDeclaration:
+  LocalIdentifier "=" "type" Type { NamedType $1 $4 }
+
+GlobalDecl:
+  GlobalIdentifier "=" AddrSpace list(GlobalAnnotation) Type PartialConstant AlignmentSpec
+  { mkGlobalDecl $1 $3 $4 $5 $6 $7 }
+
+FunctionDefinition:
+  "define" LinkageType VisibilityStyle CallingConvention list(ParameterAttribute)
+     Type GlobalIdentifier "(" FuncArgList ")" list(FunctionAttribute)
+     SectionName FunctionAlignment GCName "{" FunctionBody "}"
+  { mkFunctionDef $2 $3 $4 $5 $6 $7 $9 $11 $12 $13 $14 $16 }
+
+ModuleLevelAssembly:
+  "module" "asm" string newline { ModuleAssembly $3 }
+
+DataLayout:
+  "target" "datalayout" "=" string newline { mkDataLayout $4 }
+
+Triple:
+  "target" "triple" "=" string newline { mkTriple $4 }
+
+ExternalDecl:
+    "declare" Type GlobalIdentifier "(" FuncTypeArgList ")" list(FunctionAttribute)
+    { mkExternalFuncDecl $2 $3 $5 $7 }
+  | "declare" Type GlobalIdentifier
+    { ExternalDecl $2 $3 }
+
+
 LinkageType:
     "private"   { LTPrivate }
   | "linker_private" { LTLinkerPrivate }
@@ -306,15 +346,6 @@ SectionName:
     "section" string { Just $2 }
   |                  { Nothing }
 
-ModuleInlineAssembly:
-  "module" "asm" string newline { ModuleAssembly $3 }
-
-
-DataLayout:
-  "target" "datalayout" "=" string newline { mkDataLayout $4 }
-
-Triple:
-  "target" "triple" "=" string newline { mkTriple $4 }
 
 Type:
     iN          { TypeInteger $1 }
@@ -350,15 +381,6 @@ MoreFuncTypeArgs:
   | "," "..."                 { ([], True) }
   |                           { ([], False) }
 
-TypeDeclaration:
-  LocalIdentifier "=" "type" Type { NamedType $1 $4 }
-
-ExternalDecl:
-    "declare" Type GlobalIdentifier "(" FuncTypeArgList ")" list(FunctionAttribute)
-    { mkExternalFuncDecl $2 $3 $5 $7 }
-  | "declare" Type GlobalIdentifier
-    { ExternalDecl $2 $3 }
-
 AddrSpace:
     addrspace { $1 }
   |           { 0 }
@@ -384,21 +406,12 @@ MoreFuncArgs:
 NormalArgument:
   Type LocalIdentifier { ($1, $2) }
 
-GlobalDecl:
-  GlobalIdentifier "=" AddrSpace list(GlobalAnnotation) Type PartialConstant AlignmentSpec
-  { mkGlobalDecl $1 $3 $4 $5 $6 $7 }
-
-FunctionDefinition:
-  "define" LinkageType VisibilityStyle CallingConvention list(ParameterAttribute)
-     Type GlobalIdentifier "(" FuncArgList ")" list(FunctionAttribute)
-     SectionName FunctionAlignment GCName "{" FunctionBody "}"
-  { mkFunctionDef $2 $3 $4 $5 $6 $7 $9 $11 $12 $13 $14 $16 }
 
 FunctionBody:
     -- This is the simple case for a function with no control flow; there is no
     -- initial label and just a single basic block.
-    list(Instruction) { [mkBasicBlock "0" $1] }
-  | list(BasicBlock)  { $1 }
+    list1(Instruction) { [mkBasicBlock "0" $1] }
+  | list1(BasicBlock)  { $1 }
 
 BasicBlock:
   label list(Instruction) { mkBasicBlock $1 $2 }
@@ -440,8 +453,8 @@ Constant:
 -- FIXME: Handle metadata
 
 Instruction:
-    "ret" Type PartialConstant  { voidInst $ RetInst (Just ($3 $2)) }
-  | "ret" "void"         { voidInst $ RetInst Nothing }
+    "ret" Type optional(PartialConstant)
+    {% mkRetInst $2 $3 }
   | "br" "label" label   { voidInst $ UnconditionalBranchInst $3 }
   | "br" Type PartialConstant "," "label" label "," "label" label
     { voidInst $ BranchInst ($3 $2) $6 $9 }

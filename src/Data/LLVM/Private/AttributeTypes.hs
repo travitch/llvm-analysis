@@ -10,7 +10,6 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , defaultDataLayout
                                         , Type(..)
                                         , GCName(..)
-                                        , ModuleAssembly(..)
                                         , ICmpCondition(..)
                                         , FCmpCondition(..)
                                         , GlobalAnnotation(..)
@@ -142,7 +141,6 @@ data Type = TypeInteger Int -- bits
           deriving (Show, Eq)
 
 data GCName = GCName ByteString deriving (Show, Eq)
-data ModuleAssembly = ModuleAssembly ByteString deriving (Show, Eq)
 
 data ICmpCondition = ICmpEq
                    | ICmpNe

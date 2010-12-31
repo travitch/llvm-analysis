@@ -2,6 +2,7 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkInsertElementInst
                                              , mkDataLayout
                                              , mkTriple
+                                             , mkRetInst
                                              , mkShuffleVectorInst
                                              , mkInsertValueInst
                                              , mkAllocaInst
@@ -169,6 +170,12 @@ mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
           ValueRef _ -> func rtype
           _ -> error "Cannot invoke anything besides a named constant..."
 
+mkRetInst :: (Monad m) => Type -> Maybe PartialConstant -> m Instruction
+mkRetInst t pc = case (t, pc) of
+  (TypeVoid, Nothing) -> return $ voidInst $ RetInst Nothing
+  (_, Just pc') -> return $ voidInst $ RetInst (Just (pc' t))
+  _ -> fail "Non-void return without return value"
+
 -- Ident, va_arg type, the va_list arg, the type being extracted
 mkVaArgInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> m Instruction
 mkVaArgInst ident ty1 val ty2 =
@@ -180,7 +187,7 @@ mkGetElementPtrInst ident inBounds ty val indices =
                         , unresInstContent = GetElementPtrInst inBounds (val ty) indices
                         }
 
-mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) -> [FunctionAttribute] -> ExternalDecl
+mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) -> [FunctionAttribute] -> GlobalDeclaration
 mkExternalFuncDecl retType ident (argTypes, isVararg) attrs = ExternalDecl t ident
   where t = TypeFunction retType argTypes isVararg attrs
 

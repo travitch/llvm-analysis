@@ -4,8 +4,7 @@ module Data.LLVM.Private.PlaceholderTypes ( Identifier(..)
                                           , Constant(..)
                                           , ConstantT(..)
                                           , ArithFlag(..)
-                                          , ExternalDecl(..)
-                                          , NamedType(..)
+                                          , Module(..)
                                           , GlobalDeclaration(..)
                                           , BasicBlock(..)
                                           , FormalParameter(..)
@@ -138,14 +137,18 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
             deriving (Show, Eq)
 
 data ArithFlag = AFNSW | AFNUW deriving (Show, Eq)
-data ExternalDecl = ExternalDecl Type Identifier
-                    deriving (Show, Eq)
 
-data NamedType = NamedType Identifier Type
-                 deriving (Show, Eq)
+-- data NamedType =
+--                  deriving (Show, Eq)
+
+data Module = Module DataLayout TargetTriple [GlobalDeclaration]
+            deriving (Show, Eq)
 
 -- Ident AddrSpace Annotations Type(aptr) Initializer alignment
 data GlobalDeclaration = GlobalDeclaration Identifier Int [GlobalAnnotation] Type Constant Integer
+                       | NamedType Identifier Type
+                       | ModuleAssembly ByteString
+                       | ExternalDecl Type Identifier
                        | FunctionDefinition { funcLinkage :: LinkageType
                                             , funcVisibility :: VisibilityStyle
                                             , funcCC :: CallingConvention
