@@ -7,6 +7,8 @@ module Data.LLVM.Private.PlaceholderTypes ( Identifier(..)
                                           , ExternalDecl(..)
                                           , NamedType(..)
                                           , GlobalDeclaration(..)
+                                          , BasicBlock(..)
+                                          , FormalParameter(..)
                                           , PartialConstant
                                           , voidInst
                                           , namedInst
@@ -39,7 +41,7 @@ data Instruction = Instruction { instName :: Maybe Identifier
                  | UnresolvedInst { unresInstName :: Maybe Identifier
                                   , unresInstContent :: InstructionT
                                   }
-           deriving (Show)
+           deriving (Show, Eq)
 
 type PartialConstant = Type -> Constant
 
@@ -133,9 +135,9 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
                          , invokeUnwindLabel :: Constant
                          }
             | VaArgInst Constant Type
-            deriving (Show)
+            deriving (Show, Eq)
 
-data ArithFlag = AFNSW | AFNUW deriving (Show)
+data ArithFlag = AFNSW | AFNUW deriving (Show, Eq)
 data ExternalDecl = ExternalDecl Type Identifier
                     deriving (Show, Eq)
 
@@ -144,7 +146,24 @@ data NamedType = NamedType Identifier Type
 
 -- Ident AddrSpace Annotations Type(aptr) Initializer alignment
 data GlobalDeclaration = GlobalDeclaration Identifier Int [GlobalAnnotation] Type Constant Integer
+                       | FunctionDefinition { funcLinkage :: LinkageType
+                                            , funcVisibility :: VisibilityStyle
+                                            , funcCC :: CallingConvention
+                                            , funcRetAttrs :: [ParamAttribute]
+                                            , funcRetType :: Type
+                                            , funcName :: Identifier
+                                            , funcParams :: [FormalParameter]
+                                            , funcAttrs :: [FunctionAttribute]
+                                            , funcSection :: Maybe ByteString
+                                            , funcAlign :: Integer
+                                            , funcGCName :: GCName
+                                            , funcBody :: [BasicBlock]
+                                            , funcIsVararg :: Bool
+                                            }
                          deriving (Show, Eq)
+
+data FormalParameter = FormalParameter Type [ParamAttribute] Identifier
+                     deriving (Show, Eq)
 
 -- FIXME: Convert the second ident to a Value (basic blocks are values)
 data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -- to be resolved into something useful later
@@ -164,3 +183,7 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
 --               | GlobalAlias VisibilityStyle LinkageType ByteString Value -- new name, real var
                -- | ConstantIdentifier Identifier -- Wrapper for globals - to be resolved later into a more useful direct references to a GlobalVariable
                deriving (Show, Eq)
+
+data BasicBlock = BasicBlock ByteString [Instruction]
+                deriving (Show, Eq)
+

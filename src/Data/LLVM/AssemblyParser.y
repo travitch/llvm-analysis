@@ -258,6 +258,7 @@ VisibilityStyle:
     "default"   { VisibilityDefault }
   | "hidden"    { VisibilityHidden }
   | "protected" { VisibilityProtected }
+  |             { VisibilityDefault }
 
 GlobalIdentifier:
   gident { GlobalIdentifier $1 }
@@ -301,6 +302,9 @@ FunctionAttribute:
   | "ssp"             { FASSP }
   | "sspreq"          { FASSPReq }
 
+SectionName:
+    "section" string { Just $2 }
+  |                  { Nothing }
 
 ModuleInlineAssembly:
   "module" "asm" string newline { ModuleAssembly $3 }
@@ -365,9 +369,39 @@ GlobalAnnotation:
   | "common"   { GACommon }
   | "private"  { GAPrivate }
 
+FuncArgList:
+    Type list(ParameterAttribute) LocalIdentifier MoreFuncArgs
+    { ((FormalParameter $1 $2 $3) : (fst $4), snd $4) }
+  | { ([], False) }
+
+MoreFuncArgs:
+    "," Type list(ParameterAttribute) LocalIdentifier MoreFuncArgs
+    { ((FormalParameter $2 $3 $4) : (fst $5), snd $5) }
+  | "," "..."
+    { ([], True) }
+  | { ([], False) }
+
+NormalArgument:
+  Type LocalIdentifier { ($1, $2) }
+
 GlobalDecl:
   GlobalIdentifier "=" AddrSpace list(GlobalAnnotation) Type PartialConstant AlignmentSpec
   { mkGlobalDecl $1 $3 $4 $5 $6 $7 }
+
+FunctionDefinition:
+  "define" LinkageType VisibilityStyle CallingConvention list(ParameterAttribute)
+     Type GlobalIdentifier "(" FuncArgList ")" list(FunctionAttribute)
+     SectionName FunctionAlignment GCName "{" FunctionBody "}"
+  { mkFunctionDef $2 $3 $4 $5 $6 $7 $9 $11 $12 $13 $14 $16 }
+
+FunctionBody:
+    -- This is the simple case for a function with no control flow; there is no
+    -- initial label and just a single basic block.
+    list(Instruction) { [mkBasicBlock "0" $1] }
+  | list(BasicBlock)  { $1 }
+
+BasicBlock:
+  label list(Instruction) { mkBasicBlock $1 $2 }
 
 -- FIXME: Need the constant instructions
 
@@ -558,6 +592,10 @@ VolatileFlag:
 AlignmentSpec:
     "," "align" intlit { $3 }
   |                    { 0 }
+
+FunctionAlignment:
+    "align" intlit { $2 }
+  |                { 0  }
 
 AddInst:
     "add"  { $1 }

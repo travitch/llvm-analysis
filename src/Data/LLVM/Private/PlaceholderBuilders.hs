@@ -21,6 +21,8 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkGetElementPtrInst
                                              , mkExternalFuncDecl
                                              , mkGlobalDecl
+                                             , mkBasicBlock
+                                             , mkFunctionDef
                                              ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -187,3 +189,27 @@ mkGlobalDecl ident addrSpace annots initType init align =
   GlobalDeclaration ident addrSpace annots t i align
   where t = TypePointer initType
         i = init initType
+
+mkBasicBlock :: ByteString -> [Instruction] -> BasicBlock
+mkBasicBlock = BasicBlock
+
+mkFunctionDef :: LinkageType -> VisibilityStyle -> CallingConvention ->
+                 [ParamAttribute] -> Type -> Identifier ->
+                 ([FormalParameter], Bool) -> [FunctionAttribute] ->
+                 Maybe ByteString -> Integer -> GCName -> [BasicBlock] ->
+                 GlobalDeclaration
+mkFunctionDef linkage vis cc retAttr retTy name (args, isVararg) fAttrs section align gcname body =
+  FunctionDefinition { funcLinkage = linkage
+                     , funcVisibility = vis
+                     , funcCC = cc
+                     , funcRetAttrs = retAttr
+                     , funcRetType = retTy
+                     , funcName = name
+                     , funcParams = args
+                     , funcAttrs = fAttrs
+                     , funcSection = section
+                     , funcAlign = align
+                     , funcGCName = gcname
+                     , funcBody = body
+                     , funcIsVararg = isVararg
+                     }
