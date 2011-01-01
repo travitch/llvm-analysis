@@ -24,6 +24,9 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkGlobalDecl
                                              , mkBasicBlock
                                              , mkFunctionDef
+                                             , mkMDNode
+                                             , mkNamedMetadata
+                                             , mkMDInst
                                              ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -69,6 +72,7 @@ mkExtractValueInst :: (Monad m) => Identifier -> Type -> PartialConstant -> [Int
 mkExtractValueInst ident inType val indices =
   return UnresolvedInst { unresInstName = Just ident
                         , unresInstContent = ExtractValueInst (val inType) indices
+                        , unresInstMetadata = Nothing
                         }
 
 mkAllocaInst :: Identifier -> Type -> Constant -> Integer -> Instruction
@@ -185,6 +189,7 @@ mkGetElementPtrInst :: (Monad m) => Identifier -> Bool -> Type -> PartialConstan
 mkGetElementPtrInst ident inBounds ty val indices =
   return UnresolvedInst { unresInstName = Just ident
                         , unresInstContent = GetElementPtrInst inBounds (val ty) indices
+                        , unresInstMetadata = Nothing
                         }
 
 mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) -> [FunctionAttribute] -> GlobalDeclaration
@@ -220,3 +225,15 @@ mkFunctionDef linkage vis cc retAttr retTy name (args, isVararg) fAttrs section 
                      , funcBody = body
                      , funcIsVararg = isVararg
                      }
+
+mkMDNode :: Identifier -> [Constant] -> GlobalDeclaration
+mkMDNode name vals = NamedMetadata name vals
+
+mkNamedMetadata :: Identifier -> [Identifier] -> GlobalDeclaration
+mkNamedMetadata name names = NamedMetadata name vals
+  where vals = map ValueRef names
+
+mkMDInst :: Instruction -> Maybe Identifier -> Instruction
+mkMDInst i md = case i of
+  Instruction {} -> i { instMetadata = md }
+  UnresolvedInst {} -> i { unresInstMetadata = md }

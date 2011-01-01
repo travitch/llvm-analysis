@@ -26,12 +26,13 @@ import Data.LLVM.Private.AttributeTypes
 
 data Identifier = LocalIdentifier ByteString
                 | GlobalIdentifier ByteString
-                | DebugIdentifier ByteString
+                | MetaIdentifier ByteString
                   deriving (Show, Eq)
 
 data Instruction = Instruction { instName :: Maybe Identifier
                                , instType :: Type
                                , instContent :: InstructionT
+                               , instMetadata :: Maybe Identifier
                                }
                    -- This variant is used if we can't build the type
                    -- yet.  It can be resolved after everything is
@@ -39,6 +40,7 @@ data Instruction = Instruction { instName :: Maybe Identifier
                    -- getelementptr and extractvalue.
                  | UnresolvedInst { unresInstName :: Maybe Identifier
                                   , unresInstContent :: InstructionT
+                                  , unresInstMetadata :: Maybe Identifier
                                   }
            deriving (Show, Eq)
 
@@ -48,18 +50,21 @@ voidInst :: InstructionT -> Instruction
 voidInst v = Instruction { instName = Nothing
                          , instType = TypeVoid
                          , instContent = v
+                         , instMetadata = Nothing
                          }
 
 namedInst :: Identifier -> Type -> InstructionT -> Instruction
 namedInst i t v = Instruction { instName = Just i
                               , instType = t
                               , instContent = v
+                              , instMetadata = Nothing
                               }
 
 maybeNamedInst :: Maybe Identifier -> Type -> InstructionT -> Instruction
 maybeNamedInst i t v = Instruction { instName = i
                                    , instType = t
                                    , instContent = v
+                                   , instMetadata = Nothing
                                    }
 
 data Constant = ConstValue ConstantT Type
@@ -149,6 +154,7 @@ data GlobalDeclaration = GlobalDeclaration Identifier Int [GlobalAnnotation] Typ
                        | NamedType Identifier Type
                        | ModuleAssembly ByteString
                        | ExternalDecl Type Identifier
+                       | NamedMetadata Identifier [Constant]
                        | FunctionDefinition { funcLinkage :: LinkageType
                                             , funcVisibility :: VisibilityStyle
                                             , funcCC :: CallingConvention

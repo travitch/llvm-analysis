@@ -143,6 +143,7 @@ import Data.Monoid
   "global"       { TGlobal }
   "tail"         { TTail }
   "triple"       { TTriple }
+  "dbg"          { TDbg }
 
   "nuw"          { TNUW }
   "nsw"          { TNSW }
@@ -236,6 +237,8 @@ GlobalEntity:
   | ModuleLevelAssembly { $1 }
   | ExternalDecl        { $1 }
   | TypeDeclaration     { $1 }
+  | UnnamedMetadata     { $1 }
+  | NamedMetadata       { $1 }
 
 TypeDeclaration:
   LocalIdentifier "=" "type" Type { NamedType $1 $4 }
@@ -265,6 +268,24 @@ ExternalDecl:
   | "declare" Type GlobalIdentifier
     { ExternalDecl $2 $3 }
 
+MDNodeContent:
+  Constant MoreMDNodeContent { $1 : $2 }
+
+MoreMDNodeContent:
+    "," Constant MoreMDNodeContent { $2 : $3 }
+  | "," "null"                     { [] }
+  |                                { [] }
+
+MDNode:
+  "!" "{" MDNodeContent "}"   { $3 }
+
+UnnamedMetadata:
+  MetaIdentifier "=" "metadata" MDNode
+  { mkMDNode $1 $4 }
+
+NamedMetadata:
+  MetaIdentifier "=" "!" "{" sep1(MetaIdentifier, ",") "}"
+  { mkNamedMetadata $1 $5 }
 
 LinkageType:
     "private"   { LTPrivate }
@@ -305,9 +326,13 @@ GlobalIdentifier:
 LocalIdentifier:
   lident { LocalIdentifier $1 }
 
+MetaIdentifier:
+  mdname { MetaIdentifier $1 }
+
 Identifier:
-    LocalIdentifier { $1 }
+    LocalIdentifier  { $1 }
   | GlobalIdentifier { $1 }
+  | MetaIdentifier   { $1 }
 
 ParameterAttribute:
     "zeroext"   { PAZeroExt }
@@ -424,6 +449,7 @@ SimpleConstant:
   | intlit     { ConstantInt $1 }
   | floatlit   { ConstantFP $1 }
   | "null"     { ConstantPointerNull }
+  | mdstring   { MDString $1 }
   -- | Identifier { ConstantIdentifier $1 }
 
 
@@ -434,6 +460,7 @@ ComplexConstant:
   | "zeroinitializer"                 { ConstantAggregateZero }
   | "undef"                           { UndefValue }
   | "blockaddress" "(" Identifier "," Identifier ")" { BlockAddress $3 $5 }
+  | MDNode                       { MDNode $1 }
 
 AllConstants:
     SimpleConstant  { $1 }
@@ -449,10 +476,15 @@ PartialConstant:
 Constant:
   Type PartialConstant { $2 $1 }
 
+InstMetadata:
+  "," "!" "dbg" MetaIdentifier { $4 }
+
 -- FIXME: Inline asm
--- FIXME: Handle metadata
 
 Instruction:
+  InstructionNoMD optional(InstMetadata) { mkMDInst $1 $2 }
+
+InstructionNoMD:
     "ret" Type optional(PartialConstant)
     {% mkRetInst $2 $3 }
   | "br" "label" label   { voidInst $ UnconditionalBranchInst $3 }

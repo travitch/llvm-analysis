@@ -182,6 +182,7 @@ tokens :-
   "volatile"   { const TVolatile }
   "tail"       { const TTail }
   "triple"     { const TTriple }
+  "dbg"        { const TDbg }
 
   -- Instructions
   "trunc"          { const TTrunc }
@@ -387,6 +388,7 @@ data Token = TIntLit Integer
            | TGlobal
            | TTail
            | TTriple
+           | TDbg
 
            -- Add modifiers
            | TNUW
