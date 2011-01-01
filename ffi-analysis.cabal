@@ -67,6 +67,7 @@ library
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   build-tools: alex >= 2 && < 3, happy > 1.18.0
   extensions: OverloadedStrings
+  ghc-options: -fno-warn-lazy-unlifted-bindings
 
 executable parser-tests
   if flag(buildTests)
