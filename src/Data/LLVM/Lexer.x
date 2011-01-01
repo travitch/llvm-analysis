@@ -18,7 +18,7 @@ $hexdigit = [$digit a-f A-F]
 $alpha = [a-zA-Z]
 $startChar = [$alpha \$ \. \_]
 $identChar = [$startChar $digit]
-$whitespace = [\ \t\b]
+$whitespace = [\ \t\b\n]
 -- LLVM String characters are simple - quotes are represented as \22
 -- (an ascii escape) so parsing them is simple
 $stringChar = [^\"]
@@ -27,9 +27,6 @@ $stringChar = [^\"]
 @quotedString = \" $stringChar* \"
 
 tokens :-
-  \n+ { const TNewline }
-  $whitespace+ ;
-
   -- Identifiers
   "@" $startChar $identChar* { mkGlobalIdent }
   "%" $startChar $identChar* { mkLocalIdent }
@@ -262,6 +259,8 @@ tokens :-
   "une"            { const Tune }
   "uno"            { const Tuno }
 
+  $whitespace+ ;
+
 {
 data Token = TIntLit Integer
            | TFloatLit Double
@@ -274,7 +273,6 @@ data Token = TIntLit Integer
            | TZeroInitializer
            | TString ByteString
            | TLabel ByteString
-           | TNewline
 
            -- Operator-like tokens
            | TComma

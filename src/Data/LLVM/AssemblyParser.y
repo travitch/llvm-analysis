@@ -41,7 +41,6 @@ import Data.Monoid
   "false"     { TFalseLit }
   "null"      { TNullLit }
   "undef"     { TUndefLit }
-  newline     { TNewline }
   "zeroinitializer" { TZeroInitializer }
 
   ","         { TComma }
@@ -252,13 +251,13 @@ FunctionDefinition:
   { mkFunctionDef $2 $3 $4 $5 $6 $7 $9 $11 $12 $13 $14 $16 }
 
 ModuleLevelAssembly:
-  "module" "asm" string newline { ModuleAssembly $3 }
+  "module" "asm" string { ModuleAssembly $3 }
 
 DataLayout:
-  "target" "datalayout" "=" string newline { mkDataLayout $4 }
+  "target" "datalayout" "=" string { mkDataLayout $4 }
 
 Triple:
-  "target" "triple" "=" string newline { mkTriple $4 }
+  "target" "triple" "=" string { mkTriple $4 }
 
 ExternalDecl:
     "declare" Type GlobalIdentifier "(" FuncTypeArgList ")" list(FunctionAttribute)
@@ -372,12 +371,13 @@ Type:
 -- that generates a nasty shift/reduce conflict where the ,
 -- before a ... is slurped into the list but sep1 doesn't
 -- know what to do with ... since it isn't a type. Oh well.
+-- FIXME: Need to save the parameter attribute list eventually.
 FuncTypeArgList:
-    Type MoreFuncTypeArgs { ($1 : fst $2, snd $2) }
-  |                       { ([], False) }
+    Type list(ParameterAttribute) MoreFuncTypeArgs { ($1 : fst $3, snd $3) }
+  |                                                { ([], False) }
 
 MoreFuncTypeArgs:
-    "," Type MoreFuncTypeArgs { ($2 : (fst $3), snd $3) }
+    "," Type list(ParameterAttribute) MoreFuncTypeArgs { ($2 : (fst $4), snd $4) }
   | "," "..."                 { ([], True) }
   |                           { ([], False) }
 
