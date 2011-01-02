@@ -183,6 +183,7 @@ tokens :-
   "tail"       { const TTail }
   "triple"     { const TTriple }
   "dbg"        { const TDbg }
+  "external"   { const TExternal }
 
   -- Instructions
   "trunc"          { const TTrunc }
@@ -389,6 +390,7 @@ data Token = TIntLit Integer
            | TTail
            | TTriple
            | TDbg
+           | TExternal
 
            -- Add modifiers
            | TNUW

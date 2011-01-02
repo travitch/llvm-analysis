@@ -14,6 +14,8 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , ICmpCondition(..)
                                         , FCmpCondition(..)
                                         , GlobalAnnotation(..)
+                                        , Identifier(..)
+                                        , Assembly(..)
                                         ) where
 
 import qualified Data.Map as Map
@@ -21,6 +23,14 @@ import qualified Data.Set as Set
 import Data.Map (Map)
 import Data.Set (Set)
 import Data.ByteString.Lazy (ByteString)
+
+data Assembly = Assembly ByteString
+                deriving (Show, Eq)
+
+data Identifier = LocalIdentifier ByteString
+                | GlobalIdentifier ByteString
+                | MetaIdentifier ByteString
+                  deriving (Show, Eq, Ord)
 
 data LinkageType = LTPrivate
                  | LTLinkerPrivate
@@ -158,6 +168,7 @@ data GlobalAnnotation = GAConstant
                       | GAGlobal
                       | GACommon
                       | GAPrivate
+                      | GAExternal
                         deriving (Show, Eq)
 
 

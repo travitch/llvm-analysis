@@ -59,6 +59,8 @@ library
   exposed-modules: Data.LLVM,
                    Data.LLVM.Lexer,
                    Data.LLVM.AssemblyParser,
+                   Data.LLVM.Types,
+                   Data.LLVM.Private.TieKnot,
                    Data.LLVM.Private.PlaceholderTypes,
                    Data.LLVM.Private.ParsingMonad,
                    Data.LLVM.Private.AttributeTypes,

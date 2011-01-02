@@ -1,5 +1,4 @@
-module Data.LLVM.Private.PlaceholderTypes ( Identifier(..)
-                                          , Instruction(..)
+module Data.LLVM.Private.PlaceholderTypes ( Instruction(..)
                                           , InstructionT(..)
                                           , Constant(..)
                                           , ConstantT(..)
@@ -23,11 +22,6 @@ import Data.LLVM.Private.AttributeTypes
 -- parse time.  These types will be replaced by direct references
 -- after the entire AST is built and we can build the self-referential
 -- graph structure.
-
-data Identifier = LocalIdentifier ByteString
-                | GlobalIdentifier ByteString
-                | MetaIdentifier ByteString
-                  deriving (Show, Eq)
 
 data Instruction = Instruction { instName :: Maybe Identifier
                                , instType :: Type
@@ -147,9 +141,10 @@ data Module = Module DataLayout TargetTriple [GlobalDeclaration]
 -- Ident AddrSpace Annotations Type(aptr) Initializer alignment
 data GlobalDeclaration = GlobalDeclaration Identifier Int [GlobalAnnotation] Type Constant Integer
                        | NamedType Identifier Type
-                       | ModuleAssembly ByteString
+                       | ModuleAssembly Assembly
                        | ExternalDecl Type Identifier
                        | NamedMetadata Identifier [Constant]
+                       | UnnamedMetadata Identifier [Constant] Bool
                        | FunctionDefinition { funcLinkage :: LinkageType
                                             , funcVisibility :: VisibilityStyle
                                             , funcCC :: CallingConvention

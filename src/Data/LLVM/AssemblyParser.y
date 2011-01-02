@@ -144,6 +144,7 @@ import Data.Monoid
   "tail"         { TTail }
   "triple"       { TTriple }
   "dbg"          { TDbg }
+  "external"     { TExternal }
 
   "nuw"          { TNUW }
   "nsw"          { TNSW }
@@ -254,7 +255,7 @@ FunctionDefinition:
   { mkFunctionDef $2 $3 $4 $5 $6 $7 $9 $11 $12 $13 $14 $16 }
 
 ModuleLevelAssembly:
-  "module" "asm" string { ModuleAssembly $3 }
+  "module" "asm" string { ModuleAssembly $ Assembly $3 }
 
 DataLayout:
   "target" "datalayout" "=" string { mkDataLayout $4 }
@@ -262,26 +263,27 @@ DataLayout:
 Triple:
   "target" "triple" "=" string { mkTriple $4 }
 
+-- FIXME: Add param attributes to extern decls
 ExternalDecl:
-    "declare" Type GlobalIdentifier "(" FuncTypeArgList ")" list(FunctionAttribute)
-    { mkExternalFuncDecl $2 $3 $5 $7 }
+    "declare" list(ParameterAttribute) Type GlobalIdentifier "(" FuncTypeArgList ")" list(FunctionAttribute)
+    { mkExternalFuncDecl $3 $4 $6 $8 }
   | "declare" Type GlobalIdentifier
     { ExternalDecl $2 $3 }
 
 MDNodeContent:
-  Constant MoreMDNodeContent { $1 : $2 }
+  Constant MoreMDNodeContent { ($1 : (fst $2), snd $2) }
 
 MoreMDNodeContent:
-    "," Constant MoreMDNodeContent { $2 : $3 }
-  | "," "null"                     { [] }
-  |                                { [] }
+    "," Constant MoreMDNodeContent { ($2 : (fst $3), snd $3) }
+  | "," "null"                     { ([], True) }
+  |                                { ([], False) }
 
 MDNode:
   "!" "{" MDNodeContent "}"   { $3 }
 
 UnnamedMetadata:
   MetaIdentifier "=" "metadata" MDNode
-  { mkMDNode $1 $4 }
+  { mkMDNode $1 (fst $4) (snd $4) }
 
 NamedMetadata:
   MetaIdentifier "=" "!" "{" sep1(MetaIdentifier, ",") "}"
@@ -416,6 +418,7 @@ GlobalAnnotation:
   | "global"   { GAGlobal }
   | "common"   { GACommon }
   | "private"  { GAPrivate }
+  | "external" { GAExternal }
 
 FuncArgList:
     Type list(ParameterAttribute) LocalIdentifier MoreFuncArgs
@@ -442,7 +445,8 @@ FunctionBody:
 BasicBlock:
   label list(Instruction) { mkBasicBlock $1 $2 }
 
--- FIXME: Need the constant instructions
+-- FIXME: Need the constant instructions (they are just the instructions with
+-- constant args -- slightly different format
 
 SimpleConstant:
     "true"     { ConstantInt 1 }
@@ -461,7 +465,8 @@ ComplexConstant:
   | "zeroinitializer"                 { ConstantAggregateZero }
   | "undef"                           { UndefValue }
   | "blockaddress" "(" Identifier "," Identifier ")" { BlockAddress $3 $5 }
-  | MDNode                       { MDNode $1 }
+  -- The case where the mdnode ends in a plain untyped null shouldn't ever occur here
+  | MDNode                       { MDNode (fst $1) }
 
 AllConstants:
     SimpleConstant  { $1 }
@@ -480,7 +485,7 @@ Constant:
 InstMetadata:
   "," "!" "dbg" MetaIdentifier { $4 }
 
--- FIXME: Inline asm
+-- FIXME: Inline asm (inline asm is always an argument to a call instrution)
 
 Instruction:
   InstructionNoMD optional(InstMetadata) { mkMDInst $1 $2 }
