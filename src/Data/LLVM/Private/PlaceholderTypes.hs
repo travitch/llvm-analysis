@@ -3,11 +3,11 @@ module Data.LLVM.Private.PlaceholderTypes ( Identifier(..)
                                           , InstructionT(..)
                                           , Constant(..)
                                           , ConstantT(..)
-                                          , ArithFlag(..)
                                           , Module(..)
                                           , GlobalDeclaration(..)
                                           , BasicBlock(..)
                                           , FormalParameter(..)
+                                          , Type(..)
                                           , PartialConstant
                                           , voidInst
                                           , namedInst
@@ -141,11 +141,6 @@ data InstructionT = InlineAsm ByteString ByteString -- ASM String, Constraint St
             | VaArgInst Constant Type
             deriving (Show, Eq)
 
-data ArithFlag = AFNSW | AFNUW deriving (Show, Eq)
-
--- data NamedType =
---                  deriving (Show, Eq)
-
 data Module = Module DataLayout TargetTriple [GlobalDeclaration]
             deriving (Show, Eq)
 
@@ -187,12 +182,29 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
                | UndefValue
                | MDNode [Constant] -- A list of constants (and other metadata)
                | MDString ByteString
---               | Function [Value] [FunctionAttribute] [ValueT] -- Arguments, function attrs, block list
                | GlobalVariable VisibilityStyle LinkageType ByteString
---               | GlobalAlias VisibilityStyle LinkageType ByteString Value -- new name, real var
-               -- | ConstantIdentifier Identifier -- Wrapper for globals - to be resolved later into a more useful direct references to a GlobalVariable
                deriving (Show, Eq)
 
 data BasicBlock = BasicBlock ByteString [Instruction]
                 deriving (Show, Eq)
 
+data Type = TypeInteger Int -- bits
+          | TypeFloat
+          | TypeDouble
+          | TypeFP128
+          | TypeX86FP80
+          | TypePPCFP128
+          | TypeX86MMX
+          | TypeVoid
+          | TypeLabel
+          | TypeMetadata
+          | TypeArray Integer Type
+          | TypeVector Integer Type
+          | TypeFunction Type [Type] Bool [FunctionAttribute] -- Return type, arg types, vararg
+          | TypeOpaque
+          | TypePointer Type -- (Maybe Int) -- Address Space
+          | TypeStruct [Type]
+          | TypePackedStruct [Type]
+          | TypeUpref Int
+          | TypeNamed Identifier
+          deriving (Show, Eq)

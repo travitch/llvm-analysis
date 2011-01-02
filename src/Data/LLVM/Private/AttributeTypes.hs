@@ -4,11 +4,12 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , ParamAttribute(..)
                                         , FunctionAttribute(..)
                                         , Endian(..)
+                                        , ArithFlag(..)
                                         , DataLayout(..)
                                         , TargetTriple(..)
                                         , AlignSpec(..)
                                         , defaultDataLayout
-                                        , Type(..)
+                                        -- , Type(..)
                                         , GCName(..)
                                         , ICmpCondition(..)
                                         , FCmpCondition(..)
@@ -120,25 +121,6 @@ defaultDataLayout = DataLayout { endianness = EBig
                                , stackAlign = Map.fromList [ (0, AlignSpec 64 64) ]
                                , nativeWidths = Set.empty
                                }
-data Type = TypeInteger Int -- bits
-          | TypeFloat
-          | TypeDouble
-          | TypeFP128
-          | TypeX86FP80
-          | TypePPCFP128
-          | TypeX86MMX
-          | TypeVoid
-          | TypeLabel
-          | TypeMetadata
-          | TypeArray Integer Type
-          | TypeVector Integer Type
-          | TypeFunction Type [Type] Bool [FunctionAttribute] -- Return type, arg types, vararg
-          | TypeOpaque
-          | TypePointer Type -- (Maybe Int) -- Address Space
-          | TypeStruct [Type]
-          | TypePackedStruct [Type]
-          | TypeUpref Int
-          deriving (Show, Eq)
 
 data GCName = GCName ByteString deriving (Show, Eq)
 
@@ -177,3 +159,6 @@ data GlobalAnnotation = GAConstant
                       | GACommon
                       | GAPrivate
                         deriving (Show, Eq)
+
+
+data ArithFlag = AFNSW | AFNUW deriving (Show, Eq)

@@ -391,6 +391,7 @@ Type:
   | Type "(" FuncTypeArgList ")" { TypeFunction $1 (fst $3) (snd $3) [] }
   | "{" sep(Type, ",") "}" { TypeStruct $2 }
   | "<" "{" sep(Type, ",") "}" ">" { TypePackedStruct $3 }
+  | LocalIdentifier { TypeNamed $1 }
 
 -- Can't use the simple sep1 parameterized rule here since
 -- that generates a nasty shift/reduce conflict where the ,
