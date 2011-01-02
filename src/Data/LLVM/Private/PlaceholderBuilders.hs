@@ -27,6 +27,7 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkMDNode
                                              , mkNamedMetadata
                                              , mkMDInst
+                                             , mkGlobalAlias
                                              ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -237,3 +238,8 @@ mkMDInst :: Instruction -> Maybe Identifier -> Instruction
 mkMDInst i md = case i of
   Instruction {} -> i { instMetadata = md }
   UnresolvedInst {} -> i { unresInstMetadata = md }
+
+mkGlobalAlias :: Identifier -> LinkageType -> VisibilityStyle -> Type ->
+                 PartialConstant -> GlobalDeclaration
+mkGlobalAlias name linkage vis t aliasee =
+  GlobalAlias name linkage vis t (aliasee t)

@@ -240,6 +240,12 @@ GlobalEntity:
   | TypeDeclaration     { $1 }
   | UnnamedMetadata     { $1 }
   | NamedMetadata       { $1 }
+  | GlobalAlias         { $1 }
+
+-- Note: This can supposedly also take a bitcast of a global identifier...
+GlobalAlias:
+  GlobalIdentifier "=" "alias" LinkageType VisibilityStyle Type PartialConstant
+  { mkGlobalAlias $1 $4 $5 $6 $7 }
 
 TypeDeclaration:
   LocalIdentifier "=" "type" Type { NamedType $1 $4 }

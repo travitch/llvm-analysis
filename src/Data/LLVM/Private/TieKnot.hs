@@ -50,6 +50,8 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
           --   go rest md (transGlobalVar gd name addrspace annots ty init align)
           -- O.FunctionDefinition {} ->
           --   go rest md (transFuncDef gd decl)
+          -- O.GlobalAlias name linkage vis type const ->
+          --   go rest md (transAlias gd name linkage vis type const)
           _ -> go rest md gd
         -- Return the updated metadata graph - but needs to refer to
         -- the "completed" version in 'metadata'
