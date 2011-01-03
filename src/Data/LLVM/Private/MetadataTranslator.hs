@@ -11,6 +11,13 @@ import qualified Data.LLVM.Types as N
 -- Constant defined by LLVM to version tags
 llvmDebugVersion = 524288
 
+-- Notes on metadata blocks.  An MDNode containing just a reference to
+-- other metadata can probably just be collapsed.  An MDNode
+-- containing any other single value or reference is an argument to
+-- llvm.dbg.value noting the new value of a variable.  Any other piece
+-- of metadata (besides the source locations handled above) should
+-- have an i32 tag as the first argument
+
 translateMetadata allMetadata allValues md name reflist isSLoc = M.insert name mdval md
   where mdval = if isSLoc then mkMetaSourceLocation else decodeRefs
         metaRef (O.ValueRef name) = allMetadata ! name
