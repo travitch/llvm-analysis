@@ -3,14 +3,14 @@ module Data.LLVM.Types ( Module(..)
                        , Type(..)
                        , Value(..)
                        , ValueT(..)
-                       , DwarfLanguage(..)
-                       , DwarfVirtuality(..)
                        , mkDwarfVirtuality
                        , mkDwarfLang
+                       , mkDwarfEncoding
                        , isExternalFunction
                        , functionAttributes
                        ) where
 
+import Data.Dwarf
 import Data.Text (Text)
 import Data.LLVM.Private.AttributeTypes
 
@@ -39,63 +39,53 @@ data Type = TypeInteger Int -- bits
           | TypePackedStruct [Type]
           deriving (Show, Eq)
 
-data DwarfVirtuality = DWVirtNone        -- 1
-                     | DWVirtVirtual     -- 2
-                     | DWVirtPureVirtual -- 3
-                     deriving (Show, Eq)
-
 mkDwarfVirtuality i = case i of
-  1 -> DWVirtNone
-  2 -> DWVirtVirtual
-  3 -> DWVirtPureVirtual
+  1 -> DW_VIRTUALITY_none
+  2 -> DW_VIRTUALITY_virtual
+  3 -> DW_VIRTUALITY_pure_virtual
   _ -> error "Invalid virtuality"
 
-data DwarfLanguage = DWLangC89        -- 1
-                   | DWLangC          -- 2
-                   | DWLangAda83      -- 3
-                   | DWLangCpp        -- 4
-                   | DWLangCobol74    -- 5
-                   | DWLangCobol85    -- 6
-                   | DWLangFortran77  -- 7
-                   | DWLangFortran90  -- 8
-                   | DWLangPascal83   -- 9
-                   | DWLangModula2    -- 10
-                   | DWLangJava       -- 11
-                   | DWLangC99        -- 12
-                   | DWLangAda95      -- 13
-                   | DWLangFortran95  -- 14
-                   | DWLangPLI        -- 15
-                   | DWLangObjC       -- 16
-                   | DWLangObjCpp     -- 17
-                   | DWLangUPC        -- 18 (also 0x8765)
-                   | DWLangD          -- 19
-                   | DWLangPython     -- 20
-                   | DWLangOther Integer
-                   deriving (Show, Eq)
-
 mkDwarfLang i = case i of
-  1 -> DWLangC89
-  2 -> DWLangC
-  3 -> DWLangAda83
-  4 -> DWLangCpp
-  5 -> DWLangCobol74
-  6 -> DWLangCobol85
-  7 -> DWLangFortran77
-  8 -> DWLangFortran90
-  9 -> DWLangPascal83
-  10 -> DWLangModula2
-  11 -> DWLangJava
-  12 -> DWLangC99
-  13 -> DWLangAda95
-  14 -> DWLangFortran95
-  15 -> DWLangPLI
-  16 -> DWLangObjC
-  17 -> DWLangObjCpp
-  18 -> DWLangUPC
-  0x8765 -> DWLangUPC
-  19 -> DWLangD
-  20 -> DWLangPython
-  _ -> DWLangOther i
+  1 -> DW_LANG_C89
+  2 -> DW_LANG_C
+  3 -> DW_LANG_Ada83
+  4 -> DW_LANG_C_plus_plus
+  5 -> DW_LANG_Cobol74
+  6 -> DW_LANG_Cobol85
+  7 -> DW_LANG_Fortran77
+  8 -> DW_LANG_Fortran90
+  9 -> DW_LANG_Pascal83
+  10 -> DW_LANG_Modula2
+  11 -> DW_LANG_Java
+  12 -> DW_LANG_C99
+  13 -> DW_LANG_Ada95
+  14 -> DW_LANG_Fortran95
+  15 -> DW_LANG_PLI
+  16 -> DW_LANG_ObjC
+  17 -> DW_LANG_ObjC_plus_plus
+  18 -> DW_LANG_UPC
+  0x8765 -> DW_LANG_UPC
+  19 -> DW_LANG_D
+  -- 20 -> DW_LANG_Python
+  -- _ -> DW_LANG_Other i
+  _ -> error "Invalid virtuality"
+
+mkDwarfEncoding i = case i of
+  1 -> DW_ATE_address
+  2 -> DW_ATE_boolean
+  3 -> DW_ATE_complex_float
+  4 -> DW_ATE_float
+  5 -> DW_ATE_signed
+  6 -> DW_ATE_signed_char
+  7 -> DW_ATE_unsigned
+  8 -> DW_ATE_unsigned_char
+  9 -> DW_ATE_imaginary_float
+  10 -> DW_ATE_packed_decimal
+  11 -> DW_ATE_numeric_string
+  12 -> DW_ATE_edited
+  13 -> DW_ATE_signed_fixed
+  14 -> DW_ATE_unsigned_fixed
+  15 -> DW_ATE_decimal_float
 
 data Metadata = MetaSourceLocation { metaSourceRow :: Integer
                                    , metaSourceCol :: Integer
@@ -107,7 +97,7 @@ data Metadata = MetaSourceLocation { metaSourceRow :: Integer
                                    , metaLexicalBlockContext :: Metadata
                                    }
               | MetaDWAutoVariable
-              | MetaDWCompileUnit { metaCompileUnitLanguage :: DwarfLanguage
+              | MetaDWCompileUnit { metaCompileUnitLanguage :: DW_LANG
                                   , metaCompileUnitSourceFile :: Text
                                   , metaCompileUnitCompileDir :: Text
                                   , metaCompileUnitProducer :: Text
@@ -120,17 +110,17 @@ data Metadata = MetaSourceLocation { metaSourceRow :: Integer
                            , metaFileSourceDir :: Text
                            , metaFileCompileUnit :: Metadata
                            }
-              | MetaDWGlobalVar { metaGlobalVarContext :: Metadata
-                                , metaGlobalVarName :: Text
-                                , metaGlobalVarDisplayName :: Text
-                                , metaGlobalVarLinkageName :: Text
-                                , metaGlobalVarFile :: Metadata
-                                , metaGlobalVarLine :: Integer
-                                , metaGlobalVarType :: Metadata
-                                , metaGlobalVarStatic :: Bool
-                                , metaGlobalVarNotExtern :: Bool
-                                , metaGlobalVarRef :: Value
-                                }
+              | MetaDWVariable { metaGlobalVarContext :: Metadata
+                               , metaGlobalVarName :: Text
+                               , metaGlobalVarDisplayName :: Text
+                               , metaGlobalVarLinkageName :: Text
+                               , metaGlobalVarFile :: Metadata
+                               , metaGlobalVarLine :: Integer
+                               , metaGlobalVarType :: Metadata
+                               , metaGlobalVarStatic :: Bool
+                               , metaGlobalVarNotExtern :: Bool
+                               , metaGlobalVarRef :: Value
+                               }
               | MetaDWSubprogram { metaSubprogramContext :: Metadata
                                  , metaSubprogramName :: Text
                                  , metaSubprogramDisplayName :: Text
@@ -139,13 +129,23 @@ data Metadata = MetaSourceLocation { metaSourceRow :: Integer
                                  , metaSubprogramType :: Metadata
                                  , metaSubprogramStatic :: Bool
                                  , metaSubprogramNotExtern :: Bool
-                                 , metaSubprogramVirtuality :: DwarfVirtuality
+                                 , metaSubprogramVirtuality :: DW_VIRTUALITY
                                  , metaSubprogramVirtIndex :: Integer
                                  , metaSubprogramBaseType :: Metadata
                                  , metaSubprogramArtificial :: Bool
                                  , metaSubprogramOptimized :: Bool
                                  , metaSubprogramFunction :: Value
                                  }
+              | MetaDWBaseType { metaBaseTypeContext :: Metadata
+                               , metaBaseTypeName :: Text
+                               , metaBaseTypeFile :: Metadata
+                               , metaBaseTypeLine :: Integer
+                               , metaBaseTypeSize :: Integer
+                               , metaBaseTypeAlign :: Integer
+                               , metaBaseTypeOffset :: Integer
+                               , metaBaseTypeFlags :: Integer
+                               , metaBaseTypeEncoding :: DW_ATE
+                               }
               deriving (Show, Eq)
 
 -- valueName is mostly informational at this point.  All references
