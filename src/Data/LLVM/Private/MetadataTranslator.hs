@@ -25,6 +25,8 @@ translateMetadata allMetadata allValues md name reflist isSLoc = M.insert name m
         -- converting a named metadata ref into an actual metadata object
         metaRef (O.ValueRef name) = allMetadata ! name
         metaRef c = error ("Constant is not a metadata reference: " ++ show c)
+        valueRef (O.ValueRef name) = allValues ! name
+        valueRef c = error ("Constant is not a value reference: " ++ show c)
         -- Turn source location meta records into a source location object;
         -- These are the special records without a type tag and ending with
         -- a literal untyped 'null'
