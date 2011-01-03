@@ -62,6 +62,8 @@ library
                    Data.LLVM.Types,
                    Data.LLVM.Private.DwarfHelpers,
                    Data.LLVM.Private.TieKnot,
+                   Data.LLVM.Private.PlaceholderTypeExtractors,
+                   Data.LLVM.Private.MetadataTranslator,
                    Data.LLVM.Private.PlaceholderTypes,
                    Data.LLVM.Private.ParsingMonad,
                    Data.LLVM.Private.AttributeTypes,
