@@ -1,12 +1,15 @@
 module Data.LLVM.Private.TieKnot ( tieKnot ) where
 
-import qualified Data.Text as T
-import Data.LLVM.Private.AttributeTypes
-import qualified Data.LLVM.Private.PlaceholderTypes as O
-import qualified Data.LLVM.Types as N
 import qualified Data.Map as M
 import Data.Map (Map, (!))
+import qualified Data.Text as T
 
+import Data.LLVM.Private.AttributeTypes
+import Data.LLVM.Private.DwarfHelpers
+import qualified Data.LLVM.Private.PlaceholderTypes as O
+import qualified Data.LLVM.Types as N
+
+-- Constant defined by LLVM to version tags
 llvmDebugVersion = 524288
 
 -- Idea:
@@ -80,7 +83,7 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
                                              , N.metaLexicalBlockCol = getInt (components !! 2)
                                              , N.metaLexicalBlockContext = metaRef (components !! 0)
                                              }
-                  17 -> N.MetaDWCompileUnit { N.metaCompileUnitLanguage = N.mkDwarfLang $ getInt (components !! 1)
+                  17 -> N.MetaDWCompileUnit { N.metaCompileUnitLanguage = mkDwarfLang $ getInt (components !! 1)
                                             , N.metaCompileUnitSourceFile = getMDString (components !! 2)
                                             , N.metaCompileUnitCompileDir = getMDString (components !! 3)
                                             , N.metaCompileUnitProducer = getMDString (components !! 4)

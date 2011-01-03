@@ -60,6 +60,7 @@ library
                    Data.LLVM.Lexer,
                    Data.LLVM.AssemblyParser,
                    Data.LLVM.Types,
+                   Data.LLVM.Private.DwarfHelpers,
                    Data.LLVM.Private.TieKnot,
                    Data.LLVM.Private.PlaceholderTypes,
                    Data.LLVM.Private.ParsingMonad,
