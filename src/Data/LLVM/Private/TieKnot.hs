@@ -120,6 +120,6 @@ makeTypeTranslator decls = trans'
           O.TypeStruct ts' -> N.TypeStruct (map trans' ts')
           O.TypePackedStruct ts' -> N.TypePackedStruct (map trans' ts')
           O.TypeUpref i -> error "Type uprefs not supported yet"
-          O.TypeNamed name -> mapping M.! name
+          O.TypeNamed name -> mapping ! name
 
 
