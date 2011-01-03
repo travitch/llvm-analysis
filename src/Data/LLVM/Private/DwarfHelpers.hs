@@ -2,6 +2,7 @@ module Data.LLVM.Private.DwarfHelpers ( mkDwarfVirtuality
                                       , mkDwarfLang
                                       , mkDwarfEncoding
                                       , mkDwarfTag
+                                      , DW_VAR_TAG(..)
                                       ) where
 
 import Data.Dwarf
@@ -117,3 +118,10 @@ mkDwarfTag i = case i of
   55 -> DW_TAG_imported_unit
   56 -> DW_TAG_condition
   57 -> DW_TAG_shared_type
+
+-- This is a temporary type until the dwarf package supports DWARF4
+-- extensions
+data DW_VAR_TAG = DW_TAG_auto_variable
+                | DW_TAG_arg_variable
+                | DW_TAG_return_variable
+                deriving (Show, Eq)

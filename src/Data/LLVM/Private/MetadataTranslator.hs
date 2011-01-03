@@ -67,12 +67,12 @@ translateMetadata allMetadata allValues md name reflist isSLoc = M.insert name m
           41 -> mkFile metaRef components
           53 -> mkDerivedType metaRef DW_TAG_volatile_type components
           55 -> mkDerivedType metaRef DW_TAG_restrict_type components
+          256 -> mkLocalVar metaRef DW_TAG_auto_variable components
+          257 -> mkLocalVar metaRef DW_TAG_arg_variable components
+          258 -> mkLocalVar metaRef DW_TAG_return_variable components
           -- These are probably DWARF4 extensions.  FIXME: Re-add them
           -- when the dwarf package supports them
 
-          -- 256 -> mkLocalVar metaRef DW_TAG_auto_variable components
-          -- 257 -> mkLocalVar metaRef DW_TAG_arg_variable components
-          -- 258 -> mkLocalVar metaRef DW_TAG_return_variable components
           -- 259 -> mkCompositeType metaRef DW_TAG_vector_type components
 
 mkLocalVar metaRef tag [ context, name, file, line, typeDesc ] =

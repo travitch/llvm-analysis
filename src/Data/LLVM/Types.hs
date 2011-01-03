@@ -9,7 +9,9 @@ module Data.LLVM.Types ( Module(..)
 
 import Data.Dwarf
 import Data.Text (Text)
+
 import Data.LLVM.Private.AttributeTypes
+import Data.LLVM.Private.DwarfHelpers
 
 data Module = Module { moduleDataLayout :: DataLayout
                      , moduleTarget :: TargetTriple
@@ -126,7 +128,7 @@ data Metadata =
   | MetaDWEnumerator { metaEnumeratorName :: Text
                      , metaEnumeratorValue :: Integer
                      }
-  | MetaDWLocal { metaLocalTag :: DW_TAG
+  | MetaDWLocal { metaLocalTag :: DW_VAR_TAG
                 , metaLocalContext :: Metadata
                 , metaLocalName :: Text
                 , metaLocalFile :: Metadata
