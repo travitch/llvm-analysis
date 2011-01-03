@@ -1,5 +1,6 @@
 module Data.LLVM.Private.MetadataTranslator ( translateMetadata ) where
 
+import Data.Dwarf
 import qualified Data.Map as M
 import Data.Map (Map, (!))
 
@@ -46,11 +47,73 @@ translateMetadata allMetadata allValues md name reflist isSLoc = M.insert name m
         -- Here, subtract out the version information from the tag
         -- and construct the indicated record type
         mkMetadata tag components = case (getInt tag) - llvmDebugVersion of
+          1 -> mkCompositeType metaRef DW_TAG_array_type components
+          4 -> mkCompositeType metaRef DW_TAG_enumeration_type components
+          5 -> mkDerivedType metaRef DW_TAG_formal_parameter components
           11 -> mkLexicalBlock metaRef components
+          13 -> mkDerivedType metaRef DW_TAG_member components
+          15 -> mkDerivedType metaRef DW_TAG_pointer_type components
+          16 -> mkDerivedType metaRef DW_TAG_reference_type components
           17 -> mkCompileUnit components
+          19 -> mkCompositeType metaRef DW_TAG_structure_type components
+          21 -> mkCompositeType metaRef DW_TAG_subroutine_type components
+          22 -> mkDerivedType metaRef DW_TAG_typedef components
+          23 -> mkCompositeType metaRef DW_TAG_union_type components
+          28 -> mkCompositeType metaRef DW_TAG_inheritance components
           33 -> mkSubrange components
+          36 -> mkBaseType metaRef components
+          38 -> mkDerivedType metaRef DW_TAG_const_type components
           40 -> mkEnumerator components
           41 -> mkFile metaRef components
+          53 -> mkDerivedType metaRef DW_TAG_volatile_type components
+          55 -> mkDerivedType metaRef DW_TAG_restrict_type components
+          -- These are probably DWARF4 extensions.  FIXME: Re-add them
+          -- when the dwarf package supports them
+
+          -- 256 -> mkLocalVar metaRef DW_TAG_auto_variable components
+          -- 257 -> mkLocalVar metaRef DW_TAG_arg_variable components
+          -- 258 -> mkLocalVar metaRef DW_TAG_return_variable components
+          -- 259 -> mkCompositeType metaRef DW_TAG_vector_type components
+
+mkLocalVar metaRef tag [ context, name, file, line, typeDesc ] =
+  N.MetaDWLocal { N.metaLocalTag = tag
+                , N.metaLocalContext = metaRef context
+                , N.metaLocalName = getMDString name
+                , N.metaLocalFile = metaRef file
+                , N.metaLocalLine = getInt line
+                , N.metaLocalType = metaRef typeDesc
+                }
+mkLocalVar _ _ c = error ("Invalid local variable descriptor: " ++ show c)
+
+-- NOTE: Not quite sure what the member descriptor array looks like...
+mkCompositeType metaRef tag [ context, name, file, line, size, align, offset, flags, parent, members, langs ] =
+  N.MetaDWCompositeType { N.metaCompositeTypeTag = tag
+                        , N.metaCompositeTypeContext = metaRef context
+                        , N.metaCompositeTypeName = getMDString name
+                        , N.metaCompositeTypeFile = metaRef file
+                        , N.metaCompositeTypeLine = getInt line
+                        , N.metaCompositeTypeSize = getInt size
+                        , N.metaCompositeTypeAlign = getInt align
+                        , N.metaCompositeTypeOffset = getInt offset
+                        , N.metaCompositeTypeFlags = getInt flags
+                        , N.metaCompositeTypeParent = metaRef parent
+                        , N.metaCompositeTypeMembers = metaRef members
+                        , N.metaCompositeTypeRuntime = getInt langs
+                        }
+mkCompositeType _ _ c = error ("Invalid composite type descriptor: " ++ show c)
+
+mkDerivedType metaRef tag [ context, name, file, line, size, align, offset, parent ] =
+  N.MetaDWDerivedType { N.metaDerivedTypeTag = tag
+                      , N.metaDerivedTypeContext = metaRef context
+                      , N.metaDerivedTypeName = getMDString name
+                      , N.metaDerivedTypeFile = metaRef file
+                      , N.metaDerivedTypeLine = getInt line
+                      , N.metaDerivedTypeSize = getInt size
+                      , N.metaDerivedTypeAlign = getInt align
+                      , N.metaDerivedTypeOffset = getInt offset
+                      , N.metaDerivedTypeParent = metaRef parent
+                      }
+mkDerivedType _ _ c = error ("Invalid derived type descriptor: " ++ show c)
 
 mkEnumerator [ name, value ] =
   N.MetaDWEnumerator { N.metaEnumeratorName = getMDString name
@@ -96,3 +159,17 @@ mkCompileUnit [ lang, source, dir, producer, isMain, isOpt, flags, version ] =
                       , N.metaCompileUnitVersion = getInt version
                       }
 mkCompileUnit c = error ("Invalid compile unit content: " ++ show c)
+
+
+mkBaseType metaRef [ context, name, file, line, size, align, offset, flags, dwtype] =
+  N.MetaDWBaseType { N.metaBaseTypeContext = metaRef context
+                   , N.metaBaseTypeName = getMDString name
+                   , N.metaBaseTypeFile = metaRef file
+                   , N.metaBaseTypeLine = getInt line
+                   , N.metaBaseTypeSize = getInt size
+                   , N.metaBaseTypeAlign = getInt align
+                   , N.metaBaseTypeOffset = getInt offset
+                   , N.metaBaseTypeFlags = getInt flags
+                   , N.metaBaseTypeEncoding = mkDwarfEncoding $ getInt dwtype
+                   }
+mkBaseType _ c = error ("Invalid base type descriptor content: " ++ show c)
