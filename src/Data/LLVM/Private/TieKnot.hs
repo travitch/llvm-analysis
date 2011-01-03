@@ -96,6 +96,13 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
                                      , N.metaFileSourceDir = getMDString (components !! 1)
                                      , N.metaFileCompileUnit = metaRef (components !! 2)
                                      }
+                  33 -> N.MetaDWSubrange { N.metaSubrangeLow = getInt (components !! 0)
+                                         , N.metaSubrangeHigh = getInt (components !! 1)
+                                         }
+                  40 -> N.MetaDWEnumerator { N.metaEnumeratorName = getMDString (components !! 0)
+                                           , N.metaEnumeratorValue = getInt (components !! 1)
+                                           }
+
 -- Notes on metadata blocks.  An MDNode containing just a reference to
 -- other metadata can probably just be collapsed.  An MDNode
 -- containing any other single value or reference is an argument to
