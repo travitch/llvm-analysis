@@ -30,7 +30,7 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkGlobalAlias
                                              ) where
 
-import Data.ByteString.Lazy (ByteString)
+import Data.Text (Text)
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.PlaceholderTypes
@@ -50,7 +50,7 @@ mkInsertElementInst name tyr val sclr idx =
 mkDataLayout :: a -> DataLayout
 mkDataLayout s = defaultDataLayout
 
-mkTriple :: ByteString -> TargetTriple
+mkTriple :: Text -> TargetTriple
 mkTriple = TargetTriple
 
 mkShuffleVectorInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Type -> PartialConstant -> m Instruction
@@ -203,13 +203,13 @@ mkGlobalDecl ident addrSpace annots initType init align =
   where t = TypePointer initType
         i = init initType
 
-mkBasicBlock :: ByteString -> [Instruction] -> BasicBlock
+mkBasicBlock :: Text -> [Instruction] -> BasicBlock
 mkBasicBlock = BasicBlock
 
 mkFunctionDef :: LinkageType -> VisibilityStyle -> CallingConvention ->
                  [ParamAttribute] -> Type -> Identifier ->
                  ([FormalParameter], Bool) -> [FunctionAttribute] ->
-                 Maybe ByteString -> Integer -> GCName -> [BasicBlock] ->
+                 Maybe Text -> Integer -> GCName -> [BasicBlock] ->
                  GlobalDeclaration
 mkFunctionDef linkage vis cc retAttr retTy name (args, isVararg) fAttrs section align gcname body =
   FunctionDefinition { funcLinkage = linkage

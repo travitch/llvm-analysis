@@ -2,10 +2,10 @@ module Data.LLVM.Private.ParsingMonad ( ParsingMonad(..)
                                       , runLLVMParser
                                       ) where
 
-import Data.ByteString.Lazy (ByteString)
+import Data.Text (Text)
 import Data.LLVM.Lexer
 
-runLLVMParser :: ([Token] -> ParsingMonad a) -> ByteString -> Maybe a
+runLLVMParser :: ([Token] -> ParsingMonad a) -> Text -> Maybe a
 runLLVMParser p bs = case res of
   Ok result -> Just result
   _ -> Nothing

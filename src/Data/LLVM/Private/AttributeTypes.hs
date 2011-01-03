@@ -22,14 +22,14 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Map (Map)
 import Data.Set (Set)
-import Data.ByteString.Lazy (ByteString)
+import Data.Text (Text)
 
-data Assembly = Assembly ByteString
+data Assembly = Assembly Text
                 deriving (Show, Eq)
 
-data Identifier = LocalIdentifier ByteString
-                | GlobalIdentifier ByteString
-                | MetaIdentifier ByteString
+data Identifier = LocalIdentifier Text
+                | GlobalIdentifier Text
+                | MetaIdentifier Text
                   deriving (Show, Eq, Ord)
 
 data LinkageType = LTPrivate
@@ -97,7 +97,7 @@ data Endian = EBig
 data AlignSpec = AlignSpec Int Int
                  deriving (Show, Eq)
 
-data TargetTriple = TargetTriple ByteString
+data TargetTriple = TargetTriple Text
                     deriving (Show, Eq)
 
 data DataLayout = DataLayout { endianness :: Endian
@@ -132,7 +132,7 @@ defaultDataLayout = DataLayout { endianness = EBig
                                , nativeWidths = Set.empty
                                }
 
-data GCName = GCName ByteString deriving (Show, Eq)
+data GCName = GCName Text deriving (Show, Eq)
 
 data ICmpCondition = ICmpEq
                    | ICmpNe

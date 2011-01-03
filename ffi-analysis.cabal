@@ -52,7 +52,7 @@ library
   -- Main-is: Main.hs
 
   -- Packages needed in order to build this package.
-  build-depends: bytestring, base > 3 && < 5, array, data-binary-ieee754, containers
+  build-depends: text, base > 3 && < 5, array, data-binary-ieee754, containers
   hs-source-dirs: src
 
   -- Modules not exported by this package.

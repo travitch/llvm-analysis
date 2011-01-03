@@ -3,11 +3,13 @@ module Data.LLVM.Types ( Module(..)
                        , Type(..)
                        , Value(..)
                        , ValueT(..)
+                       , DwarfLanguage(..)
+                       , mkDwarfLang
                        , isExternalFunction
                        , functionAttributes
                        ) where
 
-import Data.ByteString.Lazy (ByteString)
+import Data.Text (Text)
 import Data.LLVM.Private.AttributeTypes
 
 data Module = Module { moduleDataLayout :: DataLayout
@@ -35,12 +37,72 @@ data Type = TypeInteger Int -- bits
           | TypePackedStruct [Type]
           deriving (Show, Eq)
 
+data DwarfLanguage = DWLangC89        -- 1
+                   | DWLangC          -- 2
+                   | DWLangAda83      -- 3
+                   | DWLangCpp        -- 4
+                   | DWLangCobol74    -- 5
+                   | DWLangCobol85    -- 6
+                   | DWLangFortran77  -- 7
+                   | DWLangFortran90  -- 8
+                   | DWLangPascal83   -- 9
+                   | DWLangModula2    -- 10
+                   | DWLangJava       -- 11
+                   | DWLangC99        -- 12
+                   | DWLangAda95      -- 13
+                   | DWLangFortran95  -- 14
+                   | DWLangPLI        -- 15
+                   | DWLangObjC       -- 16
+                   | DWLangObjCpp     -- 17
+                   | DWLangUPC        -- 18 (also 0x8765)
+                   | DWLangD          -- 19
+                   | DWLangPython     -- 20
+                   | DWLangOther Integer
+                   deriving (Show, Eq)
+
+mkDwarfLang i = case i of
+  1 -> DWLangC89
+  2 -> DWLangC
+  3 -> DWLangAda83
+  4 -> DWLangCpp
+  5 -> DWLangCobol74
+  6 -> DWLangCobol85
+  7 -> DWLangFortran77
+  8 -> DWLangFortran90
+  9 -> DWLangPascal83
+  10 -> DWLangModula2
+  11 -> DWLangJava
+  12 -> DWLangC99
+  13 -> DWLangAda95
+  14 -> DWLangFortran95
+  15 -> DWLangPLI
+  16 -> DWLangObjC
+  17 -> DWLangObjCpp
+  18 -> DWLangUPC
+  0x8765 -> DWLangUPC
+  19 -> DWLangD
+  20 -> DWLangPython
+  _ -> DWLangOther i
+
 data Metadata = MetaSourceLocation { metaSourceRow :: Integer
                                    , metaSourceCol :: Integer
                                    , metaSourceScope :: Metadata
                                    }
-              | MetaDWLexicalBlock
+              | MetaNewValue Value
+              | MetaDWLexicalBlock { metaLexicalBlockRow :: Integer
+                                   , metaLexicalBlockCol :: Integer
+                                   , metaLexicalBlockContext :: Metadata
+                                   }
               | MetaDWAutoVariable
+              | MetaDWCompileUnit { metaCompileUnitLanguage :: DwarfLanguage
+                                  , metaCompileUnitSourceFile :: Text
+                                  , metaCompileUnitCompileDir :: Text
+                                  , metaCompileUnitProducer :: Text
+                                  , metaCompileUnitIsMain :: Bool
+                                  , metaCompileUnitIsOpt :: Bool
+                                  , metaCompileUnitFlags :: Text
+                                  , metaCompileUnitVersion :: Integer
+                                  }
                 deriving (Show, Eq)
 
 -- valueName is mostly informational at this point.  All references
@@ -51,6 +113,7 @@ data Value = Value { valueType :: Type
                    , valueMetadata :: Maybe Metadata
                    , valueContent :: ValueT
                    }
+           deriving (Show, Eq)
 
 isExternalFunction :: Value -> Bool
 isExternalFunction Value { valueContent = Function { functionParameters = Just _
@@ -68,4 +131,5 @@ data ValueT = Function { functionType :: Type
                        , functionParameters :: Maybe [Value] -- A list of arguments
                        , functionBody :: Maybe [Value] -- A list of basic blocks
                        }
+            deriving (Show, Eq)
 
