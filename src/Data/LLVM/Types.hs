@@ -4,6 +4,8 @@ module Data.LLVM.Types ( Module(..)
                        , Value(..)
                        , ValueT(..)
                        , DwarfLanguage(..)
+                       , DwarfVirtuality(..)
+                       , mkDwarfVirtuality
                        , mkDwarfLang
                        , isExternalFunction
                        , functionAttributes
@@ -36,6 +38,17 @@ data Type = TypeInteger Int -- bits
           | TypeStruct [Type]
           | TypePackedStruct [Type]
           deriving (Show, Eq)
+
+data DwarfVirtuality = DWVirtNone        -- 1
+                     | DWVirtVirtual     -- 2
+                     | DWVirtPureVirtual -- 3
+                     deriving (Show, Eq)
+
+mkDwarfVirtuality i = case i of
+  1 -> DWVirtNone
+  2 -> DWVirtVirtual
+  3 -> DWVirtPureVirtual
+  _ -> error "Invalid virtuality"
 
 data DwarfLanguage = DWLangC89        -- 1
                    | DWLangC          -- 2
@@ -103,7 +116,37 @@ data Metadata = MetaSourceLocation { metaSourceRow :: Integer
                                   , metaCompileUnitFlags :: Text
                                   , metaCompileUnitVersion :: Integer
                                   }
-                deriving (Show, Eq)
+              | MetaDWFile { metaFileSourceFile :: Text
+                           , metaFileSourceDir :: Text
+                           , metaFileCompileUnit :: Metadata
+                           }
+              | MetaDWGlobalVar { metaGlobalVarContext :: Metadata
+                                , metaGlobalVarName :: Text
+                                , metaGlobalVarDisplayName :: Text
+                                , metaGlobalVarLinkageName :: Text
+                                , metaGlobalVarFile :: Metadata
+                                , metaGlobalVarLine :: Integer
+                                , metaGlobalVarType :: Metadata
+                                , metaGlobalVarStatic :: Bool
+                                , metaGlobalVarNotExtern :: Bool
+                                , metaGlobalVarRef :: Value
+                                }
+              | MetaDWSubprogram { metaSubprogramContext :: Metadata
+                                 , metaSubprogramName :: Text
+                                 , metaSubprogramDisplayName :: Text
+                                 , metaSubprogramLinkageName :: Text
+                                 , metaSubprogramLine :: Integer
+                                 , metaSubprogramType :: Metadata
+                                 , metaSubprogramStatic :: Bool
+                                 , metaSubprogramNotExtern :: Bool
+                                 , metaSubprogramVirtuality :: DwarfVirtuality
+                                 , metaSubprogramVirtIndex :: Integer
+                                 , metaSubprogramBaseType :: Metadata
+                                 , metaSubprogramArtificial :: Bool
+                                 , metaSubprogramOptimized :: Bool
+                                 , metaSubprogramFunction :: Value
+                                 }
+              deriving (Show, Eq)
 
 -- valueName is mostly informational at this point.  All references
 -- will be resolved as part of the graph, but the name will be useful

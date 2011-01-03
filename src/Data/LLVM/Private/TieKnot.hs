@@ -7,6 +7,8 @@ import qualified Data.LLVM.Types as N
 import qualified Data.Map as M
 import Data.Map (Map, (!))
 
+llvmDebugVersion = 524288
+
 -- Idea:
 -- 1) Extract module assembly since it stands alone.
 -- 2) Build a function that eliminates named types and can map a
@@ -73,7 +75,7 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
 
                 -- Here, subtract out the version information from the
                 -- tag.
-                mkMetadata tag components = case (getInt tag) - 524288 of
+                mkMetadata tag components = case (getInt tag) - llvmDebugVersion of
                   11 -> N.MetaDWLexicalBlock { N.metaLexicalBlockRow = getInt (components !! 1)
                                              , N.metaLexicalBlockCol = getInt (components !! 2)
                                              , N.metaLexicalBlockContext = metaRef (components !! 0)
@@ -87,6 +89,10 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
                                             , N.metaCompileUnitFlags = getMDString (components !! 7)
                                             , N.metaCompileUnitVersion = getInt (components !! 8)
                                             }
+                  41 -> N.MetaDWFile { N.metaFileSourceFile = getMDString (components !! 0)
+                                     , N.metaFileSourceDir = getMDString (components !! 1)
+                                     , N.metaFileCompileUnit = metaRef (components !! 2)
+                                     }
 -- Notes on metadata blocks.  An MDNode containing just a reference to
 -- other metadata can probably just be collapsed.  An MDNode
 -- containing any other single value or reference is an argument to
