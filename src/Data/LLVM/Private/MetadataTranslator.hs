@@ -40,17 +40,17 @@ translateMetadata allMetadata allValues md name reflist = M.insert name decodeRe
         decodeRefs = case reflist of
           [] -> error "Empty metadata not allowed"
           [Just elt] -> mkMDAliasOrValue elt
-          other -> mkMetadataOrSloc other
+          other -> mkMetadataOrSrcLoc other
         -- Handle the singleton metadata records
         mkMDAliasOrValue vref@(O.ValueRef name) = metaRef vref
         -- FIXME: Uncomment after implementing generic value translation
         -- mkMDAliasOrValue val = MetaNewValue (translate val)
 
-        mkMetadataOrSloc vals@[Just tag, a, b, Nothing] =
+        mkMetadataOrSrcLoc vals@[Just tag, a, b, Nothing] =
           if getInt tag < llvmDebugVersion
           then mkSourceLocation metaRef vals
           else mkMetadata tag [a, b, Nothing]
-        mkMetadataOrSloc ((Just tag):rest) = mkMetadata tag rest
+        mkMetadataOrSrcLoc ((Just tag):rest) = mkMetadata tag rest
 
         -- Here, subtract out the version information from the tag
         -- and construct the indicated record type
@@ -73,6 +73,8 @@ translateMetadata allMetadata allValues md name reflist = M.insert name decodeRe
           38 -> mkDerivedType metaRef DW_TAG_const_type components
           40 -> mkEnumerator components
           41 -> mkFile metaRef components
+          46 -> mkSubprogram metaRef valueRef components
+          52 -> mkGlobalVar metaRef valueRef components
           53 -> mkDerivedType metaRef DW_TAG_volatile_type components
           55 -> mkDerivedType metaRef DW_TAG_restrict_type components
           256 -> mkLocalVar metaRef DW_TAG_auto_variable components
@@ -83,6 +85,48 @@ translateMetadata allMetadata allValues md name reflist = M.insert name decodeRe
 
           -- 259 -> mkCompositeType metaRef DW_TAG_vector_type components
           where tag' = getInt tag
+
+mkSubprogram metaRef valueRef [ _, Just context, Just name, Just displayName
+                              , Just linkageName, Just file, Just line
+                              , Just typ, Just isGlobal, Just notExtern
+                              , Just virt, Just virtidx, basetype
+                              , Just isArtif, Just isOpt, Just ptr] =
+  N.MetaDWSubprogram { N.metaSubprogramContext = metaRef context
+                     , N.metaSubprogramName = getMDString name
+                     , N.metaSubprogramDisplayName = getMDString displayName
+                     , N.metaSubprogramLinkageName = getMDString linkageName
+                     , N.metaSubprogramFile = metaRef file
+                     , N.metaSubprogramLine = getInt line
+                     , N.metaSubprogramType = metaRef typ
+                     , N.metaSubprogramStatic = getBool isGlobal
+                     , N.metaSubprogramNotExtern = getBool notExtern
+                     , N.metaSubprogramVirtuality = mkDwarfVirtuality $ getInt virt
+                     , N.metaSubprogramVirtIndex = getInt virtidx
+                     , N.metaSubprogramBaseType = metaRef' basetype
+                     , N.metaSubprogramArtificial = getBool isArtif
+                     , N.metaSubprogramOptimized = getBool isOpt
+                     , N.metaSubprogramFunction = valueRef ptr
+                     }
+  where metaRef' = maybe Nothing (Just . metaRef)
+mkSubprogram _ _ c = error ("Invalid subprogram descriptor: " ++ show c)
+
+mkGlobalVar metaRef valueRef [ _, Just context, Just name, Just displayName
+                             , Just linkageName, Just file, Just line
+                             , Just typ, Just isStatic, Just notExtern
+                             , Just varRef ] =
+  N.MetaDWVariable { N.metaGlobalVarContext = metaRef context
+                   , N.metaGlobalVarName = getMDString name
+                   , N.metaGlobalVarDisplayName = getMDString displayName
+                   , N.metaGlobalVarLinkageName = getMDString linkageName
+                   , N.metaGlobalVarFile = metaRef file
+                   , N.metaGlobalVarLine = getInt line
+                   , N.metaGlobalVarType = metaRef typ
+                   , N.metaGlobalVarStatic = getBool isStatic
+                   , N.metaGlobalVarNotExtern = getBool notExtern
+                   , N.metaGlobalVarRef = valueRef varRef
+                   }
+
+mkGlobalVar _ _ c = error ("Invalid global variable descriptor: " ++ show c)
 
 mkLocalVar metaRef tag [ Just context, Just name, Just file
                        , Just line, Just typeDesc ] =

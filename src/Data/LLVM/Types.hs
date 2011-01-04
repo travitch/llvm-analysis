@@ -78,13 +78,14 @@ data Metadata =
                      , metaSubprogramName :: Text
                      , metaSubprogramDisplayName :: Text
                      , metaSubprogramLinkageName :: Text
+                     , metaSubprogramFile :: Metadata
                      , metaSubprogramLine :: Integer
                      , metaSubprogramType :: Metadata
                      , metaSubprogramStatic :: Bool
                      , metaSubprogramNotExtern :: Bool
                      , metaSubprogramVirtuality :: DW_VIRTUALITY
                      , metaSubprogramVirtIndex :: Integer
-                     , metaSubprogramBaseType :: Metadata
+                     , metaSubprogramBaseType :: Maybe Metadata
                      , metaSubprogramArtificial :: Bool
                      , metaSubprogramOptimized :: Bool
                      , metaSubprogramFunction :: Value
