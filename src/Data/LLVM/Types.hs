@@ -91,7 +91,7 @@ data Metadata =
                      }
   | MetaDWBaseType { metaBaseTypeContext :: Metadata
                    , metaBaseTypeName :: Text
-                   , metaBaseTypeFile :: Metadata
+                   , metaBaseTypeFile :: Maybe Metadata
                    , metaBaseTypeLine :: Integer
                    , metaBaseTypeSize :: Integer
                    , metaBaseTypeAlign :: Integer
@@ -102,7 +102,7 @@ data Metadata =
   | MetaDWDerivedType { metaDerivedTypeTag :: DW_TAG
                       , metaDerivedTypeContext :: Metadata
                       , metaDerivedTypeName :: Text
-                      , metaDerivedTypeFile :: Metadata
+                      , metaDerivedTypeFile :: Maybe Metadata
                       , metaDerivedTypeLine :: Integer
                       , metaDerivedTypeSize :: Integer
                       , metaDerivedTypeAlign :: Integer
@@ -112,7 +112,7 @@ data Metadata =
   | MetaDWCompositeType { metaCompositeTypeTag :: DW_TAG
                         , metaCompositeTypeContext :: Metadata
                         , metaCompositeTypeName :: Text
-                        , metaCompositeTypeFile :: Metadata
+                        , metaCompositeTypeFile :: Maybe Metadata
                         , metaCompositeTypeLine :: Integer
                         , metaCompositeTypeSize :: Integer
                         , metaCompositeTypeAlign :: Integer

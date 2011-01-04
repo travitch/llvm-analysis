@@ -48,8 +48,8 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
         metaRef c = error ("Constant is not a metadata reference: " ++ show c)
         go [] md gd = (md, gd)
         go (decl:rest) md gd = case decl of
-          O.UnnamedMetadata name refs isSLoc ->
-            go rest (transMetadata md name refs isSLoc) gd
+          O.UnnamedMetadata name refs ->
+            go rest (transMetadata md name refs) gd
           -- O.GlobalDeclaration name addrspace annots ty init align ->
           --   go rest md (transGlobalVar gd name addrspace annots ty init align)
           -- O.FunctionDefinition {} ->

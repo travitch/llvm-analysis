@@ -3,6 +3,7 @@ module Data.LLVM.Private.MetadataTranslator ( translateMetadata ) where
 import Data.Dwarf
 import qualified Data.Map as M
 import Data.Map (Map, (!))
+import Data.Maybe (maybe)
 
 import Data.LLVM.Private.DwarfHelpers
 import Data.LLVM.Private.PlaceholderTypeExtractors
@@ -19,9 +20,8 @@ llvmDebugVersion = 524288
 -- of metadata (besides the source locations handled above) should
 -- have an i32 tag as the first argument
 
-translateMetadata allMetadata allValues md name reflist isSLoc = M.insert name mdval md
-  where mdval = if isSLoc then mkMetaSourceLocation else decodeRefs
-        -- This helper looks up a metadata reference in the *final* metadata map,
+translateMetadata allMetadata allValues md name reflist = M.insert name decodeRefs md
+  where -- This helper looks up a metadata reference in the *final* metadata map,
         -- converting a named metadata ref into an actual metadata object
         metaRef (O.ValueRef name) = allMetadata ! name
         metaRef c = error ("Constant is not a metadata reference: " ++ show c)
@@ -30,7 +30,7 @@ translateMetadata allMetadata allValues md name reflist isSLoc = M.insert name m
         -- Turn source location meta records into a source location object;
         -- These are the special records without a type tag and ending with
         -- a literal untyped 'null'
-        mkMetaSourceLocation = mkSourceLocation metaRef reflist
+        -- mkMetaSourceLocation = mkSourceLocation metaRef reflist
         -- This helper will determine whether the metadata record has
         -- a tag or not; singleton lists can either be forwarding
         -- records (single metadata entry) or a value reference.  Any
@@ -39,16 +39,23 @@ translateMetadata allMetadata allValues md name reflist isSLoc = M.insert name m
         -- should be built.
         decodeRefs = case reflist of
           [] -> error "Empty metadata not allowed"
-          [elt] -> mkMDAliasOrValue elt
-          tag:rest -> mkMetadata tag rest
+          [Just elt] -> mkMDAliasOrValue elt
+          other -> mkMetadataOrSloc other
+          (Just tag):rest -> mkMetadata tag rest
         -- Handle the singleton metadata records
         mkMDAliasOrValue vref@(O.ValueRef name) = metaRef vref
         -- FIXME: Uncomment after implementing generic value translation
         -- mkMDAliasOrValue val = MetaNewValue (translate val)
 
+        mkMetadataOrSloc vals@[Just tag, a, b, Nothing] =
+          if getInt tag < llvmDebugVersion
+          then mkSourceLocation metaRef vals
+          else mkMetadata tag [a, b, Nothing]
+        mkMetadataOrSloc ((Just tag):rest) = mkMetadata tag rest
+
         -- Here, subtract out the version information from the tag
         -- and construct the indicated record type
-        mkMetadata tag components = case (getInt tag) - llvmDebugVersion of
+        mkMetadata tag components = case tag' - llvmDebugVersion of
           1 -> mkCompositeType metaRef DW_TAG_array_type components
           4 -> mkCompositeType metaRef DW_TAG_enumeration_type components
           5 -> mkDerivedType metaRef DW_TAG_formal_parameter components
@@ -76,8 +83,10 @@ translateMetadata allMetadata allValues md name reflist isSLoc = M.insert name m
           -- when the dwarf package supports them
 
           -- 259 -> mkCompositeType metaRef DW_TAG_vector_type components
+          where tag' = getInt tag
 
-mkLocalVar metaRef tag [ context, name, file, line, typeDesc ] =
+mkLocalVar metaRef tag [ Just context, Just name, Just file
+                       , Just line, Just typeDesc ] =
   N.MetaDWLocal { N.metaLocalTag = tag
                 , N.metaLocalContext = metaRef context
                 , N.metaLocalName = getMDString name
@@ -88,11 +97,13 @@ mkLocalVar metaRef tag [ context, name, file, line, typeDesc ] =
 mkLocalVar _ _ c = error ("Invalid local variable descriptor: " ++ show c)
 
 -- NOTE: Not quite sure what the member descriptor array looks like...
-mkCompositeType metaRef tag [ context, name, file, line, size, align, offset, flags, parent, members, langs ] =
+mkCompositeType metaRef tag [ Just context, Just name, file, Just line
+                            , Just size, Just align, Just offset, Just flags
+                            , Just parent, Just members, Just langs ] =
   N.MetaDWCompositeType { N.metaCompositeTypeTag = tag
                         , N.metaCompositeTypeContext = metaRef context
                         , N.metaCompositeTypeName = getMDString name
-                        , N.metaCompositeTypeFile = metaRef file
+                        , N.metaCompositeTypeFile = metaRef' file
                         , N.metaCompositeTypeLine = getInt line
                         , N.metaCompositeTypeSize = getInt size
                         , N.metaCompositeTypeAlign = getInt align
@@ -102,55 +113,59 @@ mkCompositeType metaRef tag [ context, name, file, line, size, align, offset, fl
                         , N.metaCompositeTypeMembers = metaRef members
                         , N.metaCompositeTypeRuntime = getInt langs
                         }
+  where metaRef' = maybe Nothing (Just . metaRef)
 mkCompositeType _ _ c = error ("Invalid composite type descriptor: " ++ show c)
 
-mkDerivedType metaRef tag [ context, name, file, line, size, align, offset, parent ] =
+mkDerivedType metaRef tag [ Just context, Just name, file, Just line
+                          , Just size, Just align, Just offset, Just parent ] =
   N.MetaDWDerivedType { N.metaDerivedTypeTag = tag
                       , N.metaDerivedTypeContext = metaRef context
                       , N.metaDerivedTypeName = getMDString name
-                      , N.metaDerivedTypeFile = metaRef file
+                      , N.metaDerivedTypeFile = metaRef' file
                       , N.metaDerivedTypeLine = getInt line
                       , N.metaDerivedTypeSize = getInt size
                       , N.metaDerivedTypeAlign = getInt align
                       , N.metaDerivedTypeOffset = getInt offset
                       , N.metaDerivedTypeParent = metaRef parent
                       }
+  where metaRef' = maybe Nothing (Just . metaRef)
 mkDerivedType _ _ c = error ("Invalid derived type descriptor: " ++ show c)
 
-mkEnumerator [ name, value ] =
+mkEnumerator [ Just name, Just value ] =
   N.MetaDWEnumerator { N.metaEnumeratorName = getMDString name
                      , N.metaEnumeratorValue = getInt value
                      }
 mkEnumerator c = error ("Invalid enumerator descriptor content: " ++ show c)
 
-mkSubrange [ low, high ] =
+mkSubrange [ Just low, Just high ] =
   N.MetaDWSubrange { N.metaSubrangeLow = getInt low
                    , N.metaSubrangeHigh = getInt high
                    }
 mkSubrange c = error ("Invalid subrange descriptor content: " ++ show c)
 
-mkFile metaRef [ file, dir, unit ] =
+mkFile metaRef [ Just file, Just dir, Just unit ] =
   N.MetaDWFile { N.metaFileSourceFile = getMDString file
                , N.metaFileSourceDir = getMDString dir
                , N.metaFileCompileUnit = metaRef unit
                }
 mkFile _ c = error ("Invalid file descriptor content: " ++ show c)
 
-mkSourceLocation metaRef [ row, col, scope ] =
+mkSourceLocation metaRef [ Just row, Just col, Just scope ] =
   N.MetaSourceLocation { N.metaSourceRow = getInt row
                        , N.metaSourceCol = getInt col
                        , N.metaSourceScope = metaRef scope
                        }
 mkSourceLocation _ c = error ("Invalid source location content: " ++ show c)
 
-mkLexicalBlock metaRef [ context, row, col ] =
+mkLexicalBlock metaRef [ Just context, Just row, Just col ] =
   N.MetaDWLexicalBlock { N.metaLexicalBlockContext = metaRef context
                        , N.metaLexicalBlockRow = getInt row
                        , N.metaLexicalBlockCol = getInt col
                        }
 mkLexicalBlock _ c = error ("Invalid lexical block content: " ++ show c)
 
-mkCompileUnit [ lang, source, dir, producer, isMain, isOpt, flags, version ] =
+mkCompileUnit [ _, Just lang, Just source, Just dir, Just producer, Just isMain
+              , Just isOpt, Just flags, Just version ] =
   N.MetaDWCompileUnit { N.metaCompileUnitLanguage = mkDwarfLang $ getInt lang
                       , N.metaCompileUnitSourceFile = getMDString source
                       , N.metaCompileUnitCompileDir = getMDString dir
@@ -163,10 +178,12 @@ mkCompileUnit [ lang, source, dir, producer, isMain, isOpt, flags, version ] =
 mkCompileUnit c = error ("Invalid compile unit content: " ++ show c)
 
 
-mkBaseType metaRef [ context, name, file, line, size, align, offset, flags, dwtype] =
+
+mkBaseType metaRef [ Just context, Just name, file, Just line, Just size
+                   , Just align, Just offset, Just flags, Just dwtype] =
   N.MetaDWBaseType { N.metaBaseTypeContext = metaRef context
                    , N.metaBaseTypeName = getMDString name
-                   , N.metaBaseTypeFile = metaRef file
+                   , N.metaBaseTypeFile = metaRef' file
                    , N.metaBaseTypeLine = getInt line
                    , N.metaBaseTypeSize = getInt size
                    , N.metaBaseTypeAlign = getInt align
@@ -174,4 +191,5 @@ mkBaseType metaRef [ context, name, file, line, size, align, offset, flags, dwty
                    , N.metaBaseTypeFlags = getInt flags
                    , N.metaBaseTypeEncoding = mkDwarfEncoding $ getInt dwtype
                    }
+  where metaRef' = maybe Nothing (Just . metaRef)
 mkBaseType _ c = error ("Invalid base type descriptor content: " ++ show c)

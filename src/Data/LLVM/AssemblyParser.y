@@ -276,20 +276,24 @@ ExternalDecl:
   | "declare" Type GlobalIdentifier
     { ExternalDecl $2 $3 }
 
-MDNodeContent:
-  Constant MoreMDNodeContent { ($1 : (fst $2), snd $2) }
+MetadataConstant:
+    Constant { Just $1 }
+  | "null"   { Nothing }
 
-MoreMDNodeContent:
-    "," Constant MoreMDNodeContent { ($2 : (fst $3), snd $3) }
-  | "," "null"                     { ([], True) }
-  |                                { ([], False) }
+-- MDNodeContent:
+--   Constant MoreMDNodeContent { ($1 : (fst $2), snd $2) }
+
+-- MoreMDNodeContent:
+--     "," Constant MoreMDNodeContent { ($2 : (fst $3), snd $3) }
+--   | "," "null"                     { ([], True) }
+--   |                                { ([], False) }
 
 MDNode:
-  "!" "{" MDNodeContent "}"   { $3 }
+  "!" "{" sep(MetadataConstant, ",") "}"   { $3 }
 
 UnnamedMetadata:
   MetaIdentifier "=" "metadata" MDNode
-  { mkMDNode $1 (fst $4) (snd $4) }
+  { mkMDNode $1 $4 }
 
 NamedMetadata:
   MetaIdentifier "=" "!" "{" sep1(MetaIdentifier, ",") "}"
@@ -472,7 +476,7 @@ ComplexConstant:
   | "undef"                           { UndefValue }
   | "blockaddress" "(" Identifier "," Identifier ")" { BlockAddress $3 $5 }
   -- The case where the mdnode ends in a plain untyped null shouldn't ever occur here
-  | MDNode                       { MDNode (fst $1) }
+  | MDNode                       { MDNode $1 }
 
 AllConstants:
     SimpleConstant  { $1 }

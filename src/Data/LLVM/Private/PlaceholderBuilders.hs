@@ -227,8 +227,8 @@ mkFunctionDef linkage vis cc retAttr retTy name (args, isVararg) fAttrs section 
                      , funcIsVararg = isVararg
                      }
 
-mkMDNode :: Identifier -> [Constant] -> Bool -> GlobalDeclaration
-mkMDNode name vals isSourceLoc = UnnamedMetadata name vals isSourceLoc
+mkMDNode :: Identifier -> [Maybe Constant] -> GlobalDeclaration
+mkMDNode name vals = UnnamedMetadata name vals
 
 mkNamedMetadata :: Identifier -> [Identifier] -> GlobalDeclaration
 mkNamedMetadata name names = NamedMetadata name vals

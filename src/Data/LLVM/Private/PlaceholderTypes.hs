@@ -145,7 +145,7 @@ data GlobalDeclaration = GlobalDeclaration Identifier Int [GlobalAnnotation] Typ
                        | ModuleAssembly Assembly
                        | ExternalDecl Type Identifier
                        | NamedMetadata Identifier [Constant]
-                       | UnnamedMetadata Identifier [Constant] Bool
+                       | UnnamedMetadata Identifier [Maybe Constant]
                        | FunctionDefinition { funcLinkage :: LinkageType
                                             , funcVisibility :: VisibilityStyle
                                             , funcCC :: CallingConvention
@@ -176,7 +176,7 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
                | ConstantStruct [Constant] -- Just a list of other constants
                | ConstantVector [Constant] -- again
                | UndefValue
-               | MDNode [Constant] -- A list of constants (and other metadata)
+               | MDNode [Maybe Constant] -- A list of constants (and other metadata)
                | MDString Text
                | GlobalVariable VisibilityStyle LinkageType Text
                deriving (Show, Eq)
