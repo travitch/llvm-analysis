@@ -41,7 +41,6 @@ translateMetadata allMetadata allValues md name reflist = M.insert name decodeRe
           [] -> error "Empty metadata not allowed"
           [Just elt] -> mkMDAliasOrValue elt
           other -> mkMetadataOrSloc other
-          (Just tag):rest -> mkMetadata tag rest
         -- Handle the singleton metadata records
         mkMDAliasOrValue vref@(O.ValueRef name) = metaRef vref
         -- FIXME: Uncomment after implementing generic value translation
