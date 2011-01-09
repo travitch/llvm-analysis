@@ -43,23 +43,28 @@ completeGraph :: (O.Type -> N.Type) ->
                  [O.GlobalDeclaration] ->
                  [N.Value]
 completeGraph typeMapper externMapper decls = M.elems globalDecls
-  where (metadata, globalDecls) = go decls M.empty M.empty
+  where globalDecls = go decls M.empty
+        (metadata, mdForVals) = mdGo decls (M.empty, M.empty)
+        mdGo [] (md, mv) = (md, mv)
+        mdGo ((O.UnnamedMetadata name refs) : rest) (md, mv) =
+          mdGo rest (transMetadata md mv name refs)
+        mdGo (_:rest) vs = mdGo rest vs
         metaRef (O.ValueRef name) = metadata ! name
         metaRef c = error ("Constant is not a metadata reference: " ++ show c)
-        go [] md gd = (md, gd)
-        go (decl:rest) md gd = case decl of
-          O.UnnamedMetadata name refs ->
-            go rest (transMetadata md name refs) gd
+        go [] vals = vals
+        go (decl:rest) vals = vals --  case decl of
+          -- O.UnnamedMetadata name refs ->
+          --   go rest (transMetadata md name refs) gd
           -- O.GlobalDeclaration name addrspace annots ty init align ->
           --   go rest md (transGlobalVar gd name addrspace annots ty init align)
           -- O.FunctionDefinition {} ->
           --   go rest md (transFuncDef gd decl)
           -- O.GlobalAlias name linkage vis type const ->
           --   go rest md (transAlias gd name linkage vis type const)
-          _ -> go rest md gd
+          -- _ -> go rest md gd
         -- Return the updated metadata graph - but needs to refer to
         -- the "completed" version in 'metadata'
-        transMetadata = translateMetadata metadata globalDecls
+        transMetadata = translateMetadata metadata
 
 extractModuleAssembly :: [O.GlobalDeclaration] -> [Assembly]
 extractModuleAssembly decls = reverse $ foldr xtract [] decls

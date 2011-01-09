@@ -3,8 +3,9 @@ module Data.LLVM.Private.MetadataTranslator ( translateMetadata ) where
 import Data.Dwarf
 import qualified Data.Map as M
 import Data.Map (Map, (!))
-import Data.Maybe (maybe)
+import Data.Maybe (maybe, fromJust)
 
+import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.DwarfHelpers
 import Data.LLVM.Private.PlaceholderTypeExtractors
 import qualified Data.LLVM.Private.PlaceholderTypes as O
@@ -20,13 +21,27 @@ llvmDebugVersion = 524288
 -- of metadata (besides the source locations handled above) should
 -- have an i32 tag as the first argument
 
-translateMetadata allMetadata allValues md name reflist = M.insert name decodeRefs md
-  where -- This helper looks up a metadata reference in the *final* metadata map,
+translateMetadata :: (Map Identifier N.Metadata) ->
+                     (Map Identifier N.Metadata) ->
+                     (Map Identifier N.Metadata) ->
+                     Identifier -> [Maybe O.Constant]
+                     -> (Map Identifier N.Metadata, Map Identifier N.Metadata)
+translateMetadata allMetadata md valmd name reflist =
+  (M.insert name newMetadata md, maybe valmd updateValMDMap valueMapping)
+  where (newMetadata, valueMapping) = decodeRefs
+        updateValMDMap :: Identifier -> Map Identifier N.Metadata
+        updateValMDMap ident = M.insert ident newMetadata valmd
+        -- This helper looks up a metadata reference in the *final* metadata map,
         -- converting a named metadata ref into an actual metadata object
         metaRef (O.ValueRef name) = allMetadata ! name
         metaRef c = error ("Constant is not a metadata reference: " ++ show c)
-        valueRef (O.ValueRef name) = allValues ! name
-        valueRef c = error ("Constant is not a value reference: " ++ show c)
+        -- valueRef (O.ValueRef name) = allValues ! name
+        -- valueRef c = error ("Constant is not a value reference: " ++ show c)
+
+        allRefsMetadata = all isMetadata reflist
+        isMetadata (Just (O.ValueRef (MetaIdentifier _))) = True
+        isMetadata _ = False
+
         -- Turn source location meta records into a source location object;
         -- These are the special records without a type tag and ending with
         -- a literal untyped 'null'
@@ -37,15 +52,22 @@ translateMetadata allMetadata allValues md name reflist = M.insert name decodeRe
         -- other type of metadata record begins with a *tag*.
         -- Dispatch on this tag to figure out what type of record
         -- should be built.
-        decodeRefs = case reflist of
-          [] -> error "Empty metadata not allowed"
-          [Just elt] -> mkMDAliasOrValue elt
-          other -> mkMetadataOrSrcLoc other
+        decodeRefs :: (N.Metadata, Maybe Identifier)
+        decodeRefs =
+          if allRefsMetadata
+          then (N.MetadataList $ map (metaRef . fromJust) reflist, Nothing)
+          else case reflist of
+            [] -> error "Empty metadata not allowed"
+            [Just elt] -> translateConstant elt
+            _ -> mkMetadataOrSrcLoc reflist
         -- Handle the singleton metadata records
-        mkMDAliasOrValue vref@(O.ValueRef name) = metaRef vref
+        -- mkMDAliasOrValue vref@(O.ValueRef name) = metaRef vref
         -- FIXME: Uncomment after implementing generic value translation
         -- mkMDAliasOrValue val = MetaNewValue (translate val)
+        translateConstant :: O.Constant -> (N.Metadata, Maybe Identifier)
+        translateConstant elt = (N.MetadataValueConstant, Nothing)
 
+        mkMetadataOrSrcLoc :: [Maybe O.Constant] -> (N.Metadata, Maybe Identifier)
         mkMetadataOrSrcLoc vals@[Just tag, a, b, Nothing] =
           if getInt tag < llvmDebugVersion
           then mkSourceLocation metaRef vals
@@ -54,6 +76,7 @@ translateMetadata allMetadata allValues md name reflist = M.insert name decodeRe
 
         -- Here, subtract out the version information from the tag
         -- and construct the indicated record type
+        mkMetadata :: O.Constant -> [Maybe O.Constant] -> (N.Metadata, Maybe Identifier)
         mkMetadata tag components = case tag' - llvmDebugVersion of
           1 -> mkCompositeType metaRef DW_TAG_array_type components
           4 -> mkCompositeType metaRef DW_TAG_enumeration_type components
@@ -73,8 +96,8 @@ translateMetadata allMetadata allValues md name reflist = M.insert name decodeRe
           38 -> mkDerivedType metaRef DW_TAG_const_type components
           40 -> mkEnumerator components
           41 -> mkFile metaRef components
-          46 -> mkSubprogram metaRef valueRef components
-          52 -> mkGlobalVar metaRef valueRef components
+          46 -> mkSubprogram metaRef components
+          52 -> mkGlobalVar metaRef components
           53 -> mkDerivedType metaRef DW_TAG_volatile_type components
           55 -> mkDerivedType metaRef DW_TAG_restrict_type components
           256 -> mkLocalVar metaRef DW_TAG_auto_variable components
@@ -86,35 +109,37 @@ translateMetadata allMetadata allValues md name reflist = M.insert name decodeRe
           -- 259 -> mkCompositeType metaRef DW_TAG_vector_type components
           where tag' = getInt tag
 
-mkSubprogram metaRef valueRef [ _, Just context, Just name, Just displayName
-                              , Just linkageName, Just file, Just line
-                              , Just typ, Just isGlobal, Just notExtern
-                              , Just virt, Just virtidx, basetype
-                              , Just isArtif, Just isOpt, Just ptr] =
-  N.MetaDWSubprogram { N.metaSubprogramContext = metaRef context
-                     , N.metaSubprogramName = getMDString name
-                     , N.metaSubprogramDisplayName = getMDString displayName
-                     , N.metaSubprogramLinkageName = getMDString linkageName
-                     , N.metaSubprogramFile = metaRef file
-                     , N.metaSubprogramLine = getInt line
-                     , N.metaSubprogramType = metaRef typ
-                     , N.metaSubprogramStatic = getBool isGlobal
-                     , N.metaSubprogramNotExtern = getBool notExtern
-                     , N.metaSubprogramVirtuality = mkDwarfVirtuality $ getInt virt
-                     , N.metaSubprogramVirtIndex = getInt virtidx
-                     , N.metaSubprogramBaseType = metaRef' basetype
-                     , N.metaSubprogramArtificial = getBool isArtif
-                     , N.metaSubprogramOptimized = getBool isOpt
-                     , N.metaSubprogramFunction = valueRef ptr
-                     }
-  where metaRef' = maybe Nothing (Just . metaRef)
-mkSubprogram _ _ c = error ("Invalid subprogram descriptor: " ++ show c)
+halfPair x = (x, Nothing)
 
-mkGlobalVar metaRef valueRef [ _, Just context, Just name, Just displayName
-                             , Just linkageName, Just file, Just line
-                             , Just typ, Just isStatic, Just notExtern
-                             , Just varRef ] =
-  N.MetaDWVariable { N.metaGlobalVarContext = metaRef context
+mkSubprogram metaRef [ _, Just context, Just name, Just displayName
+                     , Just linkageName, Just file, Just line
+                     , Just typ, Just isGlobal, Just notExtern
+                     , Just virt, Just virtidx, basetype
+                     , Just isArtif, Just isOpt, Just (O.ValueRef ident)] =
+  (N.MetaDWSubprogram { N.metaSubprogramContext = metaRef context
+                      , N.metaSubprogramName = getMDString name
+                      , N.metaSubprogramDisplayName = getMDString displayName
+                      , N.metaSubprogramLinkageName = getMDString linkageName
+                      , N.metaSubprogramFile = metaRef file
+                      , N.metaSubprogramLine = getInt line
+                      , N.metaSubprogramType = metaRef typ
+                      , N.metaSubprogramStatic = getBool isGlobal
+                      , N.metaSubprogramNotExtern = getBool notExtern
+                      , N.metaSubprogramVirtuality = mkDwarfVirtuality $ getInt virt
+                      , N.metaSubprogramVirtIndex = getInt virtidx
+                      , N.metaSubprogramBaseType = metaRef' basetype
+                      , N.metaSubprogramArtificial = getBool isArtif
+                      , N.metaSubprogramOptimized = getBool isOpt
+                     -- , N.metaSubprogramFunction = valueRef ptr
+                      }, Just ident)
+  where metaRef' = maybe Nothing (Just . metaRef)
+mkSubprogram _ c = error ("Invalid subprogram descriptor: " ++ show c)
+
+mkGlobalVar metaRef [ _, Just context, Just name, Just displayName
+                    , Just linkageName, Just file, Just line
+                    , Just typ, Just isStatic, Just notExtern
+                    , Just (O.ValueRef ident) ] =
+  (N.MetaDWVariable { N.metaGlobalVarContext = metaRef context
                    , N.metaGlobalVarName = getMDString name
                    , N.metaGlobalVarDisplayName = getMDString displayName
                    , N.metaGlobalVarLinkageName = getMDString linkageName
@@ -123,13 +148,13 @@ mkGlobalVar metaRef valueRef [ _, Just context, Just name, Just displayName
                    , N.metaGlobalVarType = metaRef typ
                    , N.metaGlobalVarStatic = getBool isStatic
                    , N.metaGlobalVarNotExtern = getBool notExtern
-                   , N.metaGlobalVarRef = valueRef varRef
-                   }
+                                                -- , N.metaGlobalVarRef = valueRef varRef
+                   }, Just ident)
 
-mkGlobalVar _ _ c = error ("Invalid global variable descriptor: " ++ show c)
+mkGlobalVar _ c = error ("Invalid global variable descriptor: " ++ show c)
 
 mkLocalVar metaRef tag [ Just context, Just name, Just file
-                       , Just line, Just typeDesc ] =
+                       , Just line, Just typeDesc ] = halfPair $
   N.MetaDWLocal { N.metaLocalTag = tag
                 , N.metaLocalContext = metaRef context
                 , N.metaLocalName = getMDString name
@@ -142,7 +167,7 @@ mkLocalVar _ _ c = error ("Invalid local variable descriptor: " ++ show c)
 -- NOTE: Not quite sure what the member descriptor array looks like...
 mkCompositeType metaRef tag [ Just context, Just name, file, Just line
                             , Just size, Just align, Just offset, Just flags
-                            , Just parent, Just members, Just langs ] =
+                            , Just parent, Just members, Just langs ] = halfPair $
   N.MetaDWCompositeType { N.metaCompositeTypeTag = tag
                         , N.metaCompositeTypeContext = metaRef context
                         , N.metaCompositeTypeName = getMDString name
@@ -160,7 +185,7 @@ mkCompositeType metaRef tag [ Just context, Just name, file, Just line
 mkCompositeType _ _ c = error ("Invalid composite type descriptor: " ++ show c)
 
 mkDerivedType metaRef tag [ Just context, Just name, file, Just line
-                          , Just size, Just align, Just offset, Just parent ] =
+                          , Just size, Just align, Just offset, Just parent ] = halfPair $
   N.MetaDWDerivedType { N.metaDerivedTypeTag = tag
                       , N.metaDerivedTypeContext = metaRef context
                       , N.metaDerivedTypeName = getMDString name
@@ -174,33 +199,33 @@ mkDerivedType metaRef tag [ Just context, Just name, file, Just line
   where metaRef' = maybe Nothing (Just . metaRef)
 mkDerivedType _ _ c = error ("Invalid derived type descriptor: " ++ show c)
 
-mkEnumerator [ Just name, Just value ] =
+mkEnumerator [ Just name, Just value ] = halfPair $
   N.MetaDWEnumerator { N.metaEnumeratorName = getMDString name
                      , N.metaEnumeratorValue = getInt value
                      }
 mkEnumerator c = error ("Invalid enumerator descriptor content: " ++ show c)
 
-mkSubrange [ Just low, Just high ] =
+mkSubrange [ Just low, Just high ] = halfPair $
   N.MetaDWSubrange { N.metaSubrangeLow = getInt low
                    , N.metaSubrangeHigh = getInt high
                    }
 mkSubrange c = error ("Invalid subrange descriptor content: " ++ show c)
 
-mkFile metaRef [ Just file, Just dir, Just unit ] =
+mkFile metaRef [ Just file, Just dir, Just unit ] = halfPair $
   N.MetaDWFile { N.metaFileSourceFile = getMDString file
                , N.metaFileSourceDir = getMDString dir
                , N.metaFileCompileUnit = metaRef unit
                }
 mkFile _ c = error ("Invalid file descriptor content: " ++ show c)
 
-mkSourceLocation metaRef [ Just row, Just col, Just scope ] =
+mkSourceLocation metaRef [ Just row, Just col, Just scope ] = halfPair $
   N.MetaSourceLocation { N.metaSourceRow = getInt row
                        , N.metaSourceCol = getInt col
                        , N.metaSourceScope = metaRef scope
                        }
 mkSourceLocation _ c = error ("Invalid source location content: " ++ show c)
 
-mkLexicalBlock metaRef [ Just context, Just row, Just col ] =
+mkLexicalBlock metaRef [ Just context, Just row, Just col ] = halfPair $
   N.MetaDWLexicalBlock { N.metaLexicalBlockContext = metaRef context
                        , N.metaLexicalBlockRow = getInt row
                        , N.metaLexicalBlockCol = getInt col
@@ -208,7 +233,7 @@ mkLexicalBlock metaRef [ Just context, Just row, Just col ] =
 mkLexicalBlock _ c = error ("Invalid lexical block content: " ++ show c)
 
 mkCompileUnit [ _, Just lang, Just source, Just dir, Just producer, Just isMain
-              , Just isOpt, Just flags, Just version ] =
+              , Just isOpt, Just flags, Just version ] = halfPair $
   N.MetaDWCompileUnit { N.metaCompileUnitLanguage = mkDwarfLang $ getInt lang
                       , N.metaCompileUnitSourceFile = getMDString source
                       , N.metaCompileUnitCompileDir = getMDString dir
@@ -223,7 +248,7 @@ mkCompileUnit c = error ("Invalid compile unit content: " ++ show c)
 
 
 mkBaseType metaRef [ Just context, Just name, file, Just line, Just size
-                   , Just align, Just offset, Just flags, Just dwtype] =
+                   , Just align, Just offset, Just flags, Just dwtype] = halfPair $
   N.MetaDWBaseType { N.metaBaseTypeContext = metaRef context
                    , N.metaBaseTypeName = getMDString name
                    , N.metaBaseTypeFile = metaRef' file

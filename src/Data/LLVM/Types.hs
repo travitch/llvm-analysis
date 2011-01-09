@@ -72,7 +72,7 @@ data Metadata =
                    , metaGlobalVarType :: Metadata
                    , metaGlobalVarStatic :: Bool
                    , metaGlobalVarNotExtern :: Bool
-                   , metaGlobalVarRef :: Value
+                   -- , metaGlobalVarRef :: Value
                    }
   | MetaDWSubprogram { metaSubprogramContext :: Metadata
                      , metaSubprogramName :: Text
@@ -88,7 +88,7 @@ data Metadata =
                      , metaSubprogramBaseType :: Maybe Metadata
                      , metaSubprogramArtificial :: Bool
                      , metaSubprogramOptimized :: Bool
-                     , metaSubprogramFunction :: Value
+                     -- , metaSubprogramFunction :: Value
                      }
   | MetaDWBaseType { metaBaseTypeContext :: Metadata
                    , metaBaseTypeName :: Text
@@ -136,6 +136,8 @@ data Metadata =
                 , metaLocalLine :: Integer
                 , metaLocalType :: Metadata
                 }
+  | MetadataList [Metadata]
+  | MetadataValueConstant
   deriving (Show, Eq)
 
 -- valueName is mostly informational at this point.  All references
