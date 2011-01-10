@@ -44,7 +44,7 @@ completeGraph :: (O.Type -> N.Type) ->
                  [N.Value]
 completeGraph typeMapper externMapper decls = M.elems globalDecls
   where globalDecls = go decls M.empty
-        (metadata, mdForVals) = mdGo decls (M.empty, M.empty)
+        (metadata, mdForGlobals) = mdGo decls (M.empty, M.empty)
         mdGo [] (md, mv) = (md, mv)
         mdGo ((O.UnnamedMetadata name refs) : rest) (md, mv) =
           mdGo rest (transMetadata md mv name refs)
@@ -52,19 +52,40 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
         metaRef (O.ValueRef name) = metadata ! name
         metaRef c = error ("Constant is not a metadata reference: " ++ show c)
         go [] vals = vals
-        go (decl:rest) vals = vals --  case decl of
-          -- O.UnnamedMetadata name refs ->
-          --   go rest (transMetadata md name refs) gd
-          -- O.GlobalDeclaration name addrspace annots ty init align ->
-          --   go rest md (transGlobalVar gd name addrspace annots ty init align)
+        go (decl:rest) vals = case decl of
+          O.GlobalDeclaration name addrspace annots ty init align ->
+            go rest (transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty init align)
           -- O.FunctionDefinition {} ->
           --   go rest md (transFuncDef gd decl)
           -- O.GlobalAlias name linkage vis type const ->
           --   go rest md (transAlias gd name linkage vis type const)
-          -- _ -> go rest md gd
+          _ -> go rest vals
         -- Return the updated metadata graph - but needs to refer to
         -- the "completed" version in 'metadata'
+        getGlobalMD ident = M.lookup ident mdForGlobals
         transMetadata = translateMetadata metadata
+        transValOrConst v = case v of
+          -- O.ConstValue c ty ->
+          O.ValueRef ident -> globalDecls ! ident
+
+
+mkValue :: N.Type -> Maybe Identifier -> Maybe N.Metadata -> N.ValueT -> N.Value
+mkValue ty ident md val =
+  N.Value { N.valueType = ty
+          , N.valueName = ident
+          , N.valueMetadata = md
+          , N.valueContent = val
+          }
+
+
+transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty init align =
+  M.insert name val vals
+  where val = mkValue (typeMapper ty) (Just name) (getGlobalMD name) val'
+        val' = N.GlobalDeclaration { N.globalVariableAddressSpace = addrspace
+                                   , N.globalVariableAnnotations = annots
+                                   , N.globalVariableInitializer = transValOrConst init
+                                   , N.globalVariableAlignment = align
+                                   }
 
 extractModuleAssembly :: [O.GlobalDeclaration] -> [Assembly]
 extractModuleAssembly decls = reverse $ foldr xtract [] decls

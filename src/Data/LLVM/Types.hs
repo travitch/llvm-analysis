@@ -166,5 +166,10 @@ data ValueT = Function { functionType :: Type
                        , functionParameters :: Maybe [Value] -- A list of arguments
                        , functionBody :: Maybe [Value] -- A list of basic blocks
                        }
+            | GlobalDeclaration { globalVariableAddressSpace :: Int
+                                , globalVariableAnnotations :: [GlobalAnnotation]
+                                , globalVariableInitializer :: Value
+                                , globalVariableAlignment :: Integer
+                                }
             deriving (Show, Eq)
 
