@@ -171,5 +171,10 @@ data ValueT = Function { functionType :: Type
                                 , globalVariableInitializer :: Value
                                 , globalVariableAlignment :: Integer
                                 }
+            | GlobalAlias { globalAliasLinkage :: LinkageType
+                          , globalAliasVisibility :: VisibilityStyle
+                          , globalAliasValue :: Value
+                          }
+            | ExternalValue
             deriving (Show, Eq)
 
