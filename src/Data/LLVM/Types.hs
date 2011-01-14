@@ -176,5 +176,7 @@ data ValueT = Function { functionType :: Type
                           , globalAliasValue :: Value
                           }
             | ExternalValue
+            | BasicBlock [Value]
+            | Argument [ParamAttribute]
             deriving (Show, Eq)
 

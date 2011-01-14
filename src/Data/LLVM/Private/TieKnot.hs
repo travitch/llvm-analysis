@@ -55,8 +55,8 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
         go (decl:rest) vals = case decl of
           O.GlobalDeclaration name addrspace annots ty init align ->
             go rest (transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty init align)
-          -- O.FunctionDefinition {} ->
-          --   go rest md (transFuncDef gd decl)
+          O.FunctionDefinition {} ->
+            go rest (transFuncDef typeMapper transValOrConst getGlobalMD getLocalMD vals decl)
           O.GlobalAlias name linkage vis ty const ->
             go rest (transAlias typeMapper transValOrConst getGlobalMD vals name linkage vis ty const)
           O.ExternalDecl ty ident ->
@@ -66,6 +66,7 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
         -- Return the updated metadata graph - but needs to refer to
         -- the "completed" version in 'metadata'
         getGlobalMD ident = M.lookup ident mdForGlobals
+        getLocalMD ident = M.lookup ident metadata
         transMetadata = translateMetadata metadata
         transValOrConst v = case v of
           -- O.ConstValue c ty ->
