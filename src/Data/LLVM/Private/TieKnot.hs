@@ -70,6 +70,7 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
         getMetadata ident = M.lookup ident metadata
         -- getLocalMD ident = M.lookup ident metadata
         transMetadata = translateMetadata metadata
+        transValOrConst :: O.Constant -> N.Value
         transValOrConst v = case v of
           -- O.ConstValue c ty ->
           O.ValueRef ident -> globalDecls ! ident

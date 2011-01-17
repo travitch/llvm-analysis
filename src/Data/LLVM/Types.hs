@@ -178,5 +178,6 @@ data ValueT = Function { functionType :: Type
             | ExternalValue
             | BasicBlock [Value]
             | Argument [ParamAttribute]
+            | UnwindInst
             deriving (Show, Eq)
 
