@@ -280,14 +280,6 @@ MetadataConstant:
     Constant { Just $1 }
   | "null"   { Nothing }
 
--- MDNodeContent:
---   Constant MoreMDNodeContent { ($1 : (fst $2), snd $2) }
-
--- MoreMDNodeContent:
---     "," Constant MoreMDNodeContent { ($2 : (fst $3), snd $3) }
---   | "," "null"                     { ([], True) }
---   |                                { ([], False) }
-
 MDNode:
   "!" "{" sep(MetadataConstant, ",") "}"   { $3 }
 

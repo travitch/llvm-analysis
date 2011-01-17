@@ -181,7 +181,7 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
                | GlobalVariable VisibilityStyle LinkageType Text
                deriving (Show, Eq)
 
-data BasicBlock = BasicBlock Text [Instruction]
+data BasicBlock = BasicBlock Identifier [Instruction]
                 deriving (Show, Eq)
 
 data Type = TypeInteger Int -- bits

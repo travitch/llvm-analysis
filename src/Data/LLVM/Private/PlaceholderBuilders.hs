@@ -204,7 +204,7 @@ mkGlobalDecl ident addrSpace annots initType init align =
         i = init initType
 
 mkBasicBlock :: Text -> [Instruction] -> BasicBlock
-mkBasicBlock = BasicBlock
+mkBasicBlock t = BasicBlock (LocalIdentifier t)
 
 mkFunctionDef :: LinkageType -> VisibilityStyle -> CallingConvention ->
                  [ParamAttribute] -> Type -> Identifier ->
