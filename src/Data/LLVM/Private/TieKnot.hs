@@ -6,6 +6,7 @@ import qualified Data.Text as T
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.PlaceholderTypeExtractors
+import Data.LLVM.Private.FunctionTranslator
 import Data.LLVM.Private.MetadataTranslator
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import qualified Data.LLVM.Types as N
@@ -44,7 +45,8 @@ completeGraph :: (O.Type -> N.Type) ->
                  [N.Value]
 completeGraph typeMapper externMapper decls = M.elems globalDecls
   where globalDecls = go decls M.empty
-        (metadata, mdForGlobals) = mdGo decls (M.empty, M.empty)
+        (boundMD, mdForGlobals) = mdGo decls (M.empty, M.empty)
+        metadata = M.union boundMD mdForGlobals
         mdGo [] (md, mv) = (md, mv)
         mdGo ((O.UnnamedMetadata name refs) : rest) (md, mv) =
           mdGo rest (transMetadata md mv name refs)
@@ -54,19 +56,19 @@ completeGraph typeMapper externMapper decls = M.elems globalDecls
         go [] vals = vals
         go (decl:rest) vals = case decl of
           O.GlobalDeclaration name addrspace annots ty init align ->
-            go rest (transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty init align)
+            go rest (transGlobalVar typeMapper transValOrConst getMetadata vals name addrspace annots ty init align)
           O.FunctionDefinition {} ->
-            go rest (transFuncDef typeMapper transValOrConst getGlobalMD getLocalMD vals decl)
+            go rest (transFuncDef typeMapper transValOrConst getMetadata vals decl)
           O.GlobalAlias name linkage vis ty const ->
-            go rest (transAlias typeMapper transValOrConst getGlobalMD vals name linkage vis ty const)
+            go rest (transAlias typeMapper transValOrConst getMetadata vals name linkage vis ty const)
           O.ExternalDecl ty ident ->
-            go rest (transExternal typeMapper getGlobalMD vals ty ident)
+            go rest (transExternal typeMapper getMetadata vals ty ident)
           _ -> go rest vals
 
         -- Return the updated metadata graph - but needs to refer to
         -- the "completed" version in 'metadata'
-        getGlobalMD ident = M.lookup ident mdForGlobals
-        getLocalMD ident = M.lookup ident metadata
+        getMetadata ident = M.lookup ident metadata
+        -- getLocalMD ident = M.lookup ident metadata
         transMetadata = translateMetadata metadata
         transValOrConst v = case v of
           -- O.ConstValue c ty ->

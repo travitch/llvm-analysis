@@ -27,8 +27,8 @@ translateMetadata :: (Map Identifier N.Metadata) ->
                      Identifier -> [Maybe O.Constant]
                      -> (Map Identifier N.Metadata, Map Identifier N.Metadata)
 translateMetadata allMetadata md valmd name reflist =
-  (M.insert name newMetadata md, maybe valmd updateValMDMap valueMapping)
-  where (newMetadata, valueMapping) = decodeRefs
+  (M.insert name newMetadata md, maybe valmd updateValMDMap valMetadata)
+  where (newMetadata, valMetadata) = decodeRefs
         updateValMDMap :: Identifier -> Map Identifier N.Metadata
         updateValMDMap ident = M.insert ident newMetadata valmd
         -- This helper looks up a metadata reference in the *final* metadata map,
