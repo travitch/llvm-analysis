@@ -127,7 +127,7 @@ mkFcmpInst ident cond t v1 v2 =
           TypeVector n innerType -> TypeVector n (TypeInteger 1)
           _ -> TypeInteger 1
 
-mkPhiNode :: (Monad m) => Identifier -> Type -> [(PartialConstant, Identifier)] -> m Instruction
+mkPhiNode :: (Monad m) => Identifier -> Type -> [(PartialConstant, Constant)] -> m Instruction
 mkPhiNode ident ty vals =
   return $ namedInst ident ty $ PhiNode (map applicator vals)
   where applicator (pc, id) = (pc ty, id)

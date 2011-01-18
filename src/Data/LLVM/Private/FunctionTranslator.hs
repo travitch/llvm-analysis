@@ -62,96 +62,97 @@ transFuncDef typeMapper transValOrConst getMetadata vals decl =
                           , valueContent = ni
                           }
 
+        -- This handles updating the accumulator in the big
+        -- translateInstruction fold.  Always add the new value to the
+        -- instruction list.  Add it to the local variable map only if
+        -- it has a name.
         foldResult (locals, insts) val = case valueName v of
           Just i -> (M.insert i val locals, val : insts)
           Nothing -> (locals, val : insts)
 
-        -- Translate the control flow instructions first.  These are simpler
-        -- and don't require any updates to the local variable map since these
-        -- instructions are never referenced by name
-        translateInstruction i@O.Instruction { O.instContent = O.RetInst mc } acc =
+        translateInstruction i@O.Instruction { O.instContent = c } acc =
           foldResult acc v
-          where v = repackInst i $ RetInst mc'
-                mc' = maybe Nothing (Just . trConst) mc
-
-        translateInstruction i@O.Instruction { O.instContent = O.UnconditionalBranchInst target } acc =
-          foldResult acc v
-          where v = repackInst i $ UnconditionalBranchInst $ trConst target
-
-        translateInstruction i@O.Instruction { O.instContent = O.BranchInst cond tTarget fTarget } acc =
-          foldResult acc v
-          where v = repackInst i ni
-                ni = BranchInst { branchCondition = trConst cond
-                                , branchTrueTarget = trConst tTarget
-                                , branchFalseTarget = trConst fTarget
-                                }
-
-        translateInstruction i@O.Instruction { O.instContent = O.SwitchInst val defTarget dests } acc =
-          foldResult acc v
-          where v = repackInst i ni
-                trTargetPair (v, t) = (trConst v, trConst t)
-                ni = SwitchInst { switchValue = trConst val
-                                , switchDefaultTarget = trConst defTarget
-                                , switchCases = map trTargetPair dests
-                                }
-
-        translateInstruction i@O.Instruction { O.instContent = O.IndirectBranchInst val possibleDests } acc =
-          foldResult acc v
-          where v = repackInst i ni
-                ni = IndirectBranchInst { indirectBranchAddress = trConst val
-                                        , indirectBranchTargets = map trConst possibleDests
-                                        }
-
-        translateInstruction i@O.Instruction { O.instContent = O.UnwindInst } acc =
-          foldResult acc v
-          where v = repackInst i UnwindInst
-
-        translateInstruction i@O.Instruction { O.instContent = O.UnreachableInst } acc =
-          foldResult acc v
-          where v = repackInst i UnreachableInst
-
-        -- Translate the trivial instructions
-        translateInstruction i@O.Instruction { O.instContent = O.AddInst flags lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ AddInst flags (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.SubInst flags lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ SubInst flags (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.MulInst flags lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ SubInst flags (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.DivInst lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ DivInst (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.RemInst lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ RemInst (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.ShlInst lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ ShlInst (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.LshrInst lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ LshrInst (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.AshrInst lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ AshrInst (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.AndInst lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ AndInst (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.OrInst lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ OrInst (trConst lhs) (trConst rhs)
-
-        translateInstruction i@O.Instruction { O.instContent = O.XorInst lhs rhs } acc =
-          foldResult acc v
-          where v = repackInst i $ XorInst (trConst lhs) (trConst rhs)
-
+          where v = repackInst i content
+                trPair (v, t) = (trConst v, trConst t)
+                content = case c of
+                  O.RetInst mc -> RetInst $ maybe Nothing (Just . trConst) mc
+                  O.UnconditionalBranchInst target ->
+                    UnconditionalBranchInst $ trConst target
+                  O.BranchInst cond tTarget fTarget ->
+                    BranchInst { branchCondition = trConst cond
+                               , branchTrueTarget = trConst tTarget
+                               , branchFalseTarget = trConst fTarget
+                               }
+                  O.SwitchInst val defTarget cases ->
+                    SwitchInst { switchValue = trConst val
+                               , switchDefaultTarget = trConst defTarget
+                               , switchCases = map trPair cases
+                               }
+                  O.IndirectBranchInst val dests ->
+                    IndirectBranchInst { indirectBranchAddress = trConst val
+                                       , indirectBranchTargets = map trConst dests
+                                       }
+                  O.UnwindInst -> UnwindInst
+                  O.UnreachableInst -> UnreachableInst
+                  O.AddInst flags lhs rhs -> AddInst flags (trConst lhs) (trConst rhs)
+                  O.SubInst flags lhs rhs -> SubInst flags (trConst lhs) (trConst rhs)
+                  O.MulInst flags lhs rhs -> MulInst flags (trConst lhs) (trConst rhs)
+                  O.DivInst lhs rhs -> DivInst (trConst lhs) (trConst rhs)
+                  O.RemInst lhs rhs -> RemInst (trConst lhs) (trConst rhs)
+                  O.ShlInst lhs rhs -> ShlInst (trConst lhs) (trConst rhs)
+                  O.LshrInst lhs rhs -> LshrInst (trConst lhs) (trConst rhs)
+                  O.AshrInst lhs rhs -> AshrInst (trConst lhs) (trConst rhs)
+                  O.AndInst lhs rhs -> AndInst (trConst lhs) (trConst rhs)
+                  O.OrInst lhs rhs -> OrInst (trConst lhs) (trConst rhs)
+                  O.XorInst lhs rhs -> XorInst (trConst lhs) (trConst rhs)
+                  O.ExtractElementInst vec idx ->
+                    ExtractElementInst { extractElementVector = trConst vec
+                                       , extractElementIndex = trConst idx
+                                       }
+                  O.InsertElementInst vec elt idx ->
+                    InsertElementInst { insertElementVector = trConst vec
+                                      , insertElementValue = trConst elt
+                                      , insertElementIndex = trConst idx
+                                      }
+                  O.ShuffleVectorInst vec1 vec2 mask ->
+                    ShuffleVectorInst { shuffleVectorV1 = trConst vec1
+                                      , shuffleVectorV2 = trConst vec2
+                                      , shuffleVectorMask = trConst mask
+                                      }
+                  O.ExtractValueInst agg indices ->
+                    ExtractValueInst { extractValueAggregate = trConst agg
+                                     , extractValueIndices = indices
+                                     }
+                  O.InsertValueInst agg val idx ->
+                    InsertValueInst { insertValueAggregate = trConst agg
+                                    , insertValueValue = trConst val
+                                    , insertValueIndex = idx
+                                    }
+                  O.AllocaInst ty val align ->
+                    AllocaInst (typeMapper ty) (trConst val) align
+                  O.LoadInst volatile dest align ->
+                    LoadInst volatile (trConst dest) align
+                  O.StoreInst volatile value dest align ->
+                    StoreInst volatile (trConst value) (trConst dest) align
+                  O.TruncInst val ty -> TruncInst (trConst val) (typeMapper ty)
+                  O.ZExtInst val ty -> ZExtInst (trConst val) (typeMapper ty)
+                  O.SExtInst val ty -> SExtInst (trConst val) (typeMapper ty)
+                  O.FPTruncInst val ty -> FPTruncInst (trConst val) (typeMapper ty)
+                  O.FPExtInst val ty -> FPExtInst (trConst val) (typeMapper ty)
+                  O.FPToUIInst val ty -> FPToUIInst (trConst val) (typeMapper ty)
+                  O.FPToSIInst val ty -> FPToSIInst (trConst val) (typeMapper ty)
+                  O.UIToFPInst val ty -> UIToFPInst (trConst val) (typeMapper ty)
+                  O.SIToFPInst val ty -> SIToFPInst (trConst val) (typeMapper ty)
+                  O.PtrToIntInst val ty -> PtrToIntInst (trConst val) (typeMapper ty)
+                  O.IntToPtrInst val ty -> IntToPtrInst (trConst val) (typeMapper ty)
+                  O.BitcastInst val ty -> BitcastInst (trConst val) (typeMapper ty)
+                  O.ICmpInst cond val1 val2 -> ICmpInst cond (trConst val1) (trConst val2)
+                  O.FCmpInst cond val1 val2 -> FCmpInst cond (trConst val1) (trConst val2)
+                  O.PhiNode vals -> PhiNode $ map trPair vals
+                  O.SelectInst cond val1 val2 ->
+                    SelectInst (trConst cond) (trConst val1) (trConst val2)
+                  O.GetElementPtrInst inBounds val indices ->
+                    GetElementPtrInst { getElementPtrInBounds = inBounds
+                                      , getElementPtrValue = trConst val
+                                      , getElementPtrIndices = map trConst indices
+                                      }

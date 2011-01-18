@@ -206,6 +206,48 @@ data ValueT = Function { functionType :: Type
             | AndInst Value Value
             | OrInst Value Value
             | XorInst Value Value
+            | ExtractElementInst { extractElementVector :: Value
+                                 , extractElementIndex :: Value
+                                 }
+            | InsertElementInst { insertElementVector :: Value
+                                , insertElementValue :: Value
+                                , insertElementIndex :: Value
+                                }
+            | ShuffleVectorInst { shuffleVectorV1 :: Value
+                                , shuffleVectorV2 :: Value
+                                , shuffleVectorMask :: Value
+                                }
+            | ExtractValueInst { extractValueAggregate :: Value
+                               , extractValueIndices :: [Integer]
+                               }
+            | InsertValueInst { insertValueAggregate :: Value
+                              , insertValueValue :: Value
+                              , insertValueIndex :: Integer
+                              }
+            | AllocaInst Type Value Integer -- Type, NumElems, align
+            | LoadInst Bool Value Integer -- Volatile? Type Dest align
+            | StoreInst Bool Value Value Integer -- Volatile? Val Dest align
+            | TruncInst Value Type -- The value being truncated, and the type truncted to
+            | ZExtInst Value Type
+            | SExtInst Value Type
+            | FPTruncInst Value Type
+            | FPExtInst Value Type
+            | FPToUIInst Value Type
+            | FPToSIInst Value Type
+            | UIToFPInst Value Type
+            | SIToFPInst Value Type
+            | PtrToIntInst Value Type
+            | IntToPtrInst Value Type
+            | BitcastInst Value Type
+            | ICmpInst ICmpCondition Value Value
+            | FCmpInst FCmpCondition Value Value
+            | PhiNode [(Value, Value)]
+            | SelectInst Value Value Value
+            | GetElementPtrInst { getElementPtrInBounds :: Bool
+                                , getElementPtrValue :: Value
+                                , getElementPtrIndices :: [Value]
+                                }
+
 
             deriving (Show, Eq)
 

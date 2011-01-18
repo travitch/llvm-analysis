@@ -493,7 +493,7 @@ Instruction:
   InstructionNoMD optional(InstMetadata) { mkMDInst $1 $2 }
 
 LocalLabel:
-  label { ValueRef $ LocalIdentifier $1 }
+  LocalIdentifier { ValueRef $1 }
 
 InstructionNoMD:
     "ret" Type optional(PartialConstant)
@@ -604,7 +604,7 @@ TailMarker:
   |        { False }
 
 PhiPair:
-  PartialConstant "," LocalIdentifier { ($1, $3) }
+  PartialConstant "," LocalLabel { ($1, $3) }
 
 ICmpCondition:
     "eq"  { ICmpEq }

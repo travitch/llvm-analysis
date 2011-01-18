@@ -112,7 +112,7 @@ data InstructionT = InlineAsm Text Text -- ASM String, Constraint String; can pa
             | BitcastInst Constant Type
             | ICmpInst ICmpCondition Constant Constant
             | FCmpInst FCmpCondition Constant Constant
-            | PhiNode [(Constant, Identifier)]
+            | PhiNode [(Constant, Constant)]
             | SelectInst Constant Constant Constant
             | GetElementPtrInst Bool Constant [Constant]
             | CallInst { callIsTail :: Bool
