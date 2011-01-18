@@ -195,5 +195,17 @@ data ValueT = Function { functionType :: Type
                                  }
             | UnwindInst
             | UnreachableInst
+            | AddInst [ArithFlag] Value Value
+            | SubInst [ArithFlag] Value Value
+            | MulInst [ArithFlag] Value Value
+            | DivInst Value Value -- Does not encode the exact flag of sdiv.  Convince me to
+            | RemInst Value Value
+            | ShlInst Value Value
+            | LshrInst Value Value
+            | AshrInst Value Value
+            | AndInst Value Value
+            | OrInst Value Value
+            | XorInst Value Value
+
             deriving (Show, Eq)
 
