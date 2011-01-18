@@ -36,8 +36,8 @@ transFuncDef typeMapper transValOrConst getMetadata vals decl =
                   }
         ident = getFuncIdent decl
         (localVals, body) = translateBody (O.funcBody decl)
-        translateConstant (O.ValueRef ident@(LocalIdentifier _)) = localVals ! ident
-        translateConstant c = transValOrConst c
+        trConst (O.ValueRef ident@(LocalIdentifier _)) = localVals ! ident
+        trConst c = transValOrConst c
         translateBody = foldr translateBlock (M.empty, [])
         translateBlock (O.BasicBlock ident placeholderInsts) (locals, blocks) =
           (M.insert ident bb blocksWithLocals, bb : blocks)
@@ -48,15 +48,54 @@ transFuncDef typeMapper transValOrConst getMetadata vals decl =
                            }
                 (blocksWithLocals, insts) = translateInsts locals placeholderInsts
         translateInsts locals = foldr translateInstruction (locals, [])
-        translateInstruction O.Instruction { O.instName = Nothing
-                                           , O.instType = itype
-                                           , O.instContent = O.UnwindInst
-                                           , O.instMetadata = md
-                                           } (locals, insts) =
-          (locals, v : insts)
+
+        repackInst O.Instruction { O.instType = itype
+                                 , O.instName = iname
+                                 , O.instMetadata = md
+                                 } ni = v
           where v = Value { valueType = typeMapper itype
-                          , valueName = Nothing
+                          , valueName = iname
                           , valueMetadata = maybe Nothing getMetadata md
-                          , valueContent = UnwindInst
+                          , valueContent = ni
                           }
 
+        translateInstruction i@O.Instruction { O.instContent = O.RetInst mc }
+          (locals, insts) = (locals, v : insts)
+          where v = repackInst i $ RetInst mc'
+                mc' = maybe Nothing (Just . trConst) mc
+
+        translateInstruction i@O.Instruction { O.instContent = O.UnconditionalBranchInst target }
+          (locals, insts) = (locals, v : insts)
+          where v = repackInst i $ UnconditionalBranchInst $ trConst target
+
+        translateInstruction i@O.Instruction { O.instContent = O.BranchInst cond tTarget fTarget }
+          (locals, insts) = (locals, v : insts)
+          where v = repackInst i ni
+                ni = BranchInst { branchCondition = trConst cond
+                                , branchTrueTarget = trConst tTarget
+                                , branchFalseTarget = trConst fTarget
+                                }
+
+        translateInstruction i@O.Instruction { O.instContent = O.SwitchInst val defTarget dests }
+          (locals, insts) = (locals, v: insts)
+          where v = repackInst i ni
+                trTargetPair (v, t) = (trConst v, trConst t)
+                ni = SwitchInst { switchValue = trConst val
+                                , switchDefaultTarget = trConst defTarget
+                                , switchCases = map trTargetPair dests
+                                }
+
+        translateInstruction i@O.Instruction { O.instContent = O.IndirectBranchInst val possibleDests }
+          (locals, insts) = (locals, v : insts)
+          where v = repackInst i ni
+                ni = IndirectBranchInst { indirectBranchAddress = trConst val
+                                        , indirectBranchTargets = map trConst possibleDests
+                                        }
+
+        translateInstruction i@O.Instruction { O.instContent = O.UnwindInst }
+          (locals, insts) = (locals, v : insts)
+          where v = repackInst i UnwindInst
+
+        translateInstruction i@O.Instruction { O.instContent = O.UnreachableInst }
+          (locals, insts) = (locals, v : insts)
+          where v = repackInst i UnreachableInst

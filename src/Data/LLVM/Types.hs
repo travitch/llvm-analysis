@@ -178,6 +178,22 @@ data ValueT = Function { functionType :: Type
             | ExternalValue
             | BasicBlock [Value]
             | Argument [ParamAttribute]
+            | RetInst (Maybe Value)
+            | UnconditionalBranchInst Value
+            | BranchInst { branchCondition :: Value
+                         , branchTrueTarget :: Value
+                         , branchFalseTarget :: Value
+                         }
+            | SwitchInst { switchValue :: Value
+                         , switchDefaultTarget :: Value
+                         , switchCases :: [(Value, Value)]
+                         }
+              -- The target must be derived from a blockaddress constant
+              -- The list is a list of possible target destinations
+            | IndirectBranchInst { indirectBranchAddress :: Value
+                                 , indirectBranchTargets :: [Value]
+                                 }
             | UnwindInst
+            | UnreachableInst
             deriving (Show, Eq)
 

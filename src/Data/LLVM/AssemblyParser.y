@@ -492,13 +492,16 @@ InstMetadata:
 Instruction:
   InstructionNoMD optional(InstMetadata) { mkMDInst $1 $2 }
 
+LocalLabel:
+  label { ValueRef $ LocalIdentifier $1 }
+
 InstructionNoMD:
     "ret" Type optional(PartialConstant)
     {% mkRetInst $2 $3 }
-  | "br" "label" label   { voidInst $ UnconditionalBranchInst $3 }
-  | "br" Type PartialConstant "," "label" label "," "label" label
+  | "br" "label" LocalLabel   { voidInst $ UnconditionalBranchInst $3 }
+  | "br" Type PartialConstant "," "label" LocalLabel "," "label" LocalLabel
     { voidInst $ BranchInst ($3 $2) $6 $9 }
-  | "switch" Type PartialConstant "," "label" label "[" list(SwitchBranch) "]"
+  | "switch" Type PartialConstant "," "label" LocalLabel "[" list(SwitchBranch) "]"
     { voidInst $ SwitchInst ($3 $2) $6 $8 }
   | "indirectbr" Type PartialConstant "," "[" sep(LabelVal, ",") "]"
     { voidInst $ IndirectBranchInst ($3 $2) $6 }
@@ -673,7 +676,7 @@ RemInst:
   | "frem" { $1 }
 
 SwitchBranch:
-  Type PartialConstant "," "label" label { ($2 $1, $5) }
+  Type PartialConstant "," "label" LocalLabel { ($2 $1, $5) }
 
 LabelVal:
   "label" PartialConstant { $2 TypeLabel }

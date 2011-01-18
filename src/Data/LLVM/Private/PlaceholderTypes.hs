@@ -73,9 +73,9 @@ valueRef ident = const (ValueRef ident)
 -- will be empty for these things)
 data InstructionT = InlineAsm Text Text -- ASM String, Constraint String; can parse constraints still
             | RetInst (Maybe Constant)
-            | UnconditionalBranchInst Text
-            | BranchInst Constant Text Text
-            | SwitchInst Constant Text [(Constant, Text)]
+            | UnconditionalBranchInst Constant
+            | BranchInst Constant Constant Constant
+            | SwitchInst Constant Constant [(Constant, Constant)]
             | IndirectBranchInst Constant [Constant]
             | UnwindInst
             | UnreachableInst
