@@ -156,3 +156,38 @@ transFuncDef typeMapper transValOrConst getMetadata vals decl =
                                       , getElementPtrValue = trConst val
                                       , getElementPtrIndices = map trConst indices
                                       }
+                  O.CallInst { O.callIsTail = isTail
+                             , O.callConvention = cc
+                             , O.callParamAttrs = paramAttrs
+                             , O.callRetType = rtype
+                             , O.callFunction = func
+                             , O.callArguments = args
+                             , O.callAttrs = cAttrs
+                             } ->
+                    CallInst { callIsTail = isTail
+                             , callConvention = cc
+                             , callParamAttrs = paramAttrs
+                             , callRetType = typeMapper rtype
+                             , callFunction = trConst func
+                             , callArguments = map trConst args
+                             , callAttrs = cAttrs
+                             }
+                  O.InvokeInst { O.invokeConvention = cc
+                               , O.invokeParamAttrs = paramAttrs
+                               , O.invokeRetType = rtype
+                               , O.invokeFunction = func
+                               , O.invokeArguments = args
+                               , O.invokeAttrs = funcAttrs
+                               , O.invokeNormalLabel = normLabl
+                               , O.invokeUnwindLabel = unwindLabl
+                               } ->
+                    InvokeInst { invokeConvention = cc
+                               , invokeParamAttrs = paramAttrs
+                               , invokeRetType = typeMapper rtype
+                               , invokeFunction = trConst func
+                               , invokeArguments = map trConst args
+                               , invokeAttrs = funcAttrs
+                               , invokeNormalLabel = trConst normLabl
+                               , invokeUnwindLabel = trConst unwindLabl
+                               }
+                  O.VaArgInst val ty -> VaArgInst (trConst val) (typeMapper ty)

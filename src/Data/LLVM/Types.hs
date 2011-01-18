@@ -247,6 +247,24 @@ data ValueT = Function { functionType :: Type
                                 , getElementPtrValue :: Value
                                 , getElementPtrIndices :: [Value]
                                 }
+            | CallInst { callIsTail :: Bool
+                       , callConvention :: CallingConvention
+                       , callParamAttrs :: [ParamAttribute]
+                       , callRetType :: Type
+                       , callFunction :: Value
+                       , callArguments :: [Value]
+                       , callAttrs :: [FunctionAttribute]
+                       }
+            | InvokeInst { invokeConvention :: CallingConvention
+                         , invokeParamAttrs :: [ParamAttribute]
+                         , invokeRetType :: Type
+                         , invokeFunction :: Value
+                         , invokeArguments :: [Value]
+                         , invokeAttrs :: [FunctionAttribute]
+                         , invokeNormalLabel :: Value
+                         , invokeUnwindLabel :: Value
+                         }
+            | VaArgInst Value Type
 
 
             deriving (Show, Eq)
