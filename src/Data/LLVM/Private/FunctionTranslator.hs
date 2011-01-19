@@ -11,21 +11,11 @@ mkFuncType typeMapper d@O.FunctionDefinition { O.funcRetType = fret
                                              , O.funcParams = params
                                              , O.funcIsVararg = isVararg
                                              , O.funcAttrs = attrs
-                                             } = realType
+                                             } = llvmType
   where rtype = typeMapper fret
         argTypes = map (typeMapper . xtype) params
         xtype (O.FormalParameter t _ _) = t
         llvmType = TypeFunction rtype argTypes isVararg attrs
-        -- If LLVM performed some ABI lowering here and converted a
-        -- function returning a struct by value into a void function
-        -- with an SRET parameter, convert it back.
-        realType = case (rtype, params) of
-          (TypeVoid, ((O.FormalParameter t [PASRet] _) : _)) ->
-            TypeFunction (head argTypes) (tail argTypes) isVararg attrs
-          (_, ((O.FormalParameter _ [PASRet] _) : _)) ->
-            error ("Non-void function with sret parameter: " ++ show d)
-          _ -> llvmType
-
 mkFuncType _ _ = error "Non-func decl in mkFuncType"
 
 getFuncIdent O.FunctionDefinition { O.funcName = ident } = ident
