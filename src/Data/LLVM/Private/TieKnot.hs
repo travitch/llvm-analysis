@@ -135,7 +135,12 @@ makeExternFunctionMap decls typeMapper = mapping -- flip M.lookup mapping
 
 -- Create a map from the placeholder types to the final types.  FIXME:
 -- Add support for type uprefs.  The code generator always seems to
--- just use named types, so it doesn't seem crucial.
+-- just use named types, so it doesn't seem crucial.  FIXME: This is a
+-- great place to handle function type translation.  Functions that
+-- are void with an sret first parameter need to be transformed; we
+-- can handle the type translation here and fix up the decls and calls
+-- later.  All calls need to be possibly transformed.  Formal lists
+-- need to be fixed up *before* the translation starts.
 makeTypeTranslator :: [O.GlobalDeclaration] -> (O.Type -> N.Type)
 makeTypeTranslator decls = trans'
   where mapping = namedTrans' decls M.empty
