@@ -140,7 +140,11 @@ makeExternFunctionMap decls typeMapper = mapping -- flip M.lookup mapping
 -- are void with an sret first parameter need to be transformed; we
 -- can handle the type translation here and fix up the decls and calls
 -- later.  All calls need to be possibly transformed.  Formal lists
--- need to be fixed up *before* the translation starts.
+-- need to be fixed up *before* the translation starts.  The
+-- translation for types is not readily apparent - the information
+-- about sret params is just not present.  This may need to be done
+-- when constructing function references when the function name is
+-- known.
 makeTypeTranslator :: [O.GlobalDeclaration] -> (O.Type -> N.Type)
 makeTypeTranslator decls = trans'
   where mapping = namedTrans' decls M.empty
