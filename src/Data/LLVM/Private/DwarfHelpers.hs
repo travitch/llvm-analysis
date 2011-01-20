@@ -58,6 +58,7 @@ mkDwarfEncoding i = case i of
   13 -> DW_ATE_signed_fixed
   14 -> DW_ATE_unsigned_fixed
   15 -> DW_ATE_decimal_float
+  _ -> error ("Invalid dwarf encoding: " ++ show i)
 
 mkDwarfTag :: Integer -> DW_TAG
 mkDwarfTag i = case i of
@@ -118,6 +119,7 @@ mkDwarfTag i = case i of
   55 -> DW_TAG_imported_unit
   56 -> DW_TAG_condition
   57 -> DW_TAG_shared_type
+  _ -> error ("Invalid DWARF tag type: " ++ show i)
 
 -- This is a temporary type until the dwarf package supports DWARF4
 -- extensions

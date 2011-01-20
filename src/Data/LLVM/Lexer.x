@@ -1,4 +1,5 @@
 {
+{-# LANGUAGE RankNTypes #-}
 module Data.LLVM.Lexer ( lexer, Token(..) ) where
 
 import Data.Binary.IEEE754
@@ -532,17 +533,20 @@ lexer = alexScanTokens
 
 type AlexInput = (Char, Text)
 
+alexGetChar :: forall t . (t, Text) -> Maybe (Char, (Char, Text))
 alexGetChar (_,cs) | T.null cs = Nothing
                    | otherwise = Just (T.head cs, (T.head cs, T.tail cs))
 
+alexInputPrevChar :: forall t t1 . (t, t1) -> t
 alexInputPrevChar (c,_) = c
 
+alexScanTokens :: Text -> [Token]
 alexScanTokens str = go ('\n', str)
   where go inp@(_, str) =
           case alexScan inp 0 of
             AlexEOF -> []
             AlexError _ -> error "lexical error"
-            AlexSkip inp' len -> go inp'
+            AlexSkip inp' _ -> go inp'
             AlexToken inp' len act -> act (T.take (fromIntegral len) str) : go inp'
 
 

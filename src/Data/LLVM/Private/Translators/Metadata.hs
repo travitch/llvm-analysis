@@ -3,7 +3,7 @@ module Data.LLVM.Private.Translators.Metadata ( translateMetadata ) where
 import Data.Dwarf
 import qualified Data.Map as M
 import Data.Map (Map, (!))
-import Data.Maybe (maybe, fromJust)
+import Data.Maybe (fromJust)
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.DwarfHelpers
@@ -12,6 +12,7 @@ import qualified Data.LLVM.Private.PlaceholderTypes as O
 import qualified Data.LLVM.Types as N
 
 -- Constant defined by LLVM to version tags
+llvmDebugVersion :: Integer
 llvmDebugVersion = 524288
 
 -- Notes on metadata blocks.  An MDNode containing just a reference to
@@ -21,19 +22,20 @@ llvmDebugVersion = 524288
 -- of metadata (besides the source locations handled above) should
 -- have an i32 tag as the first argument
 
-translateMetadata :: (Map Identifier N.Metadata) ->
+translateMetadata :: (O.Constant -> N.Value) ->
+                     (Map Identifier N.Metadata) ->
                      (Map Identifier N.Metadata) ->
                      (Map Identifier N.Metadata) ->
                      Identifier -> [Maybe O.Constant]
                      -> (Map Identifier N.Metadata, Map Identifier N.Metadata)
-translateMetadata allMetadata md valmd name reflist =
+translateMetadata trConst allMetadata md valmd name reflist =
   (M.insert name newMetadata md, maybe valmd updateValMDMap valMetadata)
   where (newMetadata, valMetadata) = decodeRefs
         updateValMDMap :: Identifier -> Map Identifier N.Metadata
         updateValMDMap ident = M.insert ident newMetadata valmd
         -- This helper looks up a metadata reference in the *final* metadata map,
         -- converting a named metadata ref into an actual metadata object
-        metaRef (O.ValueRef name) = allMetadata ! name
+        metaRef (O.ValueRef metaName) = allMetadata ! metaName
         metaRef c = error ("Constant is not a metadata reference: " ++ show c)
         -- valueRef (O.ValueRef name) = allValues ! name
         -- valueRef c = error ("Constant is not a value reference: " ++ show c)
@@ -65,7 +67,7 @@ translateMetadata allMetadata md valmd name reflist =
         -- FIXME: Uncomment after implementing generic value translation
         -- mkMDAliasOrValue val = MetaNewValue (translate val)
         translateConstant :: O.Constant -> (N.Metadata, Maybe Identifier)
-        translateConstant elt = (N.MetadataValueConstant, Nothing)
+        translateConstant elt = (N.MetadataValueConstant (trConst elt), Nothing)
 
         mkMetadataOrSrcLoc :: [Maybe O.Constant] -> (N.Metadata, Maybe Identifier)
         mkMetadataOrSrcLoc vals@[Just tag, a, b, Nothing] =
@@ -73,9 +75,11 @@ translateMetadata allMetadata md valmd name reflist =
           then mkSourceLocation metaRef vals
           else mkMetadata tag [a, b, Nothing]
         mkMetadataOrSrcLoc ((Just tag):rest) = mkMetadata tag rest
+        mkMetadataOrSrcLoc vals = error ("Unexpected metadata record format: " ++ show vals)
 
-        -- Here, subtract out the version information from the tag
-        -- and construct the indicated record type
+        -- Here, subtract out the version information from the tag and
+        -- construct the indicated record type.  Note: could just
+        -- ignore unknown tags.
         mkMetadata :: O.Constant -> [Maybe O.Constant] -> (N.Metadata, Maybe Identifier)
         mkMetadata tag components = case tag' - llvmDebugVersion of
           1 -> mkCompositeType metaRef DW_TAG_array_type components
@@ -107,10 +111,15 @@ translateMetadata allMetadata md valmd name reflist =
           -- when the dwarf package supports them
 
           -- 259 -> mkCompositeType metaRef DW_TAG_vector_type components
+          _ -> error ("Unknown metadata node tag" ++ show (tag' - llvmDebugVersion))
           where tag' = getInt tag
 
+halfPair :: a -> (a, Maybe b)
 halfPair x = (x, Nothing)
 
+mkSubprogram :: (O.Constant -> N.Metadata) ->
+                [Maybe O.Constant] ->
+                (N.Metadata, Maybe Identifier)
 mkSubprogram metaRef [ _, Just context, Just name, Just displayName
                      , Just linkageName, Just file, Just line
                      , Just typ, Just isGlobal, Just notExtern
@@ -130,11 +139,13 @@ mkSubprogram metaRef [ _, Just context, Just name, Just displayName
                       , N.metaSubprogramBaseType = metaRef' basetype
                       , N.metaSubprogramArtificial = getBool isArtif
                       , N.metaSubprogramOptimized = getBool isOpt
-                     -- , N.metaSubprogramFunction = valueRef ptr
                       }, Just ident)
   where metaRef' = maybe Nothing (Just . metaRef)
 mkSubprogram _ c = error ("Invalid subprogram descriptor: " ++ show c)
 
+mkGlobalVar :: (O.Constant -> N.Metadata) ->
+               [Maybe O.Constant] ->
+               (N.Metadata, Maybe Identifier)
 mkGlobalVar metaRef [ _, Just context, Just name, Just displayName
                     , Just linkageName, Just file, Just line
                     , Just typ, Just isStatic, Just notExtern
@@ -148,11 +159,13 @@ mkGlobalVar metaRef [ _, Just context, Just name, Just displayName
                    , N.metaGlobalVarType = metaRef typ
                    , N.metaGlobalVarStatic = getBool isStatic
                    , N.metaGlobalVarNotExtern = getBool notExtern
-                                                -- , N.metaGlobalVarRef = valueRef varRef
                    }, Just ident)
 
 mkGlobalVar _ c = error ("Invalid global variable descriptor: " ++ show c)
 
+mkLocalVar :: (O.Constant -> N.Metadata) -> DW_VAR_TAG ->
+              [Maybe O.Constant] ->
+              (N.Metadata, Maybe Identifier)
 mkLocalVar metaRef tag [ Just context, Just name, Just file
                        , Just line, Just typeDesc ] = halfPair $
   N.MetaDWLocal { N.metaLocalTag = tag
@@ -165,6 +178,9 @@ mkLocalVar metaRef tag [ Just context, Just name, Just file
 mkLocalVar _ _ c = error ("Invalid local variable descriptor: " ++ show c)
 
 -- NOTE: Not quite sure what the member descriptor array looks like...
+mkCompositeType :: (O.Constant -> N.Metadata) -> DW_TAG ->
+                   [Maybe O.Constant] ->
+                   (N.Metadata, Maybe Identifier)
 mkCompositeType metaRef tag [ Just context, Just name, file, Just line
                             , Just size, Just align, Just offset, Just flags
                             , Just parent, Just members, Just langs ] = halfPair $
@@ -184,6 +200,9 @@ mkCompositeType metaRef tag [ Just context, Just name, file, Just line
   where metaRef' = maybe Nothing (Just . metaRef)
 mkCompositeType _ _ c = error ("Invalid composite type descriptor: " ++ show c)
 
+mkDerivedType :: (O.Constant -> N.Metadata) -> DW_TAG ->
+                 [Maybe O.Constant] ->
+                 (N.Metadata, Maybe Identifier)
 mkDerivedType metaRef tag [ Just context, Just name, file, Just line
                           , Just size, Just align, Just offset, Just parent ] = halfPair $
   N.MetaDWDerivedType { N.metaDerivedTypeTag = tag
@@ -199,18 +218,22 @@ mkDerivedType metaRef tag [ Just context, Just name, file, Just line
   where metaRef' = maybe Nothing (Just . metaRef)
 mkDerivedType _ _ c = error ("Invalid derived type descriptor: " ++ show c)
 
+mkEnumerator :: [Maybe O.Constant] -> (N.Metadata, Maybe Identifier)
 mkEnumerator [ Just name, Just value ] = halfPair $
   N.MetaDWEnumerator { N.metaEnumeratorName = getMDString name
                      , N.metaEnumeratorValue = getInt value
                      }
 mkEnumerator c = error ("Invalid enumerator descriptor content: " ++ show c)
 
+mkSubrange :: [Maybe O.Constant] -> (N.Metadata, Maybe Identifier)
 mkSubrange [ Just low, Just high ] = halfPair $
   N.MetaDWSubrange { N.metaSubrangeLow = getInt low
                    , N.metaSubrangeHigh = getInt high
                    }
 mkSubrange c = error ("Invalid subrange descriptor content: " ++ show c)
 
+mkFile :: (O.Constant -> N.Metadata) -> [Maybe O.Constant] ->
+          (N.Metadata, Maybe Identifier)
 mkFile metaRef [ Just file, Just dir, Just unit ] = halfPair $
   N.MetaDWFile { N.metaFileSourceFile = getMDString file
                , N.metaFileSourceDir = getMDString dir
@@ -218,6 +241,8 @@ mkFile metaRef [ Just file, Just dir, Just unit ] = halfPair $
                }
 mkFile _ c = error ("Invalid file descriptor content: " ++ show c)
 
+mkSourceLocation :: (O.Constant -> N.Metadata) -> [Maybe O.Constant] ->
+                    (N.Metadata, Maybe Identifier)
 mkSourceLocation metaRef [ Just row, Just col, Just scope ] = halfPair $
   N.MetaSourceLocation { N.metaSourceRow = getInt row
                        , N.metaSourceCol = getInt col
@@ -225,6 +250,8 @@ mkSourceLocation metaRef [ Just row, Just col, Just scope ] = halfPair $
                        }
 mkSourceLocation _ c = error ("Invalid source location content: " ++ show c)
 
+mkLexicalBlock :: (O.Constant -> N.Metadata) -> [Maybe O.Constant] ->
+                  (N.Metadata, Maybe Identifier)
 mkLexicalBlock metaRef [ Just context, Just row, Just col ] = halfPair $
   N.MetaDWLexicalBlock { N.metaLexicalBlockContext = metaRef context
                        , N.metaLexicalBlockRow = getInt row
@@ -232,6 +259,7 @@ mkLexicalBlock metaRef [ Just context, Just row, Just col ] = halfPair $
                        }
 mkLexicalBlock _ c = error ("Invalid lexical block content: " ++ show c)
 
+mkCompileUnit :: [Maybe O.Constant] -> (N.Metadata, Maybe Identifier)
 mkCompileUnit [ _, Just lang, Just source, Just dir, Just producer, Just isMain
               , Just isOpt, Just flags, Just version ] = halfPair $
   N.MetaDWCompileUnit { N.metaCompileUnitLanguage = mkDwarfLang $ getInt lang
@@ -246,7 +274,8 @@ mkCompileUnit [ _, Just lang, Just source, Just dir, Just producer, Just isMain
 mkCompileUnit c = error ("Invalid compile unit content: " ++ show c)
 
 
-
+mkBaseType :: (O.Constant -> N.Metadata) -> [Maybe O.Constant] ->
+              (N.Metadata, Maybe Identifier)
 mkBaseType metaRef [ Just context, Just name, file, Just line, Just size
                    , Just align, Just offset, Just flags, Just dwtype] = halfPair $
   N.MetaDWBaseType { N.metaBaseTypeContext = metaRef context

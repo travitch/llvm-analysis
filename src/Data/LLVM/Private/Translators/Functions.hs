@@ -8,25 +8,24 @@ import Data.LLVM.Private.AttributeTypes
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import Data.LLVM.Private.Translators.Instructions
 
-mkFuncType typeMapper d@O.FunctionDefinition { O.funcRetType = fret
-                                             , O.funcParams = params
-                                             , O.funcIsVararg = isVararg
-                                             , O.funcAttrs = attrs
-                                             } = llvmType
+mkFuncType :: (O.Type -> Type) -> O.GlobalDeclaration -> Type
+mkFuncType typeMapper O.FunctionDefinition { O.funcRetType = fret
+                                           , O.funcParams = params
+                                           , O.funcIsVararg = isVararg
+                                           , O.funcAttrs = attrs
+                                           } = llvmType
   where rtype = typeMapper fret
         argTypes = map (typeMapper . xtype) params
         xtype (O.FormalParameter t _ _) = t
         llvmType = TypeFunction rtype argTypes isVararg attrs
 mkFuncType _ _ = error "Non-func decl in mkFuncType"
 
-getFuncIdent O.FunctionDefinition { O.funcName = ident } = ident
-
 translateFunctionDefinition :: (O.Type -> Type) ->
-                ((Map Identifier Value) -> O.Constant -> Value) ->
-                (Map Identifier Metadata) ->
-                (Map Identifier Value) ->
-                O.GlobalDeclaration ->
-                Map Identifier Value
+                               ((Map Identifier Value) -> O.Constant -> Value) ->
+                               (Map Identifier Metadata) ->
+                               (Map Identifier Value) ->
+                               O.GlobalDeclaration ->
+                               Map Identifier Value
 translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl =
   M.insert (O.funcName decl) v vals
   where v = Value { valueType = ftype
@@ -54,13 +53,13 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
 
         -- Helper to translate the placeholder constants from the parser
         -- into real values
-        trConst (O.ValueRef ident@(LocalIdentifier _)) = localVals ! ident
+        trConst (O.ValueRef localIdent@(LocalIdentifier _)) = localVals ! localIdent
         trConst c = transValOrConst c
 
         -- Translated type of the function
         ftype = mkFuncType typeMapper decl
         -- Name of the function
-        ident = getFuncIdent decl
+        ident = O.funcName decl
         -- Remove @llvm.dbg.* calls from the body after extracting the
         -- information they provide.  Some of the debug information
         -- (e.g. changes in variable values) are ignored.  That
@@ -73,21 +72,21 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
         -- Tie the knot on the function body, converting all
         -- instructions to values
         (localVals, translatedBody) = translateBody noDebugBody
-        translateParameter (O.FormalParameter ty attrs ident) =
+        translateParameter (O.FormalParameter ty attrs paramIdent) =
           Value { valueType = typeMapper ty
-                , valueName = Just ident
+                , valueName = Just paramIdent
                 -- Note: Parameter metadata is mapped in an odd way -
                 -- via pseudo-calls to llvm.dbg.declare (or .value).
                 -- We construct this map by preprocessing the function
                 -- body so that we can map metadata to parameters here.
-                , valueMetadata = M.lookup ident localMetadata
+                , valueMetadata = M.lookup paramIdent localMetadata
                 , valueContent = Argument attrs
                 }
         translateBody = foldr translateBlock (M.empty, [])
-        translateBlock (O.BasicBlock ident placeholderInsts) (locals, blocks) =
+        translateBlock (O.BasicBlock blockName placeholderInsts) (locals, blocks) =
           (M.insert ident bb blocksWithLocals, bb : blocks)
           where bb = Value { valueType = TypeVoid
-                           , valueName = Just ident
+                           , valueName = Just blockName
                            , valueMetadata = Nothing -- can BBs have metadata?
                            , valueContent = BasicBlock insts
                            }
@@ -97,9 +96,9 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
         -- Returns a new body and a map of identifiers (vals) to
         -- metadata identifiers
         stripDebugCalls = foldr undebugBlock (M.empty, [])
-        undebugBlock (O.BasicBlock ident is) (md, blocks) = (md', newBlock:blocks)
+        undebugBlock (O.BasicBlock blockName is) (md, blocks) = (md', newBlock:blocks)
           where (md', is') = foldr undebugInst (md, []) is
-                newBlock = O.BasicBlock ident is'
+                newBlock = O.BasicBlock blockName is'
         undebugInst :: O.Instruction -> (Map Identifier Metadata, [O.Instruction]) -> (Map Identifier Metadata, [O.Instruction])
         undebugInst i acc@(md, insts) = case O.instContent i of
           O.CallInst { O.callFunction =
@@ -133,14 +132,21 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
 -- translateInstruction fold.  Always add the new value to the
 -- instruction list.  Add it to the local variable map only if it has
 -- a name.
+foldResult :: (Map Identifier Value, [Value]) -> Value ->
+              (Map Identifier Value, [Value])
 foldResult (locals, insts) val = case valueName val of
   Just i -> (M.insert i val locals, val : insts)
   Nothing -> (locals, val : insts)
 
+transInst :: (O.Type -> Type) ->
+             (O.Constant -> Value) ->
+             (Identifier -> Maybe Metadata) ->
+             O.Instruction ->
+             (Map Identifier Value, [Value]) ->
+             (Map Identifier Value, [Value])
 transInst typeMapper trConst getMetadata i acc =
-  foldResult acc v
-  where v = repackInst i content
-        trPair (v, t) = (trConst v, trConst t)
+  foldResult acc newValue
+  where newValue = repackInst i content
         content = translateInstruction typeMapper trConst $ O.instContent i
 
         -- This helper converts the non-content fields of an instruction to
@@ -149,6 +155,9 @@ transInst typeMapper trConst getMetadata i acc =
         -- want to attach metadata to alloca nodes, we could pass in the local
         -- metadata map here and search for iname - if there is an entry in
         -- that map then it is actually a local and we have extra metadata
+        -- FIXME: Here we need to give types to getelementptr and extractvalue
+        -- instructions ; they couldn't be determined earlier since the type
+        -- graph wasn't yet constructed.
         repackInst O.Instruction { O.instType = itype
                                  , O.instName = iname
                                  , O.instMetadata = md
@@ -158,5 +167,6 @@ transInst typeMapper trConst getMetadata i acc =
                           , valueMetadata = maybe Nothing getMetadata md
                           , valueContent = newContent
                           }
+        repackInst _ _ = error "Cannot repack unresolved instructions"
 
 

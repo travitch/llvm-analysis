@@ -2,10 +2,8 @@ module Data.LLVM.Private.TieKnot ( tieKnot ) where
 
 import qualified Data.Map as M
 import Data.Map (Map, (!))
-import qualified Data.Text as T
 
 import Data.LLVM.Private.AttributeTypes
-import Data.LLVM.Private.PlaceholderTypeExtractors
 import Data.LLVM.Private.Translators.Constants
 import Data.LLVM.Private.Translators.Functions
 import Data.LLVM.Private.Translators.Metadata
@@ -44,16 +42,14 @@ completeGraph typeMapper decls = M.elems globalDecls
         mdGo ((O.UnnamedMetadata name refs) : rest) (md, mv) =
           mdGo rest (transMetadata md mv name refs)
         mdGo (_:rest) vs = mdGo rest vs
-        metaRef (O.ValueRef name) = metadata ! name
-        metaRef c = error ("Constant is not a metadata reference: " ++ show c)
         go [] vals = vals
         go (decl:rest) vals = case decl of
-          O.GlobalDeclaration name addrspace annots ty init align ->
-            go rest (transGlobalVar typeMapper (transValOrConst M.empty) getMetadata vals name addrspace annots ty init align)
+          O.GlobalDeclaration name addrspace annots ty initializer align ->
+            go rest (transGlobalVar typeMapper (transValOrConst M.empty) getMetadata vals name addrspace annots ty initializer align)
           O.FunctionDefinition {} ->
             go rest (translateFunctionDefinition typeMapper transValOrConst metadata vals decl)
-          O.GlobalAlias name linkage vis ty const ->
-            go rest (transAlias typeMapper (transValOrConst M.empty) getMetadata vals name linkage vis ty const)
+          O.GlobalAlias name linkage vis ty constant ->
+            go rest (transAlias typeMapper (transValOrConst M.empty) getMetadata vals name linkage vis ty constant)
           O.ExternalDecl ty ident ->
             go rest (transExternal typeMapper getMetadata vals ty ident)
           _ -> go rest vals
@@ -61,7 +57,7 @@ completeGraph typeMapper decls = M.elems globalDecls
         -- Return the updated metadata graph - but needs to refer to
         -- the "completed" version in 'metadata'
         getMetadata ident = M.lookup ident metadata
-        transMetadata = translateMetadata metadata
+        transMetadata = translateMetadata (transValOrConst M.empty) metadata
         transValOrConst = translateConstant typeMapper globalDecls
 
 
@@ -73,24 +69,36 @@ mkValue ty ident md val =
           , N.valueContent = val
           }
 
+transExternal :: (O.Type -> N.Type) -> (Identifier -> Maybe N.Metadata) ->
+                 Map Identifier N.Value -> O.Type -> Identifier ->
+                 Map Identifier N.Value
 transExternal typeMapper getGlobalMD vals ty ident =
   M.insert ident val vals
   where val = mkValue (typeMapper ty) (Just ident) (getGlobalMD ident) N.ExternalValue
 
-transAlias typeMapper transValOrConst getGlobalMD vals name linkage vis ty const =
+transAlias :: (O.Type -> N.Type) -> (O.Constant -> N.Value) ->
+              (Identifier -> Maybe N.Metadata) -> Map Identifier N.Value ->
+              Identifier -> LinkageType -> VisibilityStyle ->
+              O.Type -> O.Constant -> Map Identifier N.Value
+transAlias typeMapper transValOrConst getGlobalMD vals name linkage vis ty constant =
   M.insert name val vals
   where val = mkValue (typeMapper ty) (Just name) (getGlobalMD name) val'
         val' = N.GlobalAlias { N.globalAliasLinkage = linkage
                              , N.globalAliasVisibility = vis
-                             , N.globalAliasValue = transValOrConst const
+                             , N.globalAliasValue = transValOrConst constant
                              }
 
-transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty init align =
+transGlobalVar :: (O.Type -> N.Type) -> (O.Constant -> N.Value) ->
+                  (Identifier -> Maybe N.Metadata) ->
+                  Map Identifier N.Value -> Identifier -> Int ->
+                  [GlobalAnnotation] -> O.Type -> O.Constant -> Integer ->
+                  Map Identifier N.Value
+transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty initializer align =
   M.insert name val vals
   where val = mkValue (typeMapper ty) (Just name) (getGlobalMD name) val'
         val' = N.GlobalDeclaration { N.globalVariableAddressSpace = addrspace
                                    , N.globalVariableAnnotations = annots
-                                   , N.globalVariableInitializer = transValOrConst init
+                                   , N.globalVariableInitializer = transValOrConst initializer
                                    , N.globalVariableAlignment = align
                                    }
 
@@ -108,7 +116,7 @@ makeTypeTranslator decls = trans'
   where mapping = namedTrans' decls M.empty
         namedTrans' [] m = m
         namedTrans' (d:rest) m = namedTrans' rest $ case d of
-          O.NamedType ident ty@(O.TypeNamed name) -> M.insert name (trans' ty) m
+          O.NamedType ident ty@(O.TypeNamed _) -> M.insert ident (trans' ty) m
           O.NamedType _ _ -> error "NamedType has non TypeNamed as content"
           _ -> m
         trans' :: O.Type -> N.Type
@@ -130,7 +138,7 @@ makeTypeTranslator decls = trans'
           O.TypePointer t' -> N.TypePointer (trans' t')
           O.TypeStruct ts' -> N.TypeStruct (map trans' ts')
           O.TypePackedStruct ts' -> N.TypePackedStruct (map trans' ts')
-          O.TypeUpref i -> error "Type uprefs not supported yet"
+          O.TypeUpref _ -> error "Type uprefs not supported yet"
           O.TypeNamed name -> mapping ! name
 
 

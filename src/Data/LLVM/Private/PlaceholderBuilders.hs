@@ -89,7 +89,7 @@ mkLoadInst ident volatile ty val align =
 
 mkStoreInst :: (Monad m) => Bool -> Type -> PartialConstant -> Type -> PartialConstant -> Integer -> m Instruction
 mkStoreInst volatile t1 val t2 dest align
-  | t2 == t1 = return $ voidInst $ StoreInst volatile (val t1) (dest t2) align
+  | t2' == t1 = return $ voidInst $ StoreInst volatile (val t1) (dest t2) align
   | otherwise = fail "Store type mismatch"
   where (TypePointer t2') = t2
 
@@ -114,7 +114,7 @@ mkIcmpInst ident cond t v1 v2 =
   -- The result type is i1 for scalars, or a vector of i1 with one
   -- entry per element in the input vectors
   where t' = case t of
-          TypeVector n innerType -> TypeVector n (TypeInteger 1)
+          TypeVector n _ -> TypeVector n (TypeInteger 1)
           _ -> TypeInteger 1
 
 
@@ -124,13 +124,13 @@ mkFcmpInst ident cond t v1 v2 =
   -- The result type is i1 for scalars, or a vector of i1 with one
   -- entry per element in the input vectors
   where t' = case t of
-          TypeVector n innerType -> TypeVector n (TypeInteger 1)
+          TypeVector n _ -> TypeVector n (TypeInteger 1)
           _ -> TypeInteger 1
 
 mkPhiNode :: (Monad m) => Identifier -> Type -> [(PartialConstant, Constant)] -> m Instruction
 mkPhiNode ident ty vals =
   return $ namedInst ident ty $ PhiNode (map applicator vals)
-  where applicator (pc, id) = (pc ty, id)
+  where applicator (pc, name) = (pc ty, name)
 
 -- this doesn't encode the semantics very well (though they are
 -- represented).  If selty is a vector i1, then the selection is
@@ -144,7 +144,7 @@ mkSelectInst ident selty sel t1 v1 t2 v2 = do
   where mk' = return $ namedInst ident t1 $ SelectInst (sel selty) (v1 t1) (v2 t2)
 
 mkCallInst :: (Monad m) => Maybe Identifier -> Bool -> CallingConvention -> [ParamAttribute] -> Type -> Maybe Type -> PartialConstant -> [Constant] -> [FunctionAttribute] -> m Instruction
-mkCallInst mident isTail cc pattrs rtype mftype func params funcAttrs =
+mkCallInst mident isTail cc pattrs rtype mftype func params fAttrs =
   return $ maybeNamedInst mident rtype i
   where i = CallInst { callIsTail = isTail
                      , callConvention = cc
@@ -152,7 +152,7 @@ mkCallInst mident isTail cc pattrs rtype mftype func params funcAttrs =
                      , callRetType = rtype
                      , callFunction = realFunc
                      , callArguments = params
-                     , callAttrs = funcAttrs
+                     , callAttrs = fAttrs
                      }
         realFunc = case (func rtype, mftype) of
           (ValueRef _, _) -> func rtype
@@ -198,10 +198,10 @@ mkExternalFuncDecl retType ident (argTypes, isVararg) attrs = ExternalDecl t ide
   where t = TypeFunction retType argTypes isVararg attrs
 
 mkGlobalDecl :: Identifier -> Int -> [GlobalAnnotation] -> Type -> PartialConstant -> Integer -> GlobalDeclaration
-mkGlobalDecl ident addrSpace annots initType init align =
+mkGlobalDecl ident addrSpace annots initType initializer align =
   GlobalDeclaration ident addrSpace annots t i align
   where t = TypePointer initType
-        i = init initType
+        i = initializer initType
 
 mkBasicBlock :: Text -> [Instruction] -> BasicBlock
 mkBasicBlock t = BasicBlock (LocalIdentifier t)

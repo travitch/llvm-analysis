@@ -113,6 +113,7 @@ data DataLayout = DataLayout { endianness :: Endian
 
 -- Defaults specified by LLVM.  I think there can only be one pointer
 -- align specification, though it isn't explicitly stated
+defaultDataLayout :: DataLayout
 defaultDataLayout = DataLayout { endianness = EBig
                                , pointerAlign = (64, AlignSpec 64 64)
                                , intAlign = Map.fromList [ (1, AlignSpec 8 8)

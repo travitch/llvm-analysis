@@ -65,6 +65,7 @@ data Constant = ConstValue ConstantT Type
               | ValueRef Identifier
               deriving (Show, Eq)
 
+valueRef :: Identifier -> a -> Constant
 valueRef ident = const (ValueRef ident)
 
 -- The first group of value types are unusual and are *not* "users".

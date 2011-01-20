@@ -1,9 +1,10 @@
 module Data.LLVM.Private.Translators.Instructions ( translateInstruction ) where
 
 import Data.LLVM.Types
-import Data.LLVM.Private.AttributeTypes
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 
+translateInstruction :: (O.Type -> Type) -> (O.Constant -> Value) ->
+                        O.InstructionT -> ValueT
 translateInstruction typeMapper trConst oldContent = newContent
   where trPair (v, t) = (trConst v, trConst t)
         newContent = case oldContent of

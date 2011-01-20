@@ -136,7 +136,7 @@ data Metadata =
                 , metaLocalType :: Metadata
                 }
   | MetadataList [Metadata]
-  | MetadataValueConstant
+  | MetadataValueConstant Value
   deriving (Show, Eq)
 
 -- valueName is mostly informational at this point.  All references
