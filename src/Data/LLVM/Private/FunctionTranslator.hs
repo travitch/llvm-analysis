@@ -36,9 +36,17 @@ transFuncDef typeMapper transValOrConst getMetadata vals decl =
                   , valueMetadata = getMetadata ident
                   , valueContent =
                     Function { functionType = ftype
-                             , functionParameters =
-                               map translateParameter $ O.funcParams decl
+                             , functionParameters = map translateParameter $ O.funcParams decl
                              , functionBody = translatedBody
+                             , functionLinkage = O.funcLinkage decl
+                             , functionVisibility = O.funcVisibility decl
+                             , functionCC = O.funcCC decl
+                             , functionRetAttrs = O.funcRetAttrs decl
+                             , functionName = O.funcName decl
+                             , functionSection = O.funcSection decl
+                             , functionAlign = O.funcAlign decl
+                             , functionGCName = O.funcGCName decl
+                             , functionIsVararg = O.funcIsVararg decl
                              }
                   }
         ftype = mkFuncType typeMapper decl

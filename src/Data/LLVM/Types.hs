@@ -157,6 +157,15 @@ functionAttributes _ = Nothing
 data ValueT = Function { functionType :: Type
                        , functionParameters :: [Value] -- A list of arguments
                        , functionBody :: [Value] -- A list of basic blocks
+                       , functionLinkage :: LinkageType
+                       , functionVisibility :: VisibilityStyle
+                       , functionCC :: CallingConvention
+                       , functionRetAttrs :: [ParamAttribute]
+                       , functionName :: Identifier
+                       , functionSection :: Maybe Text
+                       , functionAlign :: Integer
+                       , functionGCName :: GCName
+                       , functionIsVararg :: Bool
                        }
             | GlobalDeclaration { globalVariableAddressSpace :: Int
                                 , globalVariableAnnotations :: [GlobalAnnotation]
