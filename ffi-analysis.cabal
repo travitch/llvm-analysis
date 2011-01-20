@@ -62,14 +62,14 @@ library
                    Data.LLVM.Types,
                    Data.LLVM.Private.DwarfHelpers,
                    Data.LLVM.Private.TieKnot,
-                   Data.LLVM.Private.FunctionTranslator,
                    Data.LLVM.Private.PlaceholderTypeExtractors,
-                   Data.LLVM.Private.MetadataTranslator,
                    Data.LLVM.Private.PlaceholderTypes,
                    Data.LLVM.Private.ParsingMonad,
                    Data.LLVM.Private.AttributeTypes,
                    Data.LLVM.Private.PlaceholderBuilders,
-                   Data.LLVM.Private.Translators.Constants
+                   Data.LLVM.Private.Translators.Constants,
+                   Data.LLVM.Private.Translators.Functions,
+                   Data.LLVM.Private.Translators.Metadata
 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   build-tools: alex >= 2 && < 3, happy > 1.18.0

@@ -1,4 +1,4 @@
-module Data.LLVM.Private.MetadataTranslator ( translateMetadata ) where
+module Data.LLVM.Private.Translators.Metadata ( translateMetadata ) where
 
 import Data.Dwarf
 import qualified Data.Map as M

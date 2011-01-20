@@ -1,4 +1,4 @@
-module Data.LLVM.Private.FunctionTranslator ( transFuncDef ) where
+module Data.LLVM.Private.Translators.Functions ( translateFunctionDefinition ) where
 
 import Data.Map (Map, (!))
 import qualified Data.Map as M
@@ -20,13 +20,13 @@ mkFuncType _ _ = error "Non-func decl in mkFuncType"
 
 getFuncIdent O.FunctionDefinition { O.funcName = ident } = ident
 
-transFuncDef :: (O.Type -> Type) ->
+translateFunctionDefinition :: (O.Type -> Type) ->
                 ((Map Identifier Value) -> O.Constant -> Value) ->
                 (Map Identifier Metadata) ->
                 (Map Identifier Value) ->
                 O.GlobalDeclaration ->
                 Map Identifier Value
-transFuncDef typeMapper pTransValOrConst globalMetadata vals decl =
+translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl =
   M.insert (O.funcName decl) v vals
   where v = Value { valueType = ftype
                   , valueName = Just ident
