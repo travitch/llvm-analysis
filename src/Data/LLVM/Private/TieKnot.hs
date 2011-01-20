@@ -50,7 +50,7 @@ completeGraph typeMapper decls = M.elems globalDecls
           O.GlobalDeclaration name addrspace annots ty init align ->
             go rest (transGlobalVar typeMapper transValOrConst getMetadata vals name addrspace annots ty init align)
           O.FunctionDefinition {} ->
-            go rest (transFuncDef typeMapper transValOrConst getMetadata vals decl)
+            go rest (transFuncDef typeMapper transValOrConst metadata vals decl)
           O.GlobalAlias name linkage vis ty const ->
             go rest (transAlias typeMapper transValOrConst getMetadata vals name linkage vis ty const)
           O.ExternalDecl ty ident ->

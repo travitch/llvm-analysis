@@ -20,16 +20,13 @@ mkFuncType _ _ = error "Non-func decl in mkFuncType"
 
 getFuncIdent O.FunctionDefinition { O.funcName = ident } = ident
 
--- FIXME: Preprocess the function body to collect the mapping from
--- parameters to metadata by looking at calls to @llvm.dbg.value.
--- These calls also contain information about locals
 transFuncDef :: (O.Type -> Type) ->
                 (O.Constant -> Value) ->
-                (Identifier -> Maybe Metadata) ->
+                (Map Identifier Metadata) ->
                 (Map Identifier Value) ->
                 O.GlobalDeclaration ->
                 Map Identifier Value
-transFuncDef typeMapper transValOrConst getMetadata vals decl =
+transFuncDef typeMapper transValOrConst globalMetadata vals decl =
   M.insert (O.funcName decl) v vals
   where v = Value { valueType = ftype
                   , valueName = Just ident
@@ -49,15 +46,39 @@ transFuncDef typeMapper transValOrConst getMetadata vals decl =
                              , functionIsVararg = O.funcIsVararg decl
                              }
                   }
-        ftype = mkFuncType typeMapper decl
-        ident = getFuncIdent decl
-        (localVals, translatedBody) = translateBody (O.funcBody decl)
+
+        -- Trivial metadata lookup function
+        getMetadata i = M.lookup i globalMetadata
+
+        -- Helper to translate the placeholder constants from the parser
+        -- into real values
         trConst (O.ValueRef ident@(LocalIdentifier _)) = localVals ! ident
         trConst c = transValOrConst c
+
+        -- Translated type of the function
+        ftype = mkFuncType typeMapper decl
+        -- Name of the function
+        ident = getFuncIdent decl
+        -- Remove @llvm.dbg.* calls from the body after extracting the
+        -- information they provide.  Some of the debug information
+        -- (e.g. changes in variable values) are ignored.  That
+        -- information is implicit in phi nodes.  There is actually
+        -- some information in this metadata map for local variables,
+        -- too.  I'm not attaching that for now since it doesn't seem
+        -- all that useful and is somewhat inconvenient.  It could be
+        -- fixed if necessary.
+        (localMetadata, noDebugBody) = stripDebugCalls (O.funcBody decl)
+        -- Tie the knot on the function body, converting all
+        -- instructions to values
+        (localVals, translatedBody) = translateBody noDebugBody
         translateParameter (O.FormalParameter ty attrs ident) =
           Value { valueType = typeMapper ty
                 , valueName = Just ident
-                , valueMetadata = Nothing -- FIXME: see above
+                -- Note: Parameter metadata is mapped in an odd way -
+                -- via pseudo-calls to llvm.dbg.declare (or .value).
+                -- We construct this map by preprocessing the function
+                -- body so that we can map metadata to parameters here.
+                , valueMetadata = M.lookup ident localMetadata
                 , valueContent = Argument attrs
                 }
         translateBody = foldr translateBlock (M.empty, [])
@@ -71,6 +92,39 @@ transFuncDef typeMapper transValOrConst getMetadata vals decl =
                 (blocksWithLocals, insts) = translateInsts locals placeholderInsts
         translateInsts locals = foldr trInst (locals, [])
         trInst = translateInstruction typeMapper trConst getMetadata
+        -- Returns a new body and a map of identifiers (vals) to
+        -- metadata identifiers
+        stripDebugCalls = foldr undebugBlock (M.empty, [])
+        undebugBlock (O.BasicBlock ident is) (md, blocks) = (md', newBlock:blocks)
+          where (md', is') = foldr undebugInst (md, []) is
+                newBlock = O.BasicBlock ident is'
+        undebugInst :: O.Instruction -> (Map Identifier Metadata, [O.Instruction]) -> (Map Identifier Metadata, [O.Instruction])
+        undebugInst i acc@(md, insts) = case O.instContent i of
+          O.CallInst { O.callFunction =
+                          O.ValueRef (GlobalIdentifier "llvm.dbg.declare")
+                     , O.callArguments = args
+                     } -> destructureDebugCall args acc
+          O.CallInst { O.callFunction =
+                          O.ValueRef (GlobalIdentifier "llvm.dbg.value")
+                     , O.callArguments = args
+                     } -> destructureDebugCall args acc
+          -- Not a debug call - just include it
+          _ -> (md, i : insts)
+
+        -- Always discard the instruction, but update the metadata map
+        -- when possible
+        destructureDebugCall [ (O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _)
+                             , (O.ValueRef i@(MetaIdentifier _)) ] acc@(md, insts) =
+          case getMetadata i of
+            Nothing -> acc
+            Just metadata -> (M.insert varRef metadata md, insts)
+        destructureDebugCall [ (O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _)
+                             , _
+                             , (O.ValueRef i@(MetaIdentifier _)) ] acc@(md, insts) =
+          case getMetadata i of
+            Nothing -> acc
+            Just metadata -> (M.insert varRef metadata md, insts)
+        destructureDebugCall _ acc = acc
 
 -- This helper converts the non-content fields of an instruction
 -- to the equivalent fields in a Value.  It performs the necessary
