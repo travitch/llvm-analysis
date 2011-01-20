@@ -15,35 +15,27 @@ import qualified Data.LLVM.Types as N
 -- 1) Extract module assembly since it stands alone.
 -- 2) Build a function that eliminates named types and can map a
 --    placeholder type to a real type.  This will be used everywhere else
--- 3) Build the list of externally referenced functions.  Their types need
---    to be translated, but they do not reference any other values (from the
---    IR perspective).
--- 4) Finally, everything else can refer to everything else, so fix up all
+-- 3) Finally, everything else can refer to everything else, so fix up all
 --    references in one go using the previously defined maps in completeGraph
 tieKnot :: O.Module -> N.Module
 tieKnot (O.Module layout triple decls) =
   N.Module { N.moduleDataLayout = layout
            , N.moduleTarget = triple
            , N.moduleAssembly = moduleAsm
-           , N.moduleGlobals = globalValues ++ externs
+           , N.moduleGlobals = globalValues
            }
   where translateType = makeTypeTranslator decls
-        externFuncMap = makeExternFunctionMap decls translateType
-        mapExternFunc = flip M.lookup externFuncMap
-        externs :: [N.Value]
-        externs = M.elems externFuncMap
         moduleAsm = extractModuleAssembly decls
         globalValues :: [N.Value]
-        globalValues = completeGraph translateType mapExternFunc decls
+        globalValues = completeGraph translateType decls
 
 -- FIXME: Could do something with the named metadata.  There seem to
 -- be two entries that don't really give much information: the lists
 -- of defined globals.
 completeGraph :: (O.Type -> N.Type) ->
-                 (Identifier -> Maybe N.Value) ->
                  [O.GlobalDeclaration] ->
                  [N.Value]
-completeGraph typeMapper externMapper decls = M.elems globalDecls
+completeGraph typeMapper decls = M.elems globalDecls
   where globalDecls = go decls M.empty
         (boundMD, mdForGlobals) = mdGo decls (M.empty, M.empty)
         metadata = M.union boundMD mdForGlobals
@@ -111,40 +103,9 @@ extractModuleAssembly decls = reverse $ foldr xtract [] decls
           O.ModuleAssembly asm -> asm : acc
           _ -> acc
 
--- Returns a function that maps the identifiers of extern functions to
--- actual Function Values (if the identifier is indeed an external
--- function).
-makeExternFunctionMap :: [O.GlobalDeclaration] -> (O.Type -> N.Type) -> Map Identifier N.Value
-makeExternFunctionMap decls typeMapper = mapping -- flip M.lookup mapping
-  where mapping = funcMapper decls M.empty
-        funcMapper :: [O.GlobalDeclaration] -> Map Identifier N.Value -> Map Identifier N.Value
-        funcMapper [] m = m
-        funcMapper (d:rest) m = funcMapper rest $ case d of
-          O.ExternalDecl t name ->
-            M.insert name (mkFuncVal t name) m
-          _ -> funcMapper rest m
-          where mkFuncVal t name =
-                  N.Value { N.valueType = typeMapper t
-                          , N.valueName = Just name
-                          , N.valueMetadata = Nothing
-                          , N.valueContent = N.Function { N.functionType = typeMapper t
-                                                        , N.functionParameters = Nothing
-                                                        , N.functionBody = Nothing
-                                                        }
-                          }
-
 -- Create a map from the placeholder types to the final types.  FIXME:
 -- Add support for type uprefs.  The code generator always seems to
--- just use named types, so it doesn't seem crucial.  FIXME: This is a
--- great place to handle function type translation.  Functions that
--- are void with an sret first parameter need to be transformed; we
--- can handle the type translation here and fix up the decls and calls
--- later.  All calls need to be possibly transformed.  Formal lists
--- need to be fixed up *before* the translation starts.  The
--- translation for types is not readily apparent - the information
--- about sret params is just not present.  This may need to be done
--- when constructing function references when the function name is
--- known.
+-- just use named types, so it doesn't seem crucial.
 makeTypeTranslator :: [O.GlobalDeclaration] -> (O.Type -> N.Type)
 makeTypeTranslator decls = trans'
   where mapping = namedTrans' decls M.empty
