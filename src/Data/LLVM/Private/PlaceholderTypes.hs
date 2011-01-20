@@ -93,7 +93,7 @@ data InstructionT = RetInst (Maybe Constant)
             | InsertElementInst Constant Constant Constant
             | ShuffleVectorInst Constant Constant Constant
             | ExtractValueInst Constant [Integer]
-            | InsertValueInst Constant Constant Integer
+            | InsertValueInst Constant Constant [Integer]
             | AllocaInst Type Constant Integer -- Type, NumElems, align
             | LoadInst Bool Constant Integer -- Volatile? Type Dest align
             | StoreInst Bool Constant Constant Integer -- Volatile? Type Dest align
@@ -164,11 +164,10 @@ data GlobalDeclaration = GlobalDeclaration Identifier Int [GlobalAnnotation] Typ
 data FormalParameter = FormalParameter Type [ParamAttribute] Identifier
                      deriving (Show, Eq)
 
--- FIXME: Convert the second ident to a Value (basic blocks are values)
 data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -- to be resolved into something useful later
                | ConstantAggregateZero
                | ConstantArray [Constant] -- This should have some parameters but I don't know what
-               | ConstantExpr Constant -- change this to something else maybe?  Value should suffice... might even eliminate this one
+               | ConstantExpr InstructionT -- change this to something else maybe?  Value should suffice... might even eliminate this one
                | ConstantFP Double
                | ConstantInt Integer
                | ConstantPointerNull

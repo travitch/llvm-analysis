@@ -223,7 +223,7 @@ data ValueT = Function { functionType :: Type
                                }
             | InsertValueInst { insertValueAggregate :: Value
                               , insertValueValue :: Value
-                              , insertValueIndex :: Integer
+                              , insertValueIndices :: [Integer]
                               }
             | AllocaInst Type Value Integer -- Type, NumElems, align
             | LoadInst Bool Value Integer -- Volatile? Type Dest align
@@ -275,7 +275,7 @@ data ValueT = Function { functionType :: Type
             | ConstantPointerNull
             | ConstantStruct [Value]
             | ConstantVector [Value]
-            | ConstantValue Value
+            | ConstantValue ValueT
             | InlineAsm Text Text
             deriving (Show, Eq)
 

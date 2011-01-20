@@ -447,9 +447,6 @@ FunctionBody:
 BasicBlock:
   label list(Instruction) { mkBasicBlock $1 $2 }
 
--- FIXME: Need the constant instructions (they are just the instructions with
--- constant args -- slightly different format
-
 SimpleConstant:
     "true"     { ConstantInt 1 }
   | "false"    { ConstantInt 0 }
@@ -457,8 +454,6 @@ SimpleConstant:
   | floatlit   { ConstantFP $1 }
   | "null"     { ConstantPointerNull }
   | mdstring   { MDString $1 }
-  -- | Identifier { ConstantIdentifier $1 }
-
 
 ComplexConstant:
     "{" sep(Constant, ",") "}"   { ConstantStruct $2 }
@@ -469,6 +464,48 @@ ComplexConstant:
   | "blockaddress" "(" Identifier "," Identifier ")" { BlockAddress $3 $5 }
   -- The case where the mdnode ends in a plain untyped null shouldn't ever occur here
   | MDNode                       { MDNode $1 }
+  | "asm" string "," string { InlineAsm $2 $4 }
+  | "trunc" "(" Constant "to" Type ")" { ConstantExpr $ TruncInst $3 $5 }
+  | "zext" "(" Constant "to" Type ")"  { ConstantExpr $ ZExtInst $3 $5 }
+  | "sext" "(" Constant "to" Type ")"  { ConstantExpr $ SExtInst $3 $5 }
+  | "fptrunc" "(" Constant "to" Type ")" { ConstantExpr $ FPTruncInst $3 $5 }
+  | "fpext" "(" Constant "to" Type ")" { ConstantExpr $ FPExtInst $3 $5 }
+  | "fptoui" "(" Constant "to" Type ")" { ConstantExpr $ FPToUIInst $3 $5 }
+  | "fptosi" "(" Constant "to" Type ")" { ConstantExpr $ FPToSIInst $3 $5 }
+  | "uitofp" "(" Constant "to" Type ")" { ConstantExpr $ UIToFPInst $3 $5 }
+  | "sitofp" "(" Constant "to" Type ")" { ConstantExpr $ SIToFPInst $3 $5 }
+  | "ptrtoint" "(" Constant "to" Type ")" { ConstantExpr $ PtrToIntInst $3 $5 }
+  | "inttoptr" "(" Constant "to" Type ")" { ConstantExpr $ IntToPtrInst $3 $5 }
+  | "bitcast" "(" Constant "to" Type ")"  { ConstantExpr $ BitcastInst $3 $5 }
+  | "getelementptr" InBounds "(" Constant "," sep1(Constant, ",") ")"
+    { ConstantExpr $ GetElementPtrInst $2 $4 $6 }
+  | "select" "(" Constant "," Constant "," Constant ")"
+    { ConstantExpr $ SelectInst $3 $5 $7 }
+  | "icmp" ICmpCondition "(" Constant "," Constant ")"
+    { ConstantExpr $ ICmpInst $2 $4 $6 }
+  | "fcmp" FCmpCondition "(" Constant "," Constant ")"
+    { ConstantExpr $ FCmpInst $2 $4 $6 }
+  | "extractelement" "(" Constant "," Constant ")"
+    { ConstantExpr $ ExtractElementInst $3 $5 }
+  | "insertelement" "(" Constant "," Constant "," Constant ")"
+    { ConstantExpr $ InsertElementInst $3 $5 $7 }
+  | "shufflevector" "(" Constant "," Constant "," Constant ")"
+    { ConstantExpr $ ShuffleVectorInst $3 $5 $7 }
+  | "extractvalue" "(" Constant "," sep1(intlit, ",") ")"
+    { ConstantExpr $ ExtractValueInst $3 $5 }
+  | "insertvalue" "(" Constant "," Constant "," sep1(intlit, ",") ")"
+    { ConstantExpr $ InsertValueInst $3 $5 $7 }
+  | AddInst "(" Constant "," Constant ")" { ConstantExpr $ AddInst [] $3 $5 }
+  | SubInst "(" Constant "," Constant ")" { ConstantExpr $ SubInst [] $3 $5 }
+  | MulInst "(" Constant "," Constant ")" { ConstantExpr $ MulInst [] $3 $5 }
+  | DivInst "(" Constant "," Constant ")" { ConstantExpr $ DivInst $3 $5 }
+  | RemInst "(" Constant "," Constant ")" { ConstantExpr $ RemInst $3 $5 }
+  | "shl" "(" Constant "," Constant ")"   { ConstantExpr $ ShlInst $3 $5 }
+  | "lshr" "(" Constant "," Constant ")"  { ConstantExpr $ LshrInst $3 $5 }
+  | "ashr" "(" Constant "," Constant ")"  { ConstantExpr $ AshrInst $3 $5 }
+  | "and" "(" Constant "," Constant ")"   { ConstantExpr $ AndInst $3 $5 }
+  | "or" "(" Constant "," Constant ")"     { ConstantExpr $ OrInst $3 $5 }
+  | "xor" "(" Constant "," Constant ")"   { ConstantExpr $ XorInst $3 $5 }
 
 AllConstants:
     SimpleConstant  { $1 }
@@ -486,8 +523,6 @@ Constant:
 
 InstMetadata:
   "," "!" "dbg" MetaIdentifier { $4 }
-
--- FIXME: Inline asm (inline asm is always an argument to a call instrution)
 
 Instruction:
   InstructionNoMD optional(InstMetadata) { mkMDInst $1 $2 }
@@ -537,9 +572,9 @@ InstructionNoMD:
     { mkInsertElementInst $1 $4 $5 $7 $9 }
   | LocalIdentifier "=" "shufflevector" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
     {% mkShuffleVectorInst $1 $4 $5 $7 $8 $10 $11 }
-  | LocalIdentifier "=" "extractvalue" Type PartialConstant "," intlit list(ExtraIntLitIndex)
-    {% mkExtractValueInst $1 $4 $5 ($7 : $8) }
-  | LocalIdentifier "=" "insertvalue" Type PartialConstant "," Type PartialConstant "," intlit
+  | LocalIdentifier "=" "extractvalue" Type PartialConstant "," sep1(intlit, ",") -- list(ExtraIntLitIndex)
+    {% mkExtractValueInst $1 $4 $5 $7 }
+  | LocalIdentifier "=" "insertvalue" Type PartialConstant "," Type PartialConstant "," sep1(intlit, ",")
     { mkInsertValueInst $1 $4 $5 $7 $8 $10 }
   | LocalIdentifier "=" "alloca" Type AllocaNumElems AlignmentSpec
     { mkAllocaInst $1 $4 $5 $6 }

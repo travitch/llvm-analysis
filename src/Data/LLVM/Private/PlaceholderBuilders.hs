@@ -65,7 +65,7 @@ mkShuffleVectorInst name t1 val1 t2 val2 t3 mask
 
 -- FIXME: Add checks to ensure the type of the inserted element is correct
 -- based on the index
-mkInsertValueInst :: Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Integer -> Instruction
+mkInsertValueInst :: Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> [Integer] -> Instruction
 mkInsertValueInst name t1 v1 t2 v2 idx =
   namedInst name t1 $ InsertValueInst (v1 t1) (v2 t2) idx
 

@@ -5,6 +5,7 @@ import Data.Map (Map, (!))
 
 import Data.LLVM.Private.AttributeTypes
 import qualified Data.LLVM.Private.PlaceholderTypes as O
+import Data.LLVM.Private.Translators.Instructions
 import Data.LLVM.Types
 
 mkCVal ty c = Value { valueName = Nothing
@@ -26,7 +27,8 @@ translateConstant typeMapper globalDecls localDecls v = case v of
                   O.ConstantAggregateZero -> mkCVal t ConstantAggregateZero
                   O.ConstantArray cs ->
                     mkCVal t $ ConstantArray $ map trConst cs
-                  -- O.ConstantExpr c ->
+                  O.ConstantExpr inst ->
+                    mkCVal t $ translateInstruction typeMapper trConst inst
                   O.ConstantFP fp -> mkCVal t $ ConstantFP fp
                   O.ConstantInt i -> mkCVal t $ ConstantInt i
                   O.ConstantPointerNull -> mkCVal t ConstantPointerNull
