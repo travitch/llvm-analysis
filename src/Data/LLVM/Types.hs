@@ -48,7 +48,7 @@ data Metadata =
                        , metaLexicalBlockCol :: Integer
                        , metaLexicalBlockContext :: Metadata
                        }
-  | MetaDWAutoVariable
+--  | MetaDWAutoVariable
   | MetaDWCompileUnit { metaCompileUnitLanguage :: DW_LANG
                       , metaCompileUnitSourceFile :: Text
                       , metaCompileUnitCompileDir :: Text
@@ -266,7 +266,16 @@ data ValueT = Function { functionType :: Type
                          , invokeUnwindLabel :: Value
                          }
             | VaArgInst Value Type
-
-
+            | UndefValue
+            | BlockAddress Value Value -- Function, block -- type i8*, constant
+            | ConstantAggregateZero
+            | ConstantArray [Value]
+            | ConstantFP Double
+            | ConstantInt Integer
+            | ConstantPointerNull
+            | ConstantStruct [Value]
+            | ConstantVector [Value]
+            | ConstantValue Value
+            | InlineAsm Text Text
             deriving (Show, Eq)
 

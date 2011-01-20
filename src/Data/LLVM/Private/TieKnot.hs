@@ -8,6 +8,7 @@ import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.PlaceholderTypeExtractors
 import Data.LLVM.Private.FunctionTranslator
 import Data.LLVM.Private.MetadataTranslator
+import Data.LLVM.Private.Translators.Constants
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import qualified Data.LLVM.Types as N
 
@@ -48,11 +49,11 @@ completeGraph typeMapper decls = M.elems globalDecls
         go [] vals = vals
         go (decl:rest) vals = case decl of
           O.GlobalDeclaration name addrspace annots ty init align ->
-            go rest (transGlobalVar typeMapper transValOrConst getMetadata vals name addrspace annots ty init align)
+            go rest (transGlobalVar typeMapper (transValOrConst M.empty) getMetadata vals name addrspace annots ty init align)
           O.FunctionDefinition {} ->
             go rest (transFuncDef typeMapper transValOrConst metadata vals decl)
           O.GlobalAlias name linkage vis ty const ->
-            go rest (transAlias typeMapper transValOrConst getMetadata vals name linkage vis ty const)
+            go rest (transAlias typeMapper (transValOrConst M.empty) getMetadata vals name linkage vis ty const)
           O.ExternalDecl ty ident ->
             go rest (transExternal typeMapper getMetadata vals ty ident)
           _ -> go rest vals
@@ -62,10 +63,11 @@ completeGraph typeMapper decls = M.elems globalDecls
         getMetadata ident = M.lookup ident metadata
         -- getLocalMD ident = M.lookup ident metadata
         transMetadata = translateMetadata metadata
-        transValOrConst :: O.Constant -> N.Value
-        transValOrConst v = case v of
-          -- O.ConstValue c ty ->
-          O.ValueRef ident -> globalDecls ! ident
+        -- transValOrConst :: O.Constant -> N.Value
+        -- transValOrConst v = case v of
+        --   O.ConstValue c ty -> translateConstant ty c
+        --   O.ValueRef ident -> globalDecls ! ident
+        transValOrConst = translateConstant typeMapper globalDecls
 
 
 mkValue :: N.Type -> Maybe Identifier -> Maybe N.Metadata -> N.ValueT -> N.Value

@@ -68,7 +68,8 @@ library
                    Data.LLVM.Private.PlaceholderTypes,
                    Data.LLVM.Private.ParsingMonad,
                    Data.LLVM.Private.AttributeTypes,
-                   Data.LLVM.Private.PlaceholderBuilders
+                   Data.LLVM.Private.PlaceholderBuilders,
+                   Data.LLVM.Private.Translators.Constants
 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   build-tools: alex >= 2 && < 3, happy > 1.18.0

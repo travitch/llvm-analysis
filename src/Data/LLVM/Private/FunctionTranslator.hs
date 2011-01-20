@@ -21,12 +21,12 @@ mkFuncType _ _ = error "Non-func decl in mkFuncType"
 getFuncIdent O.FunctionDefinition { O.funcName = ident } = ident
 
 transFuncDef :: (O.Type -> Type) ->
-                (O.Constant -> Value) ->
+                ((Map Identifier Value) -> O.Constant -> Value) ->
                 (Map Identifier Metadata) ->
                 (Map Identifier Value) ->
                 O.GlobalDeclaration ->
                 Map Identifier Value
-transFuncDef typeMapper transValOrConst globalMetadata vals decl =
+transFuncDef typeMapper pTransValOrConst globalMetadata vals decl =
   M.insert (O.funcName decl) v vals
   where v = Value { valueType = ftype
                   , valueName = Just ident
@@ -46,6 +46,7 @@ transFuncDef typeMapper transValOrConst globalMetadata vals decl =
                              , functionIsVararg = O.funcIsVararg decl
                              }
                   }
+        transValOrConst = pTransValOrConst localVals
 
         -- Trivial metadata lookup function
         getMetadata i = M.lookup i globalMetadata
@@ -126,17 +127,20 @@ transFuncDef typeMapper transValOrConst globalMetadata vals decl =
             Just metadata -> (M.insert varRef metadata md, insts)
         destructureDebugCall _ acc = acc
 
--- This helper converts the non-content fields of an instruction
--- to the equivalent fields in a Value.  It performs the necessary
--- translations to fetch metadata and handle type differences
+-- This helper converts the non-content fields of an instruction to
+-- the equivalent fields in a Value.  It performs the necessary
+-- translations to fetch metadata and handle type differences If we
+-- want to attach metadata to alloca nodes, we could pass in the local
+-- metadata map here and search for iname - if there is an entry in
+-- that map then it is actually a local and we have extra metadata
 repackInst typeMapper getMetadata O.Instruction { O.instType = itype
                                                 , O.instName = iname
                                                 , O.instMetadata = md
-                                                } ni = v
+                                                } newContent = v
   where v = Value { valueType = typeMapper itype
                   , valueName = iname
                   , valueMetadata = maybe Nothing getMetadata md
-                  , valueContent = ni
+                  , valueContent = newContent
                   }
 
 -- This handles updating the accumulator in the big

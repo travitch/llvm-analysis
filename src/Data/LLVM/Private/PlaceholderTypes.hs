@@ -71,8 +71,7 @@ valueRef ident = const (ValueRef ident)
 -- This distinction is not particularly important for my purposes,
 -- though, so I'm just giving all values a list of operands (which
 -- will be empty for these things)
-data InstructionT = InlineAsm Text Text -- ASM String, Constraint String; can parse constraints still
-            | RetInst (Maybe Constant)
+data InstructionT = RetInst (Maybe Constant)
             | UnconditionalBranchInst Constant
             | BranchInst Constant Constant Constant
             | SwitchInst Constant Constant [(Constant, Constant)]
@@ -179,6 +178,7 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
                | MDNode [Maybe Constant] -- A list of constants (and other metadata)
                | MDString Text
                | GlobalVariable VisibilityStyle LinkageType Text
+               | InlineAsm Text Text -- asm, constraints
                deriving (Show, Eq)
 
 data BasicBlock = BasicBlock Identifier [Instruction]
