@@ -3,7 +3,6 @@ module Data.LLVM.Types ( Module(..)
                        , Type(..)
                        , Value(..)
                        , ValueT(..)
-                       , isExternalFunction
                        , functionAttributes
                        ) where
 
@@ -150,21 +149,14 @@ data Value = Value { valueType :: Type
                    }
            deriving (Show, Eq)
 
-isExternalFunction :: Value -> Bool
-isExternalFunction Value { valueContent = Function { functionParameters = Just _
-                                                   , functionBody = Just _
-                                                   }
-                         } = False
-isExternalFunction _ = True
-
 functionAttributes :: Value -> Maybe [FunctionAttribute]
 functionAttributes Value { valueType = TypeFunction _ _ _ l } = Just l
 functionAttributes _ = Nothing
 
 -- Functions have parameters if they are not external
 data ValueT = Function { functionType :: Type
-                       , functionParameters :: Maybe [Value] -- A list of arguments
-                       , functionBody :: Maybe [Value] -- A list of basic blocks
+                       , functionParameters :: [Value] -- A list of arguments
+                       , functionBody :: [Value] -- A list of basic blocks
                        }
             | GlobalDeclaration { globalVariableAddressSpace :: Int
                                 , globalVariableAnnotations :: [GlobalAnnotation]

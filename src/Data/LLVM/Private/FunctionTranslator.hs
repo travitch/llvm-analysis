@@ -20,6 +20,9 @@ mkFuncType _ _ = error "Non-func decl in mkFuncType"
 
 getFuncIdent O.FunctionDefinition { O.funcName = ident } = ident
 
+-- FIXME: Preprocess the function body to collect the mapping from
+-- parameters to metadata by looking at calls to @llvm.dbg.value.
+-- These calls also contain information about locals
 transFuncDef :: (O.Type -> Type) ->
                 (O.Constant -> Value) ->
                 (Identifier -> Maybe Metadata) ->
@@ -28,15 +31,27 @@ transFuncDef :: (O.Type -> Type) ->
                 Map Identifier Value
 transFuncDef typeMapper transValOrConst getMetadata vals decl =
   M.insert (O.funcName decl) v vals
-  where v = Value { valueType = mkFuncType typeMapper decl
+  where v = Value { valueType = ftype
                   , valueName = Just ident
                   , valueMetadata = getMetadata ident
-                  , valueContent = ExternalValue -- changeme
+                  , valueContent =
+                    Function { functionType = ftype
+                             , functionParameters =
+                               map translateParameter $ O.funcParams decl
+                             , functionBody = translatedBody
+                             }
                   }
+        ftype = mkFuncType typeMapper decl
         ident = getFuncIdent decl
-        (localVals, body) = translateBody (O.funcBody decl)
+        (localVals, translatedBody) = translateBody (O.funcBody decl)
         trConst (O.ValueRef ident@(LocalIdentifier _)) = localVals ! ident
         trConst c = transValOrConst c
+        translateParameter (O.FormalParameter ty attrs ident) =
+          Value { valueType = typeMapper ty
+                , valueName = Just ident
+                , valueMetadata = Nothing -- FIXME: see above
+                , valueContent = Argument attrs
+                }
         translateBody = foldr translateBlock (M.empty, [])
         translateBlock (O.BasicBlock ident placeholderInsts) (locals, blocks) =
           (M.insert ident bb blocksWithLocals, bb : blocks)
