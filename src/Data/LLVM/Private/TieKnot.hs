@@ -9,7 +9,7 @@ import Data.LLVM.Private.Translators.Functions
 import Data.LLVM.Private.Translators.Metadata
 import Data.LLVM.Private.Translators.Types
 import qualified Data.LLVM.Private.PlaceholderTypes as O
-import qualified Data.LLVM.Types as N
+import Data.LLVM.Types
 
 -- Idea:
 -- 1) Extract module assembly since it stands alone.
@@ -17,24 +17,24 @@ import qualified Data.LLVM.Types as N
 --    placeholder type to a real type.  This will be used everywhere else
 -- 3) Finally, everything else can refer to everything else, so fix up all
 --    references in one go using the previously defined maps in completeGraph
-tieKnot :: O.Module -> N.Module
+tieKnot :: O.Module -> Module
 tieKnot (O.Module layout triple decls) =
-  N.Module { N.moduleDataLayout = layout
-           , N.moduleTarget = triple
-           , N.moduleAssembly = moduleAsm
-           , N.moduleGlobals = globalValues
+  Module { moduleDataLayout = layout
+           , moduleTarget = triple
+           , moduleAssembly = moduleAsm
+           , moduleGlobals = globalValues
            }
   where typeMapper = translateType decls
         moduleAsm = extractModuleAssembly decls
-        globalValues :: [N.Value]
+        globalValues :: [Value]
         globalValues = completeGraph typeMapper decls
 
 -- FIXME: Could do something with the named metadata.  There seem to
 -- be two entries that don't really give much information: the lists
 -- of defined globals.
-completeGraph :: (O.Type -> N.Type) ->
+completeGraph :: (O.Type -> Type) ->
                  [O.GlobalDeclaration] ->
-                 [N.Value]
+                 [Value]
 completeGraph typeMapper decls = M.elems globalDecls
   where globalDecls = go decls M.empty
         (boundMD, mdForGlobals) = mdGo decls (M.empty, M.empty)
@@ -62,45 +62,45 @@ completeGraph typeMapper decls = M.elems globalDecls
         transValOrConst = translateConstant typeMapper globalDecls
 
 
-mkValue :: N.Type -> Maybe Identifier -> Maybe N.Metadata -> N.ValueT -> N.Value
+mkValue :: Type -> Maybe Identifier -> Maybe Metadata -> ValueT -> Value
 mkValue ty ident md val =
-  N.Value { N.valueType = ty
-          , N.valueName = ident
-          , N.valueMetadata = md
-          , N.valueContent = val
+  Value { valueType = ty
+          , valueName = ident
+          , valueMetadata = md
+          , valueContent = val
           }
 
-transExternal :: (O.Type -> N.Type) -> (Identifier -> Maybe N.Metadata) ->
-                 Map Identifier N.Value -> O.Type -> Identifier ->
-                 Map Identifier N.Value
+transExternal :: (O.Type -> Type) -> (Identifier -> Maybe Metadata) ->
+                 Map Identifier Value -> O.Type -> Identifier ->
+                 Map Identifier Value
 transExternal typeMapper getGlobalMD vals ty ident =
   M.insert ident val vals
-  where val = mkValue (typeMapper ty) (Just ident) (getGlobalMD ident) N.ExternalValue
+  where val = mkValue (typeMapper ty) (Just ident) (getGlobalMD ident) ExternalValue
 
-transAlias :: (O.Type -> N.Type) -> (O.Constant -> N.Value) ->
-              (Identifier -> Maybe N.Metadata) -> Map Identifier N.Value ->
+transAlias :: (O.Type -> Type) -> (O.Constant -> Value) ->
+              (Identifier -> Maybe Metadata) -> Map Identifier Value ->
               Identifier -> LinkageType -> VisibilityStyle ->
-              O.Type -> O.Constant -> Map Identifier N.Value
+              O.Type -> O.Constant -> Map Identifier Value
 transAlias typeMapper transValOrConst getGlobalMD vals name linkage vis ty constant =
   M.insert name val vals
   where val = mkValue (typeMapper ty) (Just name) (getGlobalMD name) val'
-        val' = N.GlobalAlias { N.globalAliasLinkage = linkage
-                             , N.globalAliasVisibility = vis
-                             , N.globalAliasValue = transValOrConst constant
+        val' = GlobalAlias { globalAliasLinkage = linkage
+                             , globalAliasVisibility = vis
+                             , globalAliasValue = transValOrConst constant
                              }
 
-transGlobalVar :: (O.Type -> N.Type) -> (O.Constant -> N.Value) ->
-                  (Identifier -> Maybe N.Metadata) ->
-                  Map Identifier N.Value -> Identifier -> Int ->
+transGlobalVar :: (O.Type -> Type) -> (O.Constant -> Value) ->
+                  (Identifier -> Maybe Metadata) ->
+                  Map Identifier Value -> Identifier -> Int ->
                   [GlobalAnnotation] -> O.Type -> O.Constant -> Integer ->
-                  Map Identifier N.Value
+                  Map Identifier Value
 transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty initializer align =
   M.insert name val vals
   where val = mkValue (typeMapper ty) (Just name) (getGlobalMD name) val'
-        val' = N.GlobalDeclaration { N.globalVariableAddressSpace = addrspace
-                                   , N.globalVariableAnnotations = annots
-                                   , N.globalVariableInitializer = transValOrConst initializer
-                                   , N.globalVariableAlignment = align
+        val' = GlobalDeclaration { globalVariableAddressSpace = addrspace
+                                   , globalVariableAnnotations = annots
+                                   , globalVariableInitializer = transValOrConst initializer
+                                   , globalVariableAlignment = align
                                    }
 
 extractModuleAssembly :: [O.GlobalDeclaration] -> [Assembly]
