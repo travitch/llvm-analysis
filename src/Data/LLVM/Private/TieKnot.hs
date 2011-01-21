@@ -1,12 +1,13 @@
 module Data.LLVM.Private.TieKnot ( tieKnot ) where
 
 import qualified Data.Map as M
-import Data.Map (Map, (!))
+import Data.Map (Map)
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.Translators.Constants
 import Data.LLVM.Private.Translators.Functions
 import Data.LLVM.Private.Translators.Metadata
+import Data.LLVM.Private.Translators.Types
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import qualified Data.LLVM.Types as N
 
@@ -23,10 +24,10 @@ tieKnot (O.Module layout triple decls) =
            , N.moduleAssembly = moduleAsm
            , N.moduleGlobals = globalValues
            }
-  where translateType = makeTypeTranslator decls
+  where typeMapper = translateType decls
         moduleAsm = extractModuleAssembly decls
         globalValues :: [N.Value]
-        globalValues = completeGraph translateType decls
+        globalValues = completeGraph typeMapper decls
 
 -- FIXME: Could do something with the named metadata.  There seem to
 -- be two entries that don't really give much information: the lists
@@ -107,38 +108,5 @@ extractModuleAssembly decls = reverse $ foldr xtract [] decls
   where xtract decl acc = case decl of
           O.ModuleAssembly asm -> asm : acc
           _ -> acc
-
--- Create a map from the placeholder types to the final types.  FIXME:
--- Add support for type uprefs.  The code generator always seems to
--- just use named types, so it doesn't seem crucial.
-makeTypeTranslator :: [O.GlobalDeclaration] -> (O.Type -> N.Type)
-makeTypeTranslator decls = trans'
-  where mapping = namedTrans' decls M.empty
-        namedTrans' [] m = m
-        namedTrans' (d:rest) m = namedTrans' rest $ case d of
-          O.NamedType ident ty@(O.TypeNamed _) -> M.insert ident (trans' ty) m
-          O.NamedType _ _ -> error "NamedType has non TypeNamed as content"
-          _ -> m
-        trans' :: O.Type -> N.Type
-        trans' t = case t of
-          O.TypeInteger i -> N.TypeInteger i
-          O.TypeFloat -> N.TypeFloat
-          O.TypeDouble -> N.TypeDouble
-          O.TypeFP128 -> N.TypeFP128
-          O.TypeX86FP80 -> N.TypeX86FP80
-          O.TypePPCFP128 -> N.TypePPCFP128
-          O.TypeX86MMX -> N.TypeX86MMX
-          O.TypeVoid -> N.TypeVoid
-          O.TypeLabel -> N.TypeLabel
-          O.TypeMetadata -> N.TypeMetadata
-          O.TypeArray i t' -> N.TypeArray i (trans' t')
-          O.TypeVector i t' -> N.TypeVector i (trans' t')
-          O.TypeFunction t' ts' v at -> N.TypeFunction (trans' t') (map trans' ts') v at
-          O.TypeOpaque -> N.TypeOpaque
-          O.TypePointer t' -> N.TypePointer (trans' t')
-          O.TypeStruct ts' -> N.TypeStruct (map trans' ts')
-          O.TypePackedStruct ts' -> N.TypePackedStruct (map trans' ts')
-          O.TypeUpref _ -> error "Type uprefs not supported yet"
-          O.TypeNamed name -> mapping ! name
 
 
