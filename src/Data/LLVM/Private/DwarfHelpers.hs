@@ -9,10 +9,10 @@ import Data.Dwarf
 
 mkDwarfVirtuality :: Integer -> DW_VIRTUALITY
 mkDwarfVirtuality i = case i of
-  1 -> DW_VIRTUALITY_none
-  2 -> DW_VIRTUALITY_virtual
-  3 -> DW_VIRTUALITY_pure_virtual
-  _ -> error "Invalid virtuality"
+  0 -> DW_VIRTUALITY_none
+  1 -> DW_VIRTUALITY_virtual
+  2 -> DW_VIRTUALITY_pure_virtual
+  _ -> error ("Invalid virtuality: " ++ show i)
 
 -- TODO: Add DWARF4 languages (python, probably go)
 mkDwarfLang :: Integer -> DW_LANG
@@ -39,7 +39,7 @@ mkDwarfLang i = case i of
   19 -> DW_LANG_D
   -- 20 -> DW_LANG_Python
   -- _ -> DW_LANG_Other i
-  _ -> error "Invalid virtuality"
+  _ -> error ("Invalid dwarf language: " ++ show i)
 
 mkDwarfEncoding :: Integer -> DW_ATE
 mkDwarfEncoding i = case i of
