@@ -1,5 +1,5 @@
 {
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes, OverloadedStrings #-}
 module Data.LLVM.Lexer ( lexer, Token(..) ) where
 
 import Data.Binary.IEEE754

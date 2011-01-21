@@ -1,4 +1,5 @@
 {
+{-# LANGUAGE OverloadedStrings #-}
 module Data.LLVM.AssemblyParser ( parser
                                 , parseIdentifier
                                 , parseCallingConvention
