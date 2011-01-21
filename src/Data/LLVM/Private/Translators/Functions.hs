@@ -167,6 +167,51 @@ transInst typeMapper trConst getMetadata i acc =
                           , valueMetadata = maybe Nothing getMetadata md
                           , valueContent = newContent
                           }
-        repackInst _ _ = error "Cannot repack unresolved instructions"
+        repackInst ui@O.UnresolvedInst { O.unresInstName = iname
+                                       , O.unresInstMetadata = md
+                                       } newContent = v
+          where v = Value { valueType = t
+                          , valueName = iname
+                          , valueMetadata = maybe Nothing getMetadata md
+                          , valueContent = newContent
+                          }
+                t = case newContent of
+                  ExtractValueInst { extractValueAggregate = agg
+                                   , extractValueIndices = indices
+                                   } -> traceTypeIndicesEV (valueType agg) indices
+                  GetElementPtrInst { getElementPtrValue = agg
+                                    , getElementPtrIndices = indices
+                                    } -> traceTypeIndicesGEP (valueType agg) indices
+                  _ -> error ("Unpexected UnresolvedInst: " ++ show ui)
 
+-- Vectors are not allowed as arguments to GetElementPtr.  They are
+-- probably also not allowed for ExtractValue because ExtractElement
+-- is the vector version.  The ExtractValue version only takes a list
+-- of Int indices.  GEP is more general and accepts values at runtime.
+--
+-- For pointer and array types, we don't need the index for the type
+-- computation - it can only be the inner type since those are
+-- heterogeneous structures.  For the struct types, the value must be
+-- a constant, otherwise we don't have a statically-typed language
+-- anymore.
+traceTypeIndicesEV :: Type -> [Integer] -> Type
+traceTypeIndicesEV t (idx:rest) = case t of
+  TypePointer innerType -> traceTypeIndicesEV innerType rest
+  TypeArray _ innerType -> traceTypeIndicesEV innerType rest
+  TypeStruct ts -> traceTypeIndicesEV (ts !! fromIntegral idx) rest
+  TypePackedStruct ts -> traceTypeIndicesEV (ts !! fromIntegral idx) rest
+  _ -> error ("Invalid type for ExtractValue: " ++ show t)
+traceTypeIndicesEV t [] = t
 
+traceTypeIndicesGEP :: Type -> [Value] -> Type
+traceTypeIndicesGEP t (idx:rest) = case t of
+  TypePointer innerType -> traceTypeIndicesGEP innerType rest
+  TypeArray _ innerType -> traceTypeIndicesGEP innerType rest
+  TypeStruct ts -> traceTypeIndicesGEP (ts !! fromIntegral (getConstIntVal idx)) rest
+  TypePackedStruct ts -> traceTypeIndicesGEP (ts !! fromIntegral (getConstIntVal idx)) rest
+  _ -> error ("Invalid type for GetElementPtr: " ++ show t)
+traceTypeIndicesGEP t [] = t
+
+getConstIntVal :: Value -> Integer
+getConstIntVal Value { valueContent = ConstantInt i } = i
+getConstIntVal v = error ("Value is not a constant integer: " ++ show v)
