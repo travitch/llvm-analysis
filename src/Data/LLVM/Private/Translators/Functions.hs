@@ -100,15 +100,19 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
           where (md', is') = foldr undebugInst (md, []) is
                 newBlock = O.BasicBlock blockName is'
         undebugInst :: O.Instruction -> (Map Identifier Metadata, [O.Instruction]) -> (Map Identifier Metadata, [O.Instruction])
-        undebugInst i acc@(md, insts) = case O.instContent i of
-          O.CallInst { O.callFunction =
-                          O.ValueRef (GlobalIdentifier "llvm.dbg.declare")
-                     , O.callArguments = args
-                     } -> destructureDebugCall args acc
-          O.CallInst { O.callFunction =
-                          O.ValueRef (GlobalIdentifier "llvm.dbg.value")
-                     , O.callArguments = args
-                     } -> destructureDebugCall args acc
+        undebugInst i acc@(md, insts) = case i of
+          O.Instruction { O.instContent =
+                             O.CallInst { O.callFunction =
+                                             O.ValueRef (GlobalIdentifier "llvm.dbg.declare")
+                                        , O.callArguments = args
+                                        }
+                        } -> destructureDebugCall args acc
+          O.Instruction { O.instContent =
+                             O.CallInst { O.callFunction =
+                                             O.ValueRef (GlobalIdentifier "llvm.dbg.value")
+                                        , O.callArguments = args
+                                        }
+                        } -> destructureDebugCall args acc
           -- Not a debug call - just include it
           _ -> (md, i : insts)
 
@@ -147,7 +151,10 @@ transInst :: (O.Type -> Type) ->
 transInst typeMapper trConst getMetadata i acc =
   foldResult acc newValue
   where newValue = repackInst i content
-        content = translateInstruction typeMapper trConst $ O.instContent i
+        oldContent = case i of
+          O.Instruction { O.instContent = oc } -> oc
+          O.UnresolvedInst { O.unresInstContent = oc } -> oc
+        content = translateInstruction typeMapper trConst oldContent
 
         -- This helper converts the non-content fields of an instruction to
         -- the equivalent fields in a Value.  It performs the necessary
