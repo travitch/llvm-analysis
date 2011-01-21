@@ -17,6 +17,7 @@ data Module = Module { moduleDataLayout :: DataLayout
                      , moduleAssembly :: [Assembly]
                      , moduleGlobals :: [Value]
                      }
+            deriving (Show)
 
 data Type = TypeInteger Int -- bits
           | TypeFloat
@@ -47,6 +48,8 @@ data Metadata =
   | MetaDWLexicalBlock { metaLexicalBlockRow :: Integer
                        , metaLexicalBlockCol :: Integer
                        , metaLexicalBlockContext :: Metadata
+                       , metaLexicalBlockFile :: Metadata
+                       , metaLexicalBlockDepth :: Integer
                        }
 --  | MetaDWAutoVariable
   | MetaDWCompileUnit { metaCompileUnitLanguage :: DW_LANG
@@ -71,7 +74,6 @@ data Metadata =
                    , metaGlobalVarType :: Metadata
                    , metaGlobalVarStatic :: Bool
                    , metaGlobalVarNotExtern :: Bool
-                   -- , metaGlobalVarRef :: Value
                    }
   | MetaDWSubprogram { metaSubprogramContext :: Metadata
                      , metaSubprogramName :: Text
@@ -87,7 +89,6 @@ data Metadata =
                      , metaSubprogramBaseType :: Maybe Metadata
                      , metaSubprogramArtificial :: Bool
                      , metaSubprogramOptimized :: Bool
-                     -- , metaSubprogramFunction :: Value
                      }
   | MetaDWBaseType { metaBaseTypeContext :: Metadata
                    , metaBaseTypeName :: Text
@@ -107,7 +108,7 @@ data Metadata =
                       , metaDerivedTypeSize :: Integer
                       , metaDerivedTypeAlign :: Integer
                       , metaDerivedTypeOffset :: Integer
-                      , metaDerivedTypeParent :: Metadata
+                      , metaDerivedTypeParent :: Maybe Metadata
                       }
   | MetaDWCompositeType { metaCompositeTypeTag :: DW_TAG
                         , metaCompositeTypeContext :: Metadata
@@ -118,7 +119,7 @@ data Metadata =
                         , metaCompositeTypeAlign :: Integer
                         , metaCompositeTypeOffset :: Integer
                         , metaCompositeTypeFlags :: Integer
-                        , metaCompositeTypeParent :: Metadata
+                        , metaCompositeTypeParent :: Maybe Metadata
                         , metaCompositeTypeMembers :: Metadata
                         , metaCompositeTypeRuntime :: Integer
                         }
@@ -164,7 +165,7 @@ data ValueT = Function { functionType :: Type
                        , functionName :: Identifier
                        , functionSection :: Maybe Text
                        , functionAlign :: Integer
-                       , functionGCName :: GCName
+                       , functionGCName :: Maybe GCName
                        , functionIsVararg :: Bool
                        }
             | GlobalDeclaration { globalVariableAddressSpace :: Int
@@ -255,6 +256,7 @@ data ValueT = Function { functionType :: Type
                        , callFunction :: Value
                        , callArguments :: [Value]
                        , callAttrs :: [FunctionAttribute]
+                       , callHasSRet :: Bool
                        }
             | InvokeInst { invokeConvention :: CallingConvention
                          , invokeParamAttrs :: [ParamAttribute]
@@ -264,6 +266,7 @@ data ValueT = Function { functionType :: Type
                          , invokeAttrs :: [FunctionAttribute]
                          , invokeNormalLabel :: Value
                          , invokeUnwindLabel :: Value
+                         , invokeHasSRet :: Bool
                          }
             | VaArgInst Value Type
             | UndefValue
@@ -272,6 +275,7 @@ data ValueT = Function { functionType :: Type
             | ConstantArray [Value]
             | ConstantFP Double
             | ConstantInt Integer
+            | ConstantString Text
             | ConstantPointerNull
             | ConstantStruct [Value]
             | ConstantVector [Value]

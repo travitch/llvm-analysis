@@ -143,7 +143,11 @@ mkSelectInst ident selty sel t1 v1 t2 v2 = do
     else mk'
   where mk' = return $ namedInst ident t1 $ SelectInst (sel selty) (v1 t1) (v2 t2)
 
-mkCallInst :: (Monad m) => Maybe Identifier -> Bool -> CallingConvention -> [ParamAttribute] -> Type -> Maybe Type -> PartialConstant -> [Constant] -> [FunctionAttribute] -> m Instruction
+-- The bool with each parameter indicates that the constant is either
+-- an sret parameter or not.
+mkCallInst :: (Monad m) => Maybe Identifier -> Bool -> CallingConvention ->
+              [ParamAttribute] -> Type -> Maybe Type -> PartialConstant ->
+              [(Constant, Bool)] -> [FunctionAttribute] -> m Instruction
 mkCallInst mident isTail cc pattrs rtype mftype func params fAttrs =
   return $ maybeNamedInst mident rtype i
   where i = CallInst { callIsTail = isTail
@@ -151,25 +155,29 @@ mkCallInst mident isTail cc pattrs rtype mftype func params fAttrs =
                      , callParamAttrs = pattrs
                      , callRetType = rtype
                      , callFunction = realFunc
-                     , callArguments = params
+                     , callArguments = map fst params
                      , callAttrs = fAttrs
+                     , callHasSRet = any id $ map snd params
                      }
         realFunc = case (func rtype, mftype) of
           (ValueRef _, _) -> func rtype
           (_, Just t) -> func t
           _ -> error "Should not have a constant function without full functype"
 
-mkInvokeInst :: (Monad m) => Maybe Identifier -> CallingConvention -> [ParamAttribute] -> Type -> PartialConstant -> [Constant] -> [FunctionAttribute] -> Constant -> Constant -> m Instruction
+mkInvokeInst :: (Monad m) => Maybe Identifier -> CallingConvention ->
+                [ParamAttribute] -> Type -> PartialConstant -> [(Constant, Bool)] ->
+                [FunctionAttribute] -> Constant -> Constant -> m Instruction
 mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
   return $ maybeNamedInst mident rtype i
   where i = InvokeInst { invokeConvention = cc
                        , invokeParamAttrs = pattrs
                        , invokeRetType = rtype
                        , invokeFunction = realFunc
-                       , invokeArguments = params
+                       , invokeArguments = map fst params
                        , invokeAttrs = fattrs
                        , invokeNormalLabel = normal
                        , invokeUnwindLabel = unwind
+                       , invokeHasSRet = any id $ map snd params
                        }
         realFunc = case func rtype of
           ValueRef _ -> func rtype
@@ -209,7 +217,7 @@ mkBasicBlock t = BasicBlock (LocalIdentifier t)
 mkFunctionDef :: LinkageType -> VisibilityStyle -> CallingConvention ->
                  [ParamAttribute] -> Type -> Identifier ->
                  ([FormalParameter], Bool) -> [FunctionAttribute] ->
-                 Maybe Text -> Integer -> GCName -> [BasicBlock] ->
+                 Maybe Text -> Integer -> Maybe GCName -> [BasicBlock] ->
                  GlobalDeclaration
 mkFunctionDef linkage vis cc retAttr retTy name (args, isVararg) fAttrs section align gcname body =
   FunctionDefinition { funcLinkage = linkage
@@ -243,3 +251,4 @@ mkGlobalAlias :: Identifier -> LinkageType -> VisibilityStyle -> Type ->
                  PartialConstant -> GlobalDeclaration
 mkGlobalAlias name linkage vis t aliasee =
   GlobalAlias name linkage vis t (aliasee t)
+

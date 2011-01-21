@@ -96,6 +96,7 @@ translateInstruction typeMapper trConst oldContent = newContent
                      , O.callFunction = func
                      , O.callArguments = args
                      , O.callAttrs = cAttrs
+                     , O.callHasSRet = hasSRet
                      } ->
             CallInst { callIsTail = isTail
                      , callConvention = cc
@@ -104,6 +105,7 @@ translateInstruction typeMapper trConst oldContent = newContent
                      , callFunction = trConst func
                      , callArguments = map trConst args
                      , callAttrs = cAttrs
+                     , callHasSRet = hasSRet
                      }
           O.InvokeInst { O.invokeConvention = cc
                        , O.invokeParamAttrs = paramAttrs
@@ -113,6 +115,7 @@ translateInstruction typeMapper trConst oldContent = newContent
                        , O.invokeAttrs = funcAttrs
                        , O.invokeNormalLabel = normLabl
                        , O.invokeUnwindLabel = unwindLabl
+                       , O.invokeHasSRet = hasSRet
                        } ->
             InvokeInst { invokeConvention = cc
                        , invokeParamAttrs = paramAttrs
@@ -122,5 +125,6 @@ translateInstruction typeMapper trConst oldContent = newContent
                        , invokeAttrs = funcAttrs
                        , invokeNormalLabel = trConst normLabl
                        , invokeUnwindLabel = trConst unwindLabl
+                       , invokeHasSRet = hasSRet
                        }
           O.VaArgInst val ty -> VaArgInst (trConst val) (typeMapper ty)

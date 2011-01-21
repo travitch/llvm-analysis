@@ -34,6 +34,7 @@ translateConstant typeMapper globalDecls localDecls v = case v of
                     mkCVal t $ translateInstruction typeMapper trConst inst
                   O.ConstantFP fp -> mkCVal t $ ConstantFP fp
                   O.ConstantInt i -> mkCVal t $ ConstantInt i
+                  O.ConstantString txt -> mkCVal t $ ConstantString txt
                   O.ConstantPointerNull -> mkCVal t ConstantPointerNull
                   O.ConstantVector cs -> mkCVal t $ ConstantVector $ map trConst cs
                   O.InlineAsm asm constraints ->

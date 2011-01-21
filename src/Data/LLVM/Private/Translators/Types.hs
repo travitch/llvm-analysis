@@ -1,7 +1,7 @@
 module Data.LLVM.Private.Translators.Types ( translateType ) where
 
 import qualified Data.Map as M
-import Data.Map (Map, (!))
+import Data.Map ((!))
 
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import qualified Data.LLVM.Types as N
@@ -14,8 +14,7 @@ translateType decls = trans'
   where mapping = namedTrans' decls M.empty
         namedTrans' [] m = m
         namedTrans' (d:rest) m = namedTrans' rest $ case d of
-          O.NamedType ident ty@(O.TypeNamed _) -> M.insert ident (trans' ty) m
-          O.NamedType _ _ -> error "NamedType has non TypeNamed as content"
+          O.NamedType ident ty -> M.insert ident (trans' ty) m
           _ -> m
         trans' :: O.Type -> N.Type
         trans' t = case t of

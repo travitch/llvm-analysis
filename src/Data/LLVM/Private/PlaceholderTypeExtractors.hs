@@ -7,7 +7,7 @@ import Data.Text (Text)
 import Data.LLVM.Private.PlaceholderTypes
 
 getInt :: Constant -> Integer
-getInt (ConstValue (ConstantInt i) (TypeInteger 32)) = i
+getInt (ConstValue (ConstantInt i) (TypeInteger _)) = i
 getInt c = error ("Constant is not an int: " ++ show c)
 
 getBool :: Constant -> Bool

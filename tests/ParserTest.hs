@@ -5,9 +5,10 @@ import Test.HUnit
 import Data.LLVM
 import Data.LLVM.AssemblyParser
 import Data.LLVM.Private.AttributeTypes
+import Data.LLVM.Private.ParsingMonad
 import Data.LLVM.Private.PlaceholderTypes
 
-identParser = runLLVMParser parseIdentifier
+identParser = maybeRunLLVMParser parseIdentifier
 identTests = [ ("localIdentNamed", assertEqual, "parse %local", LocalIdentifier "local", identParser "%local")
              , ("localIdentUnnamed", assertEqual, "parse %123", LocalIdentifier "123", identParser "%123")
              , ("localIdentWithDot", assertEqual, "parse %local.ident", LocalIdentifier "local.ident", identParser "%local.ident")
@@ -24,7 +25,7 @@ identTests = [ ("localIdentNamed", assertEqual, "parse %local", LocalIdentifier 
              ]
 
 
-ccParser = runLLVMParser parseCallingConvention
+ccParser = maybeRunLLVMParser parseCallingConvention
 ccTests = [ ("ccCCC", assertEqual, "parse ccc", CCC, ccParser "ccc")
           , ("ccFastCC", assertEqual, "parse fastcc", CCFastCC, ccParser "fastcc")
           , ("ccColdCC", assertEqual, "parse coldcc", CCColdCC, ccParser "coldcc")
@@ -32,10 +33,10 @@ ccTests = [ ("ccCCC", assertEqual, "parse ccc", CCC, ccParser "ccc")
           , ("ccN100", assertEqual, "parse cc 100", CCN 100, ccParser "cc 100")
           ]
 
-gcParser = runLLVMParser parseGCName
+gcParser = maybeRunLLVMParser parseGCName
 gcTests = [ ("gcName", assertEqual, "parse gc \"FooBar\"", GCName "FooBar", gcParser "gc \"FooBar\"") ]
 
-typeParser = runLLVMParser parseType
+typeParser = maybeRunLLVMParser parseType
 typeTests = [ ("typeBool", assertEqual, "parse i1", TypeInteger 1, typeParser "i1")
             , ("typeInt8", assertEqual, "parse i8", TypeInteger 8, typeParser "i8")
             , ("typeInt64", assertEqual, "parse i64", TypeInteger 64, typeParser "i64")

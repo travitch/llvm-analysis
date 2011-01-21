@@ -178,12 +178,13 @@ mkLocalVar metaRef tag [ Just context, Just name, Just file
 mkLocalVar _ _ c = error ("Invalid local variable descriptor: " ++ show c)
 
 -- NOTE: Not quite sure what the member descriptor array looks like...
+-- FIXME: Also not sure what the last field here is supposed to be.
 mkCompositeType :: (O.Constant -> Metadata) -> DW_TAG ->
                    [Maybe O.Constant] ->
                    (Metadata, Maybe Identifier)
 mkCompositeType metaRef tag [ Just context, Just name, file, Just line
                             , Just size, Just align, Just offset, Just flags
-                            , Just parent, Just members, Just langs ] = halfPair $
+                            , parent, Just members, Just langs, _ ] = halfPair $
   MetaDWCompositeType { metaCompositeTypeTag = tag
                         , metaCompositeTypeContext = metaRef context
                         , metaCompositeTypeName = getMDString name
@@ -193,18 +194,20 @@ mkCompositeType metaRef tag [ Just context, Just name, file, Just line
                         , metaCompositeTypeAlign = getInt align
                         , metaCompositeTypeOffset = getInt offset
                         , metaCompositeTypeFlags = getInt flags
-                        , metaCompositeTypeParent = metaRef parent
+                        , metaCompositeTypeParent = metaRef' parent
                         , metaCompositeTypeMembers = metaRef members
                         , metaCompositeTypeRuntime = getInt langs
                         }
   where metaRef' = maybe Nothing (Just . metaRef)
 mkCompositeType _ _ c = error ("Invalid composite type descriptor: " ++ show c)
 
+-- FIXME: There is a placeholder here.  The documentation doesn't say
+-- what this field is, but it would be really nice to know.
 mkDerivedType :: (O.Constant -> Metadata) -> DW_TAG ->
                  [Maybe O.Constant] ->
                  (Metadata, Maybe Identifier)
 mkDerivedType metaRef tag [ Just context, Just name, file, Just line
-                          , Just size, Just align, Just offset, Just parent ] = halfPair $
+                          , Just size, Just align, Just offset, _, parent ] = halfPair $
   MetaDWDerivedType { metaDerivedTypeTag = tag
                       , metaDerivedTypeContext = metaRef context
                       , metaDerivedTypeName = getMDString name
@@ -213,7 +216,7 @@ mkDerivedType metaRef tag [ Just context, Just name, file, Just line
                       , metaDerivedTypeSize = getInt size
                       , metaDerivedTypeAlign = getInt align
                       , metaDerivedTypeOffset = getInt offset
-                      , metaDerivedTypeParent = metaRef parent
+                      , metaDerivedTypeParent = metaRef' parent
                       }
   where metaRef' = maybe Nothing (Just . metaRef)
 mkDerivedType _ _ c = error ("Invalid derived type descriptor: " ++ show c)
@@ -243,7 +246,7 @@ mkFile _ c = error ("Invalid file descriptor content: " ++ show c)
 
 mkSourceLocation :: (O.Constant -> Metadata) -> [Maybe O.Constant] ->
                     (Metadata, Maybe Identifier)
-mkSourceLocation metaRef [ Just row, Just col, Just scope ] = halfPair $
+mkSourceLocation metaRef [ Just row, Just col, Just scope, Nothing ] = halfPair $
   MetaSourceLocation { metaSourceRow = getInt row
                        , metaSourceCol = getInt col
                        , metaSourceScope = metaRef scope
@@ -252,11 +255,13 @@ mkSourceLocation _ c = error ("Invalid source location content: " ++ show c)
 
 mkLexicalBlock :: (O.Constant -> Metadata) -> [Maybe O.Constant] ->
                   (Metadata, Maybe Identifier)
-mkLexicalBlock metaRef [ Just context, Just row, Just col ] = halfPair $
+mkLexicalBlock metaRef [ Just context, Just row, Just col, Just file, Just depth ] = halfPair $
   MetaDWLexicalBlock { metaLexicalBlockContext = metaRef context
-                       , metaLexicalBlockRow = getInt row
-                       , metaLexicalBlockCol = getInt col
-                       }
+                     , metaLexicalBlockRow = getInt row
+                     , metaLexicalBlockCol = getInt col
+                     , metaLexicalBlockFile = metaRef file
+                     , metaLexicalBlockDepth = getInt depth
+                     }
 mkLexicalBlock _ c = error ("Invalid lexical block content: " ++ show c)
 
 mkCompileUnit :: [Maybe O.Constant] -> (Metadata, Maybe Identifier)

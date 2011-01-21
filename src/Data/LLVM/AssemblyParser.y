@@ -28,203 +28,203 @@ import Data.Monoid
 %monad { ParsingMonad }
 
 %token
-  gident      { TGlobalIdent $$ }
-  lident      { TLocalIdent $$ }
-  mdname      { TMetadataName $$ }
-  intlit      { TIntLit $$ }
-  floatlit    { TFloatLit $$ }
-  stringlit   { TStringLit $$ }
-  mdstring    { TMetadataString $$ }
-  label       { TLabel $$ }
-  string      { TString $$ }
-  "true"      { TTrueLit }
-  "false"     { TFalseLit }
-  "null"      { TNullLit }
-  "undef"     { TUndefLit }
-  "zeroinitializer" { TZeroInitializer }
+  gident      { TGlobalIdent _ $$ }
+  lident      { TLocalIdent _ $$ }
+  mdname      { TMetadataName _ $$ }
+  intlit      { TIntLit _ $$ }
+  floatlit    { TFloatLit _ $$ }
+  stringlit   { TStringLit _ $$ }
+  mdstring    { TMetadataString _ $$ }
+  label       { TLabel _ $$ }
+  string      { TString _ $$ }
+  "true"      { TTrueLit _ }
+  "false"     { TFalseLit _ }
+  "null"      { TNullLit _ }
+  "undef"     { TUndefLit _ }
+  "zeroinitializer" { TZeroInitializer _ }
 
-  ","         { TComma }
-  "="         { TAssign }
-  "*"         { TStar }
-  "("         { TLParen }
-  ")"         { TRParen }
-  "["         { TLSquare }
-  "]"         { TRSquare }
-  "{"         { TLCurl }
-  "}"         { TRCurl }
-  "<"         { TLAngle }
-  ">"         { TRAngle }
-  "!"         { TBang }
-  "x"         { TAggLen }
-  "to"        { TTo }
-  "..."       { TDotDotDot }
+  ","         { TComma _ }
+  "="         { TAssign _ }
+  "*"         { TStar _ }
+  "("         { TLParen _ }
+  ")"         { TRParen _ }
+  "["         { TLSquare _ }
+  "]"         { TRSquare _ }
+  "{"         { TLCurl _ }
+  "}"         { TRCurl _ }
+  "<"         { TLAngle _ }
+  ">"         { TRAngle _ }
+  "!"         { TBang _ }
+  "x"         { TAggLen _ }
+  "to"        { TTo _ }
+  "..."       { TDotDotDot _ }
 
-  "private"   { TPrivate }
-  "linker_private" { TLinkerPrivate }
-  "linker_private_weak" { TLinkerPrivateWeak }
-  "linker_private_weak_def_auto" { TLinkerPrivateWeakDefAuto }
-  "internal"  { TInternal }
-  "available_externally" { TAvailableExternally }
-  "link_once" { TLinkOnce }
-  "weak"      { TWeak }
-  "common"    { TCommon }
-  "appending" { TAppending }
-  "extern_weak" { TExternWeak }
-  "link_once_odr" { TLinkOnceODR }
-  "weak_odr"  { TWeakODR }
-  "dllimport" { TDLLImport }
-  "dllexport" { TDLLExport }
+  "private"   { TPrivate _ }
+  "linker_private" { TLinkerPrivate _ }
+  "linker_private_weak" { TLinkerPrivateWeak _ }
+  "linker_private_weak_def_auto" { TLinkerPrivateWeakDefAuto _ }
+  "internal"  { TInternal _ }
+  "available_externally" { TAvailableExternally _ }
+  "link_once" { TLinkOnce _ }
+  "weak"      { TWeak _ }
+  "common"    { TCommon _ }
+  "appending" { TAppending _ }
+  "extern_weak" { TExternWeak _ }
+  "link_once_odr" { TLinkOnceODR _ }
+  "weak_odr"  { TWeakODR _ }
+  "dllimport" { TDLLImport _ }
+  "dllexport" { TDLLExport _ }
 
-  "ccc"       { TCCCCC }
-  "fastcc"    { TCCFastCC }
-  "coldcc"    { TCCColdCC }
-  "ghc"       { TCCGHC }
-  ccN         { TCCN $$ }
+  "ccc"       { TCCCCC _ }
+  "fastcc"    { TCCFastCC _ }
+  "coldcc"    { TCCColdCC _ }
+  "ghc"       { TCCGHC _ }
+  ccN         { TCCN _ $$ }
 
-  "default"   { TVisDefault }
-  "hidden"    { TVisHidden }
-  "protected" { TVisProtected }
+  "default"   { TVisDefault _ }
+  "hidden"    { TVisHidden _ }
+  "protected" { TVisProtected _ }
 
-  "zeroext"   { TPAZeroExt }
-  "signext"   { TPASignExt }
-  "inreg"     { TPAInReg }
-  "byval"     { TPAByVal }
-  "sret"      { TPASRet }
-  "noalias"   { TPANoAlias }
-  "nocapture" { TPANoCapture}
-  "nest"      { TPANest }
+  "zeroext"   { TPAZeroExt _ }
+  "signext"   { TPASignExt _ }
+  "inreg"     { TPAInReg _ }
+  "byval"     { TPAByVal _ }
+  "sret"      { TPASRet _ }
+  "noalias"   { TPANoAlias _ }
+  "nocapture" { TPANoCapture _ }
+  "nest"      { TPANest _ }
 
-  alignstackN   { TFAAlignStack $$ }
-  "alwaysinline" { TFAAlwaysInline }
-  "hotpatch"     { TFAHotPatch }
-  "inlinehint"   { TFAInlineHint }
-  "naked"        { TFANaked }
-  "noimplicitfloat" { TFANoImplicitFloat }
-  "noinline"     { TFANoInline }
-  "noredzone"    { TFANoRedZone }
-  "noreturn"     { TFANoReturn }
-  "nounwind"     { TFANoUnwind }
-  "optsize"      { TFAOptSize }
-  "readnone"     { TFAReadNone }
-  "readonly"     { TFAReadOnly }
-  "ssp"          { TFASSP }
-  "sspreq"       { TFASSPReq }
+  alignstackN   { TFAAlignStack _ $$ }
+  "alwaysinline" { TFAAlwaysInline _ }
+  "hotpatch"     { TFAHotPatch _ }
+  "inlinehint"   { TFAInlineHint _ }
+  "naked"        { TFANaked _ }
+  "noimplicitfloat" { TFANoImplicitFloat _ }
+  "noinline"     { TFANoInline _ }
+  "noredzone"    { TFANoRedZone _ }
+  "noreturn"     { TFANoReturn _ }
+  "nounwind"     { TFANoUnwind _ }
+  "optsize"      { TFAOptSize _ }
+  "readnone"     { TFAReadNone _ }
+  "readonly"     { TFAReadOnly _ }
+  "ssp"          { TFASSP _ }
+  "sspreq"       { TFASSPReq _ }
 
-  iN             { TIntegralT $$ }
-  "float"        { TFloatT }
-  "double"       { TDoubleT }
-  "x86_fp80"     { TX86_FP80T }
-  "fp128"        { TFP128T }
-  "ppc_fp128"    { TPPC_FP128T }
-  "x86mmx"       { TX86mmxT }
-  "void"         { TVoidT }
-  "metadata"     { TMetadataT }
-  "opaque"       { TOpaqueT }
-  upref          { TUprefT $$ }
-  "label"        { TLabelT }
+  iN             { TIntegralT _ $$ }
+  "float"        { TFloatT _ }
+  "double"       { TDoubleT _ }
+  "x86_fp80"     { TX86_FP80T _ }
+  "fp128"        { TFP128T _ }
+  "ppc_fp128"    { TPPC_FP128T _ }
+  "x86mmx"       { TX86mmxT _ }
+  "void"         { TVoidT _ }
+  "metadata"     { TMetadataT _ }
+  "opaque"       { TOpaqueT _ }
+  upref          { TUprefT _ $$ }
+  "label"        { TLabelT _ }
 
-  "type"         { TType }
-  addrspace      { TAddrspace $$ }
-  "constant"     { TConstant }
-  "section"      { TSection }
-  "align"        { TAlign }
-  "alignstack"   { TAlignStack }
-  "sideeffect"   { TSideEffect }
-  "alias"        { TAlias }
-  "declare"      { TDeclare }
-  "define"       { TDefine }
-  "gc"           { TGC }
-  "module"       { TModule }
-  "asm"          { TAsm }
-  "target"       { TTarget }
-  "datalayout"   { TDataLayout }
-  "blockaddress" { TBlockAddress }
-  "inbounds"     { TInbounds }
-  "global"       { TGlobal }
-  "tail"         { TTail }
-  "triple"       { TTriple }
-  "dbg"          { TDbg }
-  "external"     { TExternal }
+  "type"         { TType _ }
+  addrspace      { TAddrspace _ $$ }
+  "constant"     { TConstant _ }
+  "section"      { TSection _ }
+  "align"        { TAlign _ }
+  "alignstack"   { TAlignStack _ }
+  "sideeffect"   { TSideEffect _ }
+  "alias"        { TAlias _ }
+  "declare"      { TDeclare _ }
+  "define"       { TDefine _ }
+  "gc"           { TGC _ }
+  "module"       { TModule _ }
+  "asm"          { TAsm _ }
+  "target"       { TTarget _ }
+  "datalayout"   { TDataLayout _ }
+  "blockaddress" { TBlockAddress _ }
+  "inbounds"     { TInbounds _ }
+  "global"       { TGlobal _ }
+  "tail"         { TTail _ }
+  "triple"       { TTriple _ }
+  ",!dbg"          { TDbg _ }
+  "external"     { TExternal _ }
 
-  "nuw"          { TNUW }
-  "nsw"          { TNSW }
+  "nuw"          { TNUW _ }
+  "nsw"          { TNSW _ }
 
-  "exact"        { TExact }
-  "volatile"     { TVolatile }
+  "exact"        { TExact _ }
+  "volatile"     { TVolatile _ }
 
-  "trunc"        { TTrunc }
-  "zext"         { TZext }
-  "sext"         { TSext }
-  "fptrunc"      { TFpTrunc }
-  "fpext"        { TFpExt }
-  "fptoui"       { TFpToUI }
-  "fptosi"       { TFpToSI }
-  "uitofp"       { TUIToFp }
-  "sitofp"       { TSIToFp }
-  "ptrtoint"     { TPtrToInt }
-  "inttoptr"     { TIntToPtr }
-  "bitcast"      { TBitCast }
-  "getelementptr"  { TGetElementPtr }
-  "select"       { TSelect }
-  "icmp"         { TIcmp }
-  "fcmp"         { TFcmp }
-  "extractelement" { TExtractElement }
-  "insertelement"  { TInsertElement }
-  "shufflevector"  { TShuffleVector }
-  "extractvalue"   { TExtractValue }
-  "insertvalue"    { TInsertValue }
-  "call"           { TCall }
-  "ret"            { TRet }
-  "br"             { TBr }
-  "switch"         { TSwitch }
-  "indirectbr"     { TIndirectBr }
-  "invoke"         { TInvoke }
-  "unwind"         { TUnwind }
-  "unreachable"    { TUnreachable }
-  "add"            { TAdd }
-  "fadd"           { TFadd }
-  "sub"            { TSub }
-  "fsub"           { TFsub }
-  "mul"            { TMul }
-  "fmul"           { TFmul }
-  "udiv"           { TUdiv }
-  "sdiv"           { TSdiv }
-  "fdiv"           { TFdiv }
-  "urem"           { TUrem }
-  "srem"           { TSrem }
-  "frem"           { TFrem }
-  "shl"            { TShl }
-  "lshr"           { TLshr }
-  "ashr"           { TAshr }
-  "and"            { TAnd }
-  "or"             { TOr }
-  "xor"            { TXor }
-  "alloca"         { TAlloca }
-  "load"           { TLoad }
-  "store"          { TStore }
-  "phi"            { TPhi }
-  "va_arg"         { TVaArg }
+  "trunc"        { TTrunc _ }
+  "zext"         { TZext _ }
+  "sext"         { TSext _ }
+  "fptrunc"      { TFpTrunc _ }
+  "fpext"        { TFpExt _ }
+  "fptoui"       { TFpToUI _ }
+  "fptosi"       { TFpToSI _ }
+  "uitofp"       { TUIToFp _ }
+  "sitofp"       { TSIToFp _ }
+  "ptrtoint"     { TPtrToInt _ }
+  "inttoptr"     { TIntToPtr _ }
+  "bitcast"      { TBitCast _ }
+  "getelementptr"  { TGetElementPtr _ }
+  "select"       { TSelect _ }
+  "icmp"         { TIcmp _ }
+  "fcmp"         { TFcmp _ }
+  "extractelement" { TExtractElement _ }
+  "insertelement"  { TInsertElement _ }
+  "shufflevector"  { TShuffleVector _ }
+  "extractvalue"   { TExtractValue _ }
+  "insertvalue"    { TInsertValue _ }
+  "call"           { TCall _ }
+  "ret"            { TRet _ }
+  "br"             { TBr _ }
+  "switch"         { TSwitch _ }
+  "indirectbr"     { TIndirectBr _ }
+  "invoke"         { TInvoke _ }
+  "unwind"         { TUnwind _ }
+  "unreachable"    { TUnreachable _ }
+  "add"            { TAdd _ }
+  "fadd"           { TFadd _ }
+  "sub"            { TSub _ }
+  "fsub"           { TFsub _ }
+  "mul"            { TMul _ }
+  "fmul"           { TFmul _ }
+  "udiv"           { TUdiv _ }
+  "sdiv"           { TSdiv _ }
+  "fdiv"           { TFdiv _ }
+  "urem"           { TUrem _ }
+  "srem"           { TSrem _ }
+  "frem"           { TFrem _ }
+  "shl"            { TShl _ }
+  "lshr"           { TLshr _ }
+  "ashr"           { TAshr _ }
+  "and"            { TAnd _ }
+  "or"             { TOr _ }
+  "xor"            { TXor _ }
+  "alloca"         { TAlloca _ }
+  "load"           { TLoad _ }
+  "store"          { TStore _ }
+  "phi"            { TPhi _ }
+  "va_arg"         { TVaArg _ }
 
-  "eq"             { Teq }
-  "ne"             { Tne }
-  "ugt"            { Tugt }
-  "uge"            { Tuge }
-  "ult"            { Tult }
-  "ule"            { Tule }
-  "sgt"            { Tsgt }
-  "sge"            { Tsge }
-  "slt"            { Tslt }
-  "sle"            { Tsle }
-  "oeq"            { Toeq }
-  "ogt"            { Togt }
-  "oge"            { Toge }
-  "olt"            { Tolt }
-  "ole"            { Tole }
-  "one"            { Tone }
-  "ord"            { Tord }
-  "ueq"            { Tueq }
-  "une"            { Tune }
-  "uno"            { Tuno }
+  "eq"             { Teq _ }
+  "ne"             { Tne _ }
+  "ugt"            { Tugt _ }
+  "uge"            { Tuge _ }
+  "ult"            { Tult _ }
+  "ule"            { Tule _ }
+  "sgt"            { Tsgt _ }
+  "sge"            { Tsge _ }
+  "slt"            { Tslt _ }
+  "sle"            { Tsle _ }
+  "oeq"            { Toeq _ }
+  "ogt"            { Togt _ }
+  "oge"            { Toge _ }
+  "olt"            { Tolt _ }
+  "ole"            { Tole _ }
+  "one"            { Tone _ }
+  "ord"            { Tord _ }
+  "ueq"            { Tueq _ }
+  "une"            { Tune _ }
+  "uno"            { Tuno _ }
 
 %%
 
@@ -257,7 +257,7 @@ GlobalDecl:
 FunctionDefinition:
   "define" LinkageType VisibilityStyle CallingConvention list(ParameterAttribute)
      Type GlobalIdentifier "(" FuncArgList ")" list(FunctionAttribute)
-     SectionName FunctionAlignment GCName "{" FunctionBody "}"
+     SectionName FunctionAlignment optional(GCName) "{" FunctionBody "}"
   { mkFunctionDef $2 $3 $4 $5 $6 $7 $9 $11 $12 $13 $14 $16 }
 
 ModuleLevelAssembly:
@@ -273,8 +273,8 @@ Triple:
 ExternalDecl:
     "declare" list(ParameterAttribute) Type GlobalIdentifier "(" FuncTypeArgList ")" list(FunctionAttribute)
     { mkExternalFuncDecl $3 $4 $6 $8 }
-  | "declare" Type GlobalIdentifier
-    { ExternalDecl $2 $3 }
+  | "declare" list(ParameterAttribute) Type GlobalIdentifier
+    { ExternalDecl $3 $4 }
 
 MetadataConstant:
     Constant { Just $1 }
@@ -407,9 +407,15 @@ FuncTypeArgList:
   |                                                { ([], False) }
 
 MoreFuncTypeArgs:
-    "," Type list(ParameterAttribute) MoreFuncTypeArgs { ($2 : (fst $4), snd $4) }
-  | "," "..."                 { ([], True) }
-  |                           { ([], False) }
+    "," MoreFuncTypeArgsOrVararg { $2 }
+  |                              { ([], False) }
+  --   "," Type list(ParameterAttribute) MoreFuncTypeArgs { ($2 : (fst $4), snd $4) }
+  -- | "," "..."                 { ([], True) }
+  -- |                           { ([], False) }
+
+MoreFuncTypeArgsOrVararg:
+    Type list(ParameterAttribute) MoreFuncTypeArgs { ($1 : (fst $3), snd $3) }
+  | "..."                 { ([], True) }
 
 AddrSpace:
     addrspace { $1 }
@@ -452,6 +458,7 @@ SimpleConstant:
   | "false"    { ConstantInt 0 }
   | intlit     { ConstantInt $1 }
   | floatlit   { ConstantFP $1 }
+  | stringlit  { ConstantString $1 }
   | "null"     { ConstantPointerNull }
   | mdstring   { MDString $1 }
 
@@ -521,8 +528,17 @@ PartialConstant:
 Constant:
   Type PartialConstant { $2 $1 }
 
+CallArgument:
+  Type SRetTag PartialConstant { ($3 $1, $2) }
+
+SRetTag:
+    "sret" { True }
+  |        { False }
+
+-- The "!dbg" token has a comma preceeding it to ensure it doesn't get slurped up
+-- into argument lists
 InstMetadata:
-  "," "!" "dbg" MetaIdentifier { $4 }
+  ",!dbg" MetaIdentifier { $2 }
 
 Instruction:
   InstructionNoMD optional(InstMetadata) { mkMDInst $1 $2 }
@@ -540,7 +556,7 @@ InstructionNoMD:
     { voidInst $ SwitchInst ($3 $2) $6 $8 }
   | "indirectbr" Type PartialConstant "," "[" sep(LabelVal, ",") "]"
     { voidInst $ IndirectBranchInst ($3 $2) $6 }
-  | optional(CallIdentifier) "invoke" CallingConvention list(ParameterAttribute) Type PartialConstant "(" sep(Constant, ",") ")" list(FunctionAttribute) "to" Constant "unwind" Constant
+  | optional(CallIdentifier) "invoke" CallingConvention list(ParameterAttribute) Type PartialConstant "(" sep(CallArgument, ",") ")" list(FunctionAttribute) "to" Constant "unwind" Constant
     {% mkInvokeInst $1 $3 $4 $5 $6 $8 $10 $12 $14 }
   | "unwind" { voidInst UnwindInst }
   | "unreachable" { voidInst UnreachableInst }
@@ -572,12 +588,12 @@ InstructionNoMD:
     { mkInsertElementInst $1 $4 $5 $7 $9 }
   | LocalIdentifier "=" "shufflevector" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
     {% mkShuffleVectorInst $1 $4 $5 $7 $8 $10 $11 }
-  | LocalIdentifier "=" "extractvalue" Type PartialConstant "," sep1(intlit, ",") -- list(ExtraIntLitIndex)
+  | LocalIdentifier "=" "extractvalue" Type PartialConstant "," sep1(intlit, ",")
     {% mkExtractValueInst $1 $4 $5 $7 }
   | LocalIdentifier "=" "insertvalue" Type PartialConstant "," Type PartialConstant "," sep1(intlit, ",")
     { mkInsertValueInst $1 $4 $5 $7 $8 $10 }
-  | LocalIdentifier "=" "alloca" Type AllocaNumElems AlignmentSpec
-    { mkAllocaInst $1 $4 $5 $6 }
+  | LocalIdentifier "=" "alloca" Type AllocaTail
+    { mkAllocaInst $1 $4 (fst $5) (snd $5) }
   -- FIXME: Add support for the !nontemporal metadata thing
   | LocalIdentifier "=" VolatileFlag "load" Type PartialConstant AlignmentSpec
     { mkLoadInst $1 $3 $5 $6 $7 }
@@ -619,7 +635,7 @@ InstructionNoMD:
     {% mkPhiNode $1 $4 $5 }
   | LocalIdentifier "=" "select" Type PartialConstant "," Type PartialConstant "," Type PartialConstant
     {% mkSelectInst $1 $4 $5 $7 $8 $10 $11 }
-  | optional(CallIdentifier) TailMarker "call" CallingConvention list(ParameterAttribute) Type optional(Type) PartialConstant "(" sep(Constant, ",") ")" list(FunctionAttribute)
+  | optional(CallIdentifier) TailMarker "call" CallingConvention list(ParameterAttribute) Type optional(Type) PartialConstant "(" sep(CallArgument, ",") ")" list(FunctionAttribute)
     {% mkCallInst $1 $2 $4 $5 $6 $7 $8 $10 $12 }
   | LocalIdentifier "=" "va_arg" Type PartialConstant "," Type
     {% mkVaArgInst $1 $4 $5 $7 }
@@ -639,7 +655,7 @@ TailMarker:
   |        { False }
 
 PhiPair:
-  PartialConstant "," LocalLabel { ($1, $3) }
+  "[" PartialConstant "," LocalLabel "]" { ($2, $4) }
 
 ICmpCondition:
     "eq"  { ICmpEq }
@@ -671,10 +687,17 @@ FCmpCondition:
   | "uno"   { FCmpUno }
   | "true"  { FCmpTrue }
 
--- If unspecified, allocates 1 element
-AllocaNumElems:
-    "," Constant { $2 }
-  |              { ConstValue (ConstantInt 1) (TypeInteger 32) }
+
+-- This is split up because having two optional arguments in a row
+-- causes a problematic shift/reduce conflict.  The number of elements
+-- defaults to one if not specified.
+AllocaTail:
+    "," AllocaNumElemsOrAlign { $2 }
+  |   { (ConstValue (ConstantInt 1) (TypeInteger 32), 0) }
+
+AllocaNumElemsOrAlign:
+    Constant AlignmentSpec { ($1, $2) }
+  | "align" intlit { (ConstValue (ConstantInt 1) (TypeInteger 32), $2) }
 
 VolatileFlag:
     "volatile" { True  }
@@ -757,6 +780,6 @@ snd(p,q): p q { $2 }
 
 -- Use the underlying fail in the parse monad
 parseError :: [Token] -> ParsingMonad a
-parseError ts = fail $ show ts
+parseError ts = fail $ show $ take 10 ts
 
 }

@@ -122,6 +122,7 @@ data InstructionT = RetInst (Maybe Constant)
                        , callFunction :: Constant
                        , callArguments :: [Constant]
                        , callAttrs :: [FunctionAttribute]
+                       , callHasSRet :: Bool
                        }
             | InvokeInst { invokeConvention :: CallingConvention
                          , invokeParamAttrs :: [ParamAttribute]
@@ -131,6 +132,7 @@ data InstructionT = RetInst (Maybe Constant)
                          , invokeAttrs :: [FunctionAttribute]
                          , invokeNormalLabel :: Constant
                          , invokeUnwindLabel :: Constant
+                         , invokeHasSRet :: Bool
                          }
             | VaArgInst Constant Type
             deriving (Show, Eq)
@@ -156,7 +158,7 @@ data GlobalDeclaration = GlobalDeclaration Identifier Int [GlobalAnnotation] Typ
                                             , funcAttrs :: [FunctionAttribute]
                                             , funcSection :: Maybe Text
                                             , funcAlign :: Integer
-                                            , funcGCName :: GCName
+                                            , funcGCName :: Maybe GCName
                                             , funcBody :: [BasicBlock]
                                             , funcIsVararg :: Bool
                                             }
@@ -171,6 +173,7 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
                | ConstantExpr InstructionT -- change this to something else maybe?  Value should suffice... might even eliminate this one
                | ConstantFP Double
                | ConstantInt Integer
+               | ConstantString Text
                | ConstantPointerNull
                | ConstantStruct [Constant] -- Just a list of other constants
                | ConstantVector [Constant] -- again

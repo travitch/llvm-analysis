@@ -88,3 +88,13 @@ executable parser-tests
   hs-source-dirs: tests
   extensions: OverloadedStrings
 
+executable parser-driver
+  if flag(buildTests)
+    build-depends: ffi-analysis, haskell98, text, base > 3 && < 5
+  else
+    buildable: False
+
+  main-is: TestDriver.hs
+  hs-source-dirs: tests
+  extensions: OverloadedStrings
+
