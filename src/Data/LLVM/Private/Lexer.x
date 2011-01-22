@@ -1,6 +1,6 @@
 {
 {-# LANGUAGE RankNTypes, OverloadedStrings #-}
-module Data.LLVM.Lexer ( lexer, Token(..) ) where
+module Data.LLVM.Private.Lexer ( lexer, Token(..) ) where
 
 import Data.Binary.IEEE754
 import Data.Monoid

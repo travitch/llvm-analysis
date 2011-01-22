@@ -3,7 +3,7 @@ import Data.Monoid (mconcat)
 import Test.HUnit
 
 import Data.LLVM
-import Data.LLVM.AssemblyParser
+import Data.LLVM.Private.AssemblyParser
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.ParsingMonad
 import Data.LLVM.Private.PlaceholderTypes

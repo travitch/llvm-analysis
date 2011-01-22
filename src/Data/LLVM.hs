@@ -4,8 +4,8 @@ module Data.LLVM ( parseLLVMAsm
 
 import Data.Text (Text)
 
-import Data.LLVM.AssemblyParser
 import Data.LLVM.Types
+import Data.LLVM.Private.AssemblyParser
 import Data.LLVM.Private.ParsingMonad
 import Data.LLVM.Private.TieKnot
 
@@ -19,11 +19,5 @@ maybeParseLLVMAsm :: Text -> Maybe Module
 maybeParseLLVMAsm t = do
   parseTree <- maybeRunLLVMParser parser t
   return $ tieKnot parseTree
-
-  -- case llvmModule of
-  -- Left _ -> Nothing
-  -- Right theModule -> Just $ tieKnot theModule
-  -- where llvmModule = runLLVMParser parser t
-
 
 

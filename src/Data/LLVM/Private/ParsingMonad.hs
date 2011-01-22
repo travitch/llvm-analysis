@@ -4,7 +4,7 @@ module Data.LLVM.Private.ParsingMonad ( ParsingMonad(..)
                                       ) where
 
 import Data.Text (Text)
-import Data.LLVM.Lexer
+import Data.LLVM.Private.Lexer
 
 runLLVMParser :: ([Token] -> ParsingMonad a) -> Text -> Either String a
 runLLVMParser p t = case res of

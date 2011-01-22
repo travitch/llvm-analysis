@@ -1,15 +1,15 @@
 {
 {-# LANGUAGE OverloadedStrings #-}
-module Data.LLVM.AssemblyParser ( parser
-                                , parseIdentifier
-                                , parseCallingConvention
-                                , parseGCName
-                                , parseType
-                                , parseInstruction
-                                ) where
+module Data.LLVM.Private.AssemblyParser ( parser
+                                        , parseIdentifier
+                                        , parseCallingConvention
+                                        , parseGCName
+                                        , parseType
+                                        , parseInstruction
+                                        ) where
 
-import Data.LLVM.Lexer
 import Data.LLVM.Private.AttributeTypes
+import Data.LLVM.Private.Lexer
 import Data.LLVM.Private.PlaceholderTypes
 import Data.LLVM.Private.PlaceholderBuilders
 import Data.LLVM.Private.ParsingMonad
