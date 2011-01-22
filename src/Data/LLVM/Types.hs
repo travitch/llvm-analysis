@@ -4,6 +4,7 @@ module Data.LLVM.Types ( Module(..)
                        , Value(..)
                        , ValueT(..)
                        , functionAttributes
+                       , module Data.LLVM.Private.AttributeTypes
                        ) where
 
 import Data.Dwarf
