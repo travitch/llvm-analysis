@@ -213,8 +213,11 @@ mkGlobalDecl ident addrSpace annots initType initializer align section =
   where t = TypePointer initType
         i = initializer initType
 
-mkBasicBlock :: Text -> [Instruction] -> BasicBlock
-mkBasicBlock t = BasicBlock (LocalIdentifier t)
+mkBasicBlock :: Maybe Text -> [Instruction] -> BasicBlock
+mkBasicBlock t = BasicBlock identifier
+  where identifier = case t of
+          Nothing -> Nothing
+          Just name -> Just $ LocalIdentifier name
 
 mkFunctionDef :: LinkageType -> VisibilityStyle -> CallingConvention ->
                  [ParamAttribute] -> Type -> Identifier ->

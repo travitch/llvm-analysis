@@ -184,7 +184,7 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
                | InlineAsm Text Text -- asm, constraints
                deriving (Show, Eq)
 
-data BasicBlock = BasicBlock Identifier [Instruction]
+data BasicBlock = BasicBlock (Maybe Identifier) [Instruction]
                 deriving (Show, Eq)
 
 data Type = TypeInteger Int -- bits

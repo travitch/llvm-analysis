@@ -92,13 +92,17 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
         -- of the function.
         translateBody = foldr translateBlock (M.fromList nameToParamMap, [])
         translateBlock (O.BasicBlock blockName placeholderInsts) (locals, blocks) =
-          (M.insert blockName bb blocksWithLocals, bb : blocks)
+          (updatedMap, bb : blocks)
           where bb = Value { valueType = TypeLabel
-                           , valueName = Just blockName
+                           , valueName = blockName
                            , valueMetadata = Nothing -- can BBs have metadata?
                            , valueContent = BasicBlock insts
                            }
                 (blocksWithLocals, insts) = translateInsts locals placeholderInsts
+                updatedMap = case blockName of
+                  Nothing -> blocksWithLocals
+                  Just aBlockName -> M.insert aBlockName bb blocksWithLocals
+
         translateInsts locals = foldr trInst (locals, [])
         trInst = transInst typeMapper trConst getMetadata
         -- Returns a new body and a map of identifiers (vals) to

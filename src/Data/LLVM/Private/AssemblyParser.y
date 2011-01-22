@@ -409,9 +409,6 @@ FuncTypeArgList:
 MoreFuncTypeArgs:
     "," MoreFuncTypeArgsOrVararg { $2 }
   |                              { ([], False) }
-  --   "," Type list(ParameterAttribute) MoreFuncTypeArgs { ($2 : (fst $4), snd $4) }
-  -- | "," "..."                 { ([], True) }
-  -- |                           { ([], False) }
 
 MoreFuncTypeArgsOrVararg:
     Type list(ParameterAttribute) MoreFuncTypeArgs { ($1 : (fst $3), snd $3) }
@@ -455,11 +452,11 @@ NormalArgument:
 FunctionBody:
     -- This is the simple case for a function with no control flow; there is no
     -- initial label and just a single basic block.
-    list1(Instruction) { [mkBasicBlock "0" $1] }
+    list1(Instruction) { [mkBasicBlock Nothing $1] }
   | list1(BasicBlock)  { $1 }
 
 BasicBlock:
-  label list(Instruction) { mkBasicBlock $1 $2 }
+  label list(Instruction) { mkBasicBlock (Just $1) $2 }
 
 SimpleConstant:
     "true"     { ConstantInt 1 }
