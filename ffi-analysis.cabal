@@ -76,17 +76,17 @@ library
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   build-tools: alex >= 2 && < 3, happy > 1.18.0
   extensions: OverloadedStrings
-  ghc-options: -Wall -fno-warn-lazy-unlifted-bindings -auto-all
+  ghc-options: -Wall -fno-warn-lazy-unlifted-bindings
 
--- executable parser-tests
---   if flag(buildTests)
---     build-depends: HUnit, ffi-analysis, base > 3 && < 5
---   else
---     buildable: False
+executable parser-tests
+  if flag(buildTests)
+    build-depends: HUnit, ffi-analysis, base > 3 && < 5
+  else
+    buildable: False
 
---   main-is: ParserTest.hs
---   hs-source-dirs: tests
---   extensions: OverloadedStrings
+  main-is: ParserTest.hs
+  hs-source-dirs: tests
+  extensions: OverloadedStrings
 
 executable parser-driver
   if flag(buildTests)
@@ -94,7 +94,7 @@ executable parser-driver
   else
     buildable: False
 
-  ghc-options: -Wall -fno-warn-lazy-unlifted-bindings -auto-all
+  ghc-options: -Wall
   main-is: TestDriver.hs
   hs-source-dirs: tests
   extensions: OverloadedStrings
