@@ -2,6 +2,7 @@ module Data.LLVM.Private.TieKnot ( tieKnot ) where
 
 import qualified Data.Map as M
 import Data.Map (Map)
+import Data.Text (Text)
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.Translators.Constants
@@ -45,8 +46,8 @@ completeGraph typeMapper decls = M.elems globalDecls
         mdGo (_:rest) vs = mdGo rest vs
         go [] vals = vals
         go (decl:rest) vals = case decl of
-          O.GlobalDeclaration name addrspace annots ty initializer align ->
-            go rest (transGlobalVar typeMapper (transValOrConst M.empty) getMetadata vals name addrspace annots ty initializer align)
+          O.GlobalDeclaration name addrspace annots ty initializer align section ->
+            go rest (transGlobalVar typeMapper (transValOrConst M.empty) getMetadata vals name addrspace annots ty initializer align section)
           O.FunctionDefinition {} ->
             go rest (translateFunctionDefinition typeMapper transValOrConst metadata vals decl)
           O.GlobalAlias name linkage vis ty constant ->
@@ -93,15 +94,17 @@ transGlobalVar :: (O.Type -> Type) -> (O.Constant -> Value) ->
                   (Identifier -> Maybe Metadata) ->
                   Map Identifier Value -> Identifier -> Int ->
                   [GlobalAnnotation] -> O.Type -> O.Constant -> Integer ->
+                  Maybe Text ->
                   Map Identifier Value
-transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty initializer align =
+transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty initializer align section =
   M.insert name val vals
   where val = mkValue (typeMapper ty) (Just name) (getGlobalMD name) val'
         val' = GlobalDeclaration { globalVariableAddressSpace = addrspace
-                                   , globalVariableAnnotations = annots
-                                   , globalVariableInitializer = transValOrConst initializer
-                                   , globalVariableAlignment = align
-                                   }
+                                 , globalVariableAnnotations = annots
+                                 , globalVariableInitializer = transValOrConst initializer
+                                 , globalVariableAlignment = align
+                                 , globalVariableSection = section
+                                 }
 
 extractModuleAssembly :: [O.GlobalDeclaration] -> [Assembly]
 extractModuleAssembly decls = reverse $ foldr xtract [] decls

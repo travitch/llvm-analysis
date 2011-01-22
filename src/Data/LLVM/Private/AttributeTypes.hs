@@ -22,15 +22,23 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Map (Map)
 import Data.Set (Set)
-import Data.Text (Text)
+import Data.Text (Text, unpack)
 
 data Assembly = Assembly Text
-                deriving (Show, Eq)
+                deriving (Eq)
+
+instance Show Assembly where
+  show (Assembly txt) = unpack txt
 
 data Identifier = LocalIdentifier Text
                 | GlobalIdentifier Text
                 | MetaIdentifier Text
-                  deriving (Show, Eq, Ord)
+                  deriving (Eq, Ord)
+
+instance Show Identifier where
+  show (LocalIdentifier t) = "%" ++ unpack t
+  show (GlobalIdentifier t) = "@" ++ unpack t
+  show (MetaIdentifier t) = "!" ++ unpack t
 
 data LinkageType = LTPrivate
                  | LTLinkerPrivate
@@ -48,19 +56,49 @@ data LinkageType = LTPrivate
                  | LTExtern -- Default
                  | LTDLLImport
                  | LTDLLExport
-                   deriving (Show, Eq)
+                   deriving (Eq)
+
+instance Show LinkageType where
+  show LTPrivate = "private"
+  show LTLinkerPrivate = "linker_private"
+  show LTLinkerPrivateWeak = "linker_private_weak"
+  show LTLinkerPrivateWeakDefAuto = "linker_private_weak_def_auto"
+  show LTInternal = "internal"
+  show LTAvailableExternally = "available_externally"
+  show LTLinkOnce = "link_once"
+  show LTWeak = "weak"
+  show LTCommon = "common"
+  show LTAppending = "appending"
+  show LTExternWeak = "extern_weak"
+  show LTLinkOnceODR = "link_once_odr"
+  show LTWeakODR = "weak_odr"
+  show LTExtern = ""
+  show LTDLLImport = "dll_import"
+  show LTDLLExport = "dll_export"
 
 data CallingConvention = CCC
                        | CCFastCC
                        | CCColdCC
                        | CCGHC
                        | CCN Int
-                       deriving (Show, Eq)
+                       deriving (Eq)
+
+instance Show CallingConvention where
+  show CCC = "ccc"
+  show CCFastCC = "fastcc"
+  show CCColdCC = "coldcc"
+  show CCGHC = "cc 10"
+  show (CCN n) = "cc " ++ show n
 
 data VisibilityStyle = VisibilityDefault
                      | VisibilityHidden
                      | VisibilityProtected
-                       deriving (Show, Eq)
+                       deriving (Eq)
+
+instance Show VisibilityStyle where
+  show VisibilityDefault = ""
+  show VisibilityHidden = "hidden"
+  show VisibilityProtected = "protected"
 
 data ParamAttribute = PAZeroExt
                     | PASignExt
@@ -70,7 +108,17 @@ data ParamAttribute = PAZeroExt
                     | PANoAlias
                     | PANoCapture
                     | PANest
-                    deriving (Show, Eq)
+                    deriving (Eq)
+
+instance Show ParamAttribute where
+  show PAZeroExt = "zeroext"
+  show PASignExt = "signext"
+  show PAInReg = "inreg"
+  show PAByVal = "byval"
+  show PASRet = "sret"
+  show PANoAlias = "noalias"
+  show PANoCapture = "nocapture"
+  show PANest = "nest"
 
 data FunctionAttribute = FAAlignStack Int
                        | FAAlwaysInline
@@ -87,7 +135,24 @@ data FunctionAttribute = FAAlignStack Int
                        | FAReadOnly
                        | FASSP
                        | FASSPReq
-                       deriving (Show, Eq)
+                       deriving (Eq)
+
+instance Show FunctionAttribute where
+  show (FAAlignStack n) = "alignstack(" ++ show n ++ ")"
+  show FAAlwaysInline = "alwaysinline"
+  show FAHotPatch = "hotpatch"
+  show FAInlineHint = "inlinehint"
+  show FANaked = "naked"
+  show FANoImplicitFloat = "noimplicitfloat"
+  show FANoInline = "noinline"
+  show FANoRedZone = "noredzone"
+  show FANoReturn = "noreturn"
+  show FANoUnwind = "nounwind"
+  show FAOptSize = "optsize"
+  show FAReadNone = "readnone"
+  show FAReadOnly = "readonly"
+  show FASSP = "ssp"
+  show FASSPReq = "sspreq"
 
 data Endian = EBig
             | ELittle
@@ -98,7 +163,10 @@ data AlignSpec = AlignSpec Int Int
                  deriving (Show, Eq)
 
 data TargetTriple = TargetTriple Text
-                    deriving (Show, Eq)
+                    deriving (Eq)
+
+instance Show TargetTriple where
+  show (TargetTriple t) = unpack t
 
 data DataLayout = DataLayout { endianness :: Endian
                              , pointerAlign :: (Int, AlignSpec)
@@ -133,7 +201,10 @@ defaultDataLayout = DataLayout { endianness = EBig
                                , nativeWidths = Set.empty
                                }
 
-data GCName = GCName Text deriving (Show, Eq)
+data GCName = GCName Text deriving (Eq)
+
+instance Show GCName where
+  show (GCName t) = "gc \"" ++ (unpack t) ++ "\""
 
 data ICmpCondition = ICmpEq
                    | ICmpNe
@@ -170,7 +241,13 @@ data GlobalAnnotation = GAConstant
                       | GACommon
                       | GAPrivate
                       | GAExternal
-                        deriving (Show, Eq)
+                        deriving (Eq)
 
+instance Show GlobalAnnotation where
+  show GAConstant = "constant"
+  show GAGlobal = "global"
+  show GACommon = "common"
+  show GAPrivate = "private"
+  show GAExternal = "external"
 
 data ArithFlag = AFNSW | AFNUW deriving (Show, Eq)

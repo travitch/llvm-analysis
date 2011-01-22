@@ -205,9 +205,11 @@ mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) -> [FunctionAttribute
 mkExternalFuncDecl retType ident (argTypes, isVararg) attrs = ExternalDecl t ident
   where t = TypeFunction retType argTypes isVararg attrs
 
-mkGlobalDecl :: Identifier -> Int -> [GlobalAnnotation] -> Type -> PartialConstant -> Integer -> GlobalDeclaration
-mkGlobalDecl ident addrSpace annots initType initializer align =
-  GlobalDeclaration ident addrSpace annots t i align
+mkGlobalDecl :: Identifier -> Int -> [GlobalAnnotation] -> Type ->
+                PartialConstant -> Integer -> Maybe Text ->
+                GlobalDeclaration
+mkGlobalDecl ident addrSpace annots initType initializer align section =
+  GlobalDeclaration ident addrSpace annots t i align section
   where t = TypePointer initType
         i = initializer initType
 

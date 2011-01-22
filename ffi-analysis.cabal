@@ -66,6 +66,8 @@ library
                    Data.LLVM.Private.PlaceholderBuilders,
                    Data.LLVM.Private.PlaceholderTypeExtractors,
                    Data.LLVM.Private.PlaceholderTypes,
+                   Data.LLVM.Private.Printers,
+                   Data.LLVM.Private.ReferentialTypes,
                    Data.LLVM.Private.TieKnot,
                    Data.LLVM.Private.Translators.Constants,
                    Data.LLVM.Private.Translators.Functions,

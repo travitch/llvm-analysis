@@ -251,8 +251,8 @@ TypeDeclaration:
   LocalIdentifier "=" "type" Type { NamedType $1 $4 }
 
 GlobalDecl:
-  GlobalIdentifier "=" AddrSpace list(GlobalAnnotation) Type PartialConstant AlignmentSpec
-  { mkGlobalDecl $1 $3 $4 $5 $6 $7 }
+  GlobalIdentifier "=" AddrSpace list(GlobalAnnotation) Type PartialConstant GlobalDeclTail -- AlignmentSpec
+  { mkGlobalDecl $1 $3 $4 $5 $6 (fst $7) (snd $7) }
 
 FunctionDefinition:
   "define" LinkageType VisibilityStyle CallingConvention list(ParameterAttribute)
@@ -416,6 +416,14 @@ MoreFuncTypeArgs:
 MoreFuncTypeArgsOrVararg:
     Type list(ParameterAttribute) MoreFuncTypeArgs { ($1 : (fst $3), snd $3) }
   | "..."                 { ([], True) }
+
+GlobalDeclTail:
+  "," GlobalDeclSectionOrAlign { $2 }
+  |                            { (0, Nothing) }
+
+GlobalDeclSectionOrAlign:
+    "section" string AlignmentSpec { ($3, Just $2) }
+  | "align" intlit                 { ($2, Nothing) }
 
 AddrSpace:
     addrspace { $1 }
