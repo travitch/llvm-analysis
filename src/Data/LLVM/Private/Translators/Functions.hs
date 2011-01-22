@@ -93,7 +93,7 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
         translateBody = foldr translateBlock (M.fromList nameToParamMap, [])
         translateBlock (O.BasicBlock blockName placeholderInsts) (locals, blocks) =
           (M.insert blockName bb blocksWithLocals, bb : blocks)
-          where bb = Value { valueType = TypeVoid
+          where bb = Value { valueType = TypeLabel
                            , valueName = Just blockName
                            , valueMetadata = Nothing -- can BBs have metadata?
                            , valueContent = BasicBlock insts
