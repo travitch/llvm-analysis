@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Data.LLVM.Private.Translators.Functions ( translateFunctionDefinition ) where
 
 import Data.Map (Map, (!))
@@ -7,6 +8,7 @@ import Data.LLVM.Types
 import Data.LLVM.Private.AttributeTypes
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import Data.LLVM.Private.Translators.Instructions
+
 
 mkFuncType :: (O.Type -> Type) -> O.GlobalDeclaration -> Type
 mkFuncType typeMapper O.FunctionDefinition { O.funcRetType = fret
@@ -29,11 +31,11 @@ translateFunctionDefinition :: (O.Type -> Type) ->
 translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl =
   M.insert (O.funcName decl) v vals
   where v = Value { valueType = ftype
-                  , valueName = Just ident
-                  , valueMetadata = getMetadata ident
+                  , valueName = Just functionIdentifier
+                  , valueMetadata = getMetadata functionIdentifier
                   , valueContent =
                     Function { functionType = ftype
-                             , functionParameters = map translateParameter $ O.funcParams decl
+                             , functionParameters = map snd nameToParamMap
                              , functionBody = translatedBody
                              , functionLinkage = O.funcLinkage decl
                              , functionVisibility = O.funcVisibility decl
@@ -53,13 +55,16 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
 
         -- Helper to translate the placeholder constants from the parser
         -- into real values
-        trConst (O.ValueRef localIdent@(LocalIdentifier _)) = localVals ! localIdent
+        trConst (O.ValueRef localIdent@(LocalIdentifier _)) =
+          (localVals ! localIdent)
         trConst c = transValOrConst c
 
         -- Translated type of the function
         ftype = mkFuncType typeMapper decl
+        -- Map from parameter names to their translated values
+        nameToParamMap = map translateParameter $ O.funcParams decl
         -- Name of the function
-        ident = O.funcName decl
+        functionIdentifier = O.funcName decl
         -- Remove @llvm.dbg.* calls from the body after extracting the
         -- information they provide.  Some of the debug information
         -- (e.g. changes in variable values) are ignored.  That
@@ -73,18 +78,21 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
         -- instructions to values
         (localVals, translatedBody) = translateBody noDebugBody
         translateParameter (O.FormalParameter ty attrs paramIdent) =
-          Value { valueType = typeMapper ty
-                , valueName = Just paramIdent
-                -- Note: Parameter metadata is mapped in an odd way -
-                -- via pseudo-calls to llvm.dbg.declare (or .value).
-                -- We construct this map by preprocessing the function
-                -- body so that we can map metadata to parameters here.
-                , valueMetadata = M.lookup paramIdent localMetadata
-                , valueContent = Argument attrs
-                }
-        translateBody = foldr translateBlock (M.empty, [])
+          (paramIdent, param)
+          where param = Value { valueType = typeMapper ty
+                              , valueName = Just paramIdent
+                              -- Note: Parameter metadata is mapped in an odd way -
+                              -- via pseudo-calls to llvm.dbg.declare (or .value).
+                              -- We construct this map by preprocessing the function
+                              -- body so that we can map metadata to parameters here.
+                              , valueMetadata = M.lookup paramIdent localMetadata
+                              , valueContent = Argument attrs
+                              }
+        -- Note, the set of locals is initialized with the parameters
+        -- of the function.
+        translateBody = foldr translateBlock (M.fromList nameToParamMap, [])
         translateBlock (O.BasicBlock blockName placeholderInsts) (locals, blocks) =
-          (M.insert ident bb blocksWithLocals, bb : blocks)
+          (M.insert blockName bb blocksWithLocals, bb : blocks)
           where bb = Value { valueType = TypeVoid
                            , valueName = Just blockName
                            , valueMetadata = Nothing -- can BBs have metadata?
@@ -162,9 +170,6 @@ transInst typeMapper trConst getMetadata i acc =
         -- want to attach metadata to alloca nodes, we could pass in the local
         -- metadata map here and search for iname - if there is an entry in
         -- that map then it is actually a local and we have extra metadata
-        -- FIXME: Here we need to give types to getelementptr and extractvalue
-        -- instructions ; they couldn't be determined earlier since the type
-        -- graph wasn't yet constructed.
         repackInst O.Instruction { O.instType = itype
                                  , O.instName = iname
                                  , O.instMetadata = md

@@ -43,9 +43,9 @@ tokens :-
   --
   --  ; <label>:###
   -- That is, a label encoded as a comment
-  "; <label>:" @decimal+ .* "\n" { mkAnonLabel }
+  "; <label>:" @decimal .* { mkAnonLabel }
   -- Normal comment
-  ";" $printable* ; -- "\n" ;
+  ";" .* ;
 
   -- Standard literals
   "-"? @decimal { mkIntLit }
@@ -482,23 +482,17 @@ stringTok tcons fltr pos s = tcons pos (fltr s)
 
 -- Helpers for constructing identifiers
 mkGlobalIdent = stringTok TGlobalIdent stripSigil
--- mkGlobalIdent pos s = TGlobalIdent pos $ stripSigil s
 mkLocalIdent = stringTok TLocalIdent stripSigil
--- mkLocalIdent = TLocalIdent . stripSigil
 mkMetadataName = stringTok TMetadataName stripSigil
--- mkMetadataName = TMetadataName . stripSigil
 mkQGlobalIdent = stringTok TGlobalIdent (unquote . stripSigil)
--- mkQGlobalIdent = TGlobalIdent . unquote . stripSigil
 mkQLocalIdent = stringTok TLocalIdent (unquote . stripSigil)
--- mkQLocalIdent = TLocalIdent . unquote . stripSigil
 mkQMetadataName = stringTok TMetadataName (unquote . stripSigil)
--- mkQMetadataName = TMetadataName . unquote . stripSigil
 stripSigil = T.tail
 unquote = T.tail . T.init
 
 -- First, drop the comment prefix.  The label name is all of the
 -- digits following that.  The rest of the line is garbage.
-mkAnonLabel = stringTok TLabel (readText . T.takeWhile isDigit . T.drop 10)
+mkAnonLabel = stringTok TLabel (T.takeWhile isDigit . T.drop 10)
   where isDigit c = c >= '0' && c <= '9'
 
 -- Helpers for the simple literals

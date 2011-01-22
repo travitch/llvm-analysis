@@ -14,7 +14,6 @@ import Data.LLVM.Private.PlaceholderTypes
 import Data.LLVM.Private.PlaceholderBuilders
 import Data.LLVM.Private.ParsingMonad
 import Data.Monoid
-
 }
 
 %name parser
