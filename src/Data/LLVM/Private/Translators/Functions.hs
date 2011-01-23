@@ -210,20 +210,24 @@ transInst typeMapper trConst getMetadata i acc =
 -- a constant, otherwise we don't have a statically-typed language
 -- anymore.
 traceTypeIndicesEV :: Type -> [Integer] -> Type
-traceTypeIndicesEV t (idx:rest) = case t of
+traceTypeIndicesEV t indices@(idx:rest) = case t of
   TypePointer innerType -> traceTypeIndicesEV innerType rest
   TypeArray _ innerType -> traceTypeIndicesEV innerType rest
   TypeStruct ts -> traceTypeIndicesEV (ts !! fromIntegral idx) rest
   TypePackedStruct ts -> traceTypeIndicesEV (ts !! fromIntegral idx) rest
+  TypeNamed _ realType -> traceTypeIndicesEV realType indices
   _ -> error ("Invalid type for ExtractValue: " ++ show t)
 traceTypeIndicesEV t [] = t
 
 traceTypeIndicesGEP :: Type -> [Value] -> Type
-traceTypeIndicesGEP t (idx:rest) = case t of
+traceTypeIndicesGEP t indices@(idx:rest) = case t of
   TypePointer innerType -> traceTypeIndicesGEP innerType rest
   TypeArray _ innerType -> traceTypeIndicesGEP innerType rest
   TypeStruct ts -> traceTypeIndicesGEP (ts !! fromIntegral (getConstIntVal idx)) rest
   TypePackedStruct ts -> traceTypeIndicesGEP (ts !! fromIntegral (getConstIntVal idx)) rest
+  -- Follow the named type, but don't consume an index (since we
+  -- haven't checked it yet)
+  TypeNamed _ realType -> traceTypeIndicesGEP realType indices
   _ -> error ("Invalid type for GetElementPtr: " ++ show t)
 traceTypeIndicesGEP t [] = t
 

@@ -877,4 +877,4 @@ printType (TypeStruct ts) = mconcat [ "{", fieldVals, "}" ]
   where fieldVals = intercalate ", " $ map printType ts
 printType (TypePackedStruct ts) = mconcat [ "{", fieldVals, "}" ]
   where fieldVals = intercalate ", " $ map printType ts
-
+printType (TypeNamed name t) = name

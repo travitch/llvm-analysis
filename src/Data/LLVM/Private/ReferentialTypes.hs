@@ -34,7 +34,7 @@ data Type = TypeInteger Int -- bits
           | TypePointer Type -- (Maybe Int) -- Address Space
           | TypeStruct [Type]
           | TypePackedStruct [Type]
---          | TypeNamed String Type
+          | TypeNamed String Type
           deriving (Eq)
 
 data Metadata =
