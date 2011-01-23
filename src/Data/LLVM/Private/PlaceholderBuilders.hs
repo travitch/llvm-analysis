@@ -147,7 +147,7 @@ mkSelectInst ident selty sel t1 v1 t2 v2 = do
 -- an sret parameter or not.
 mkCallInst :: (Monad m) => Maybe Identifier -> Bool -> CallingConvention ->
               [ParamAttribute] -> Type -> Maybe Type -> PartialConstant ->
-              [(Constant, Bool)] -> [FunctionAttribute] -> m Instruction
+              [(Constant, [ParamAttribute])] -> [FunctionAttribute] -> m Instruction
 mkCallInst mident isTail cc pattrs rtype mftype func params fAttrs =
   return $ maybeNamedInst mident rtype i
   where i = CallInst { callIsTail = isTail
@@ -155,9 +155,9 @@ mkCallInst mident isTail cc pattrs rtype mftype func params fAttrs =
                      , callParamAttrs = pattrs
                      , callRetType = rtype
                      , callFunction = realFunc
-                     , callArguments = map fst params
+                     , callArguments = params
                      , callAttrs = fAttrs
-                     , callHasSRet = any id $ map snd params
+                     , callHasSRet = any (==PASRet) $ concat $ map snd params
                      }
         realFunc = case (func rtype, mftype) of
           (ValueRef _, _) -> func rtype
@@ -165,7 +165,7 @@ mkCallInst mident isTail cc pattrs rtype mftype func params fAttrs =
           _ -> error "Should not have a constant function without full functype"
 
 mkInvokeInst :: (Monad m) => Maybe Identifier -> CallingConvention ->
-                [ParamAttribute] -> Type -> PartialConstant -> [(Constant, Bool)] ->
+                [ParamAttribute] -> Type -> PartialConstant -> [(Constant, [ParamAttribute])] ->
                 [FunctionAttribute] -> Constant -> Constant -> m Instruction
 mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
   return $ maybeNamedInst mident rtype i
@@ -173,11 +173,11 @@ mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
                        , invokeParamAttrs = pattrs
                        , invokeRetType = rtype
                        , invokeFunction = realFunc
-                       , invokeArguments = map fst params
+                       , invokeArguments = params
                        , invokeAttrs = fattrs
                        , invokeNormalLabel = normal
                        , invokeUnwindLabel = unwind
-                       , invokeHasSRet = any id $ map snd params
+                       , invokeHasSRet = any (==PASRet) $ concat $ map snd params
                        }
         realFunc = case func rtype of
           ValueRef _ -> func rtype

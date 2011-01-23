@@ -130,14 +130,14 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
 
         -- Always discard the instruction, but update the metadata map
         -- when possible
-        destructureDebugCall [ (O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _)
-                             , (O.ValueRef i@(MetaIdentifier _)) ] acc@(md, insts) =
+        destructureDebugCall [ ((O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _), [])
+                             , ((O.ValueRef i@(MetaIdentifier _)), []) ] acc@(md, insts) =
           case getMetadata i of
             Nothing -> acc
             Just metadata -> (M.insert varRef metadata md, insts)
-        destructureDebugCall [ (O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _)
+        destructureDebugCall [ ((O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _), [])
                              , _
-                             , (O.ValueRef i@(MetaIdentifier _)) ] acc@(md, insts) =
+                             , ((O.ValueRef i@(MetaIdentifier _)), []) ] acc@(md, insts) =
           case getMetadata i of
             Nothing -> acc
             Just metadata -> (M.insert varRef metadata md, insts)

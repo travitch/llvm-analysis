@@ -7,6 +7,7 @@ translateInstruction :: (O.Type -> Type) -> (O.Constant -> Value) ->
                         O.InstructionT -> ValueT
 translateInstruction typeMapper trConst oldContent = newContent
   where trPair (v, t) = (trConst v, trConst t)
+        trArg (v, atts) = (trConst v, atts)
         newContent = case oldContent of
           O.RetInst mc -> RetInst $ maybe Nothing (Just . trConst) mc
           O.UnconditionalBranchInst target ->
@@ -103,7 +104,7 @@ translateInstruction typeMapper trConst oldContent = newContent
                      , callParamAttrs = paramAttrs
                      , callRetType = typeMapper rtype
                      , callFunction = trConst func
-                     , callArguments = map trConst args
+                     , callArguments = map trArg args
                      , callAttrs = cAttrs
                      , callHasSRet = hasSRet
                      }
@@ -121,7 +122,7 @@ translateInstruction typeMapper trConst oldContent = newContent
                        , invokeParamAttrs = paramAttrs
                        , invokeRetType = typeMapper rtype
                        , invokeFunction = trConst func
-                       , invokeArguments = map trConst args
+                       , invokeArguments = map trArg args
                        , invokeAttrs = funcAttrs
                        , invokeNormalLabel = trConst normLabl
                        , invokeUnwindLabel = trConst unwindLabl

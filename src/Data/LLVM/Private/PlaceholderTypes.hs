@@ -120,7 +120,7 @@ data InstructionT = RetInst (Maybe Constant)
                        , callParamAttrs :: [ParamAttribute]
                        , callRetType :: Type
                        , callFunction :: Constant
-                       , callArguments :: [Constant]
+                       , callArguments :: [(Constant, [ParamAttribute])]
                        , callAttrs :: [FunctionAttribute]
                        , callHasSRet :: Bool
                        }
@@ -128,7 +128,7 @@ data InstructionT = RetInst (Maybe Constant)
                          , invokeParamAttrs :: [ParamAttribute]
                          , invokeRetType :: Type
                          , invokeFunction :: Constant
-                         , invokeArguments :: [Constant]
+                         , invokeArguments :: [(Constant, [ParamAttribute])]
                          , invokeAttrs :: [FunctionAttribute]
                          , invokeNormalLabel :: Constant
                          , invokeUnwindLabel :: Constant

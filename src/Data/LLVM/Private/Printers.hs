@@ -26,7 +26,7 @@ printModule Module { moduleDataLayout = layout
   where layoutS = mconcat [ "target datalayout = \"", show layout, "\"" ]
         tripleS = mconcat [ "target triple = \"", show triple, "\"" ]
         asmS = printAsm asm
-        valS = mconcat $ map printValue vals
+        valS = intercalate "\n" $ map printValue vals
 
 -- Take all of the asm chunks, break their contents into lines,
 -- then wrap each of those lines in the 'module asm' wrapper.
@@ -101,21 +101,24 @@ printValue Value { valueContent =
                                         , globalVariableSection = section
                                         }
                  , valueType = _
-                 , valueName = name
+                 , valueName = Just name
                  , valueMetadata = _
                  } =
-  compose [ show name, addrSpaceS, annotsS, -- Don't show t here since
-                                            -- showing the initializer
-                                            -- will handle it
-            printValue initializer, sectionS, alignS ]
+   -- Don't show t here since showing the initializer will handle it
+  compose [ show name, "=", addrSpaceS, annotsS,
+            printConstOrName initializer, sectionS
+          , printAlignment align
+          ]
   where addrSpaceS = case addrSpace of
           0 -> ""
           _ -> "addrspace(" ++ show addrSpace ++ ")"
         annotsS = intercalate " " $ map show annots
         sectionS = maybe "" ((", section "++) . quote . unpack) section
-        alignS = case align of
-          0 -> ""
-          _ -> ", align " ++ show align
+
+printValue Value { valueContent = GlobalDeclaration {}
+                 , valueName = Nothing
+                 } =
+  error "Global value has no name"
 
 printValue Value { valueContent =
                       GlobalAlias { globalAliasLinkage = linkage
@@ -584,7 +587,7 @@ printValue Value { valueContent =
           , printType rtype
           , printConstOrNameNoType f
           , "("
-          , intercalate ", " $ map printConstOrName args
+          , intercalate ", " $ map printArgument args
           , ")"
           , intercalate " " $ map show cattrs
           ]
@@ -610,7 +613,7 @@ printValue Value { valueContent =
           , intercalate " " $ map show pattrs
           , printConstOrName f
           , "("
-          , intercalate ", " $ map printConstOrName args
+          , intercalate ", " $ map printArgument args
           , ")"
           , intercalate " " $ map show attrs
           , "to"
@@ -662,6 +665,13 @@ printValue Value { valueContent = InlineAsm asm constraints } =
   mconcat [ "asm \"", unpack asm, "\", \"", unpack constraints, "\"" ]
 
 printValue Value { valueContent = MetadataValue _ } = error "Can't print metadata yet"
+
+printArgument :: (Value, [ParamAttribute]) -> String
+printArgument (v, atts) =
+  compose [ printType $ valueType v
+          , intercalate " " $ map show atts
+          , printConstOrNameNoType v
+          ]
 
 printConstExp :: ValueT -> String
 printConstExp valT = case valT of

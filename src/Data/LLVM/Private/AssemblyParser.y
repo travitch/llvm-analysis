@@ -534,7 +534,7 @@ Constant:
   Type PartialConstant { $2 $1 }
 
 CallArgument:
-  Type SRetTag PartialConstant { ($3 $1, $2) }
+  Type list(ParameterAttribute) PartialConstant { ($3 $1, $2) }
 
 SRetTag:
     "sret" { True }

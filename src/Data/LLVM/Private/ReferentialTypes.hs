@@ -252,7 +252,7 @@ data ValueT = Function { functionType :: Type
                        , callParamAttrs :: [ParamAttribute]
                        , callRetType :: Type
                        , callFunction :: Value
-                       , callArguments :: [Value]
+                       , callArguments :: [(Value, [ParamAttribute])]
                        , callAttrs :: [FunctionAttribute]
                        , callHasSRet :: Bool
                        }
@@ -260,7 +260,7 @@ data ValueT = Function { functionType :: Type
                          , invokeParamAttrs :: [ParamAttribute]
                          , invokeRetType :: Type
                          , invokeFunction :: Value
-                         , invokeArguments :: [Value]
+                         , invokeArguments :: [(Value, [ParamAttribute])]
                          , invokeAttrs :: [FunctionAttribute]
                          , invokeNormalLabel :: Value
                          , invokeUnwindLabel :: Value
