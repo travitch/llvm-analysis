@@ -15,9 +15,11 @@ import Data.LLVM.Types
 llvmDebugVersion :: Integer
 llvmDebugVersion = 524288
 
--- Notes on metadata blocks.  An MDNode containing just a reference to
--- other metadata can probably just be collapsed.  An MDNode
--- containing any other single value or reference is an argument to
+-- Notes on metadata blocks.
+--
+-- Metadata nodes containing just other metadata nodes are *lists* of
+-- metadata nodes referenced from other places.  An MDNode containing
+-- any other single value or reference is an argument to
 -- llvm.dbg.value noting the new value of a variable.  Any other piece
 -- of metadata (besides the source locations handled above) should
 -- have an i32 tag as the first argument
@@ -37,8 +39,6 @@ translateMetadata trConst allMetadata md valmd name reflist =
         -- converting a named metadata ref into an actual metadata object
         metaRef (O.ValueRef metaName) = allMetadata ! metaName
         metaRef c = error ("Constant is not a metadata reference: " ++ show c)
-        -- valueRef (O.ValueRef name) = allValues ! name
-        -- valueRef c = error ("Constant is not a value reference: " ++ show c)
 
         allRefsMetadata = all isMetadata reflist
         isMetadata (Just (O.ValueRef (MetaIdentifier _))) = True
@@ -62,10 +62,7 @@ translateMetadata trConst allMetadata md valmd name reflist =
             [] -> error "Empty metadata not allowed"
             [Just elt] -> translateConstant elt
             _ -> mkMetadataOrSrcLoc reflist
-        -- Handle the singleton metadata records
-        -- mkMDAliasOrValue vref@(O.ValueRef name) = metaRef vref
-        -- FIXME: Uncomment after implementing generic value translation
-        -- mkMDAliasOrValue val = MetaNewValue (translate val)
+
         translateConstant :: O.Constant -> (Metadata, Maybe Identifier)
         translateConstant elt = (MetadataValueConstant (trConst elt), Nothing)
 
