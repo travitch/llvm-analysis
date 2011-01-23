@@ -279,4 +279,5 @@ data ValueT = Function { functionType :: Type
             | ConstantVector [Value]
             | ConstantValue ValueT
             | InlineAsm Text Text
+            | MetadataValue Metadata
             deriving (Eq)

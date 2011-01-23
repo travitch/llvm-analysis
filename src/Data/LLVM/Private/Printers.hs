@@ -344,6 +344,242 @@ printValue Value { valueContent =
           , printConstOrName mask
           ]
 
+printValue Value { valueContent =
+                      ExtractValueInst { extractValueAggregate = agg
+                                       , extractValueIndices = indices
+                                       }
+                 , valueType = t
+                 , valueName = name
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , "extractvalue"
+          , printConstOrName agg
+          , intercalate ", " $ map show indices
+          ]
+
+printValue Value { valueContent =
+                      InsertValueInst { insertValueAggregate = agg
+                                      , insertValueValue = val
+                                      , insertValueIndices = indices
+                                      }
+                 , valueType = t
+                 , valueName = name
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , "insertvalue"
+          , printConstOrName agg, ","
+          , printConstOrName val, ","
+          , intercalate ", " $ map show indices
+          ]
+
+printValue Value { valueContent = AllocaInst ty elems align
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , "alloca"
+          , printType ty
+          , count
+          , printAlignment align
+          ]
+  where count = case elems of
+          Value { valueContent = ConstantInt 1 } -> ""
+          _ -> ", " ++ (printConstOrName elems)
+
+printValue Value { valueContent = LoadInst volatile src align
+                 , valueName = name
+                 , valueType = ty
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , printVolatileFlag volatile
+          , "load"
+          , printConstOrName src
+          , printAlignment align
+          ]
+
+printValue Value { valueContent = StoreInst volatile val dest align
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = _
+                 } =
+  compose [ printVolatileFlag volatile
+          , "store"
+          , printConstOrName val, ","
+          , printConstOrName dest
+          , printAlignment align
+          ]
+
+printValue Value { valueContent = TruncInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "trunc" name v ty md
+
+printValue Value { valueContent = ZExtInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "zext" name v ty md
+
+printValue Value { valueContent = SExtInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "sext" name v ty md
+
+printValue Value { valueContent = FPTruncInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "fptrunc" name v ty md
+
+printValue Value { valueContent = FPExtInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "fpext" name v ty md
+
+printValue Value { valueContent = FPToUIInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "fptoui" name v ty md
+
+printValue Value { valueContent = FPToSIInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "fptosi" name v ty md
+
+printValue Value { valueContent = UIToFPInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "uitofp" name v ty md
+
+printValue Value { valueContent = SIToFPInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "sitofp" name v ty md
+
+printValue Value { valueContent = PtrToIntInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "ptrtoint" name v ty md
+
+printValue Value { valueContent = IntToPtrInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "inttoptr" name v ty md
+
+printValue Value { valueContent = BitcastInst v ty
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  printTypecast "bitcast" name v ty md
+
+printValue Value { valueContent = ICmpInst cond v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  compose [ printInstNamePrefix name
+          , "icmp"
+          , show cond
+          , printConstOrName v1, ","
+          , printConstOrNameNoType v2
+          ]
+
+printValue Value { valueContent = FCmpInst cond v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  compose [ printInstNamePrefix name
+          , "fcmp"
+          , show cond
+          , printConstOrName v1, ","
+          , printConstOrNameNoType v2
+          ]
+
+printValue Value { valueContent = PhiNode vals
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , "phi"
+          , printType t
+          , "["
+          , valS
+          ,"]"
+          ]
+  where printPair (v,lab) =
+          mconcat [ "["
+                  , printConstOrNameNoType v
+                  , ", "
+                  , printConstOrNameNoType lab
+                  , "]"
+                  ]
+        valS = intercalate ", " $ map printPair vals
+
+printValue Value { valueContent = SelectInst cond v1 v2
+                 , valueType = t
+                 , valueName = name
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , "select"
+          , printConstOrName cond
+          , ","
+          , printConstOrName v1
+          , ","
+          , printConstOrName v2
+          ]
+
+printValue Value { valueContent =
+                      GetElementPtrInst { getElementPtrInBounds = inBounds
+                                        , getElementPtrValue = v
+                                        , getElementPtrIndices = indices
+                                        }
+                 , valueType = t
+                 , valueName = name
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , "getelementptr"
+          , if inBounds then "inbounds" else ""
+          , printConstOrName v
+          , ","
+          , indicesS
+          ]
+  where indicesS = intercalate ", " $ map printConstOrName indices
+
+
+printVolatileFlag :: Bool -> String
+printVolatileFlag f = if f then "volatile" else ""
+
+printAlignment :: Integer -> String
+printAlignment align = case align of
+  0 -> ""
+  _ -> ", align " ++ show align
+
+printTypecast :: String -> Maybe Identifier -> Value -> Type -> Maybe Metadata -> String
+printTypecast inst name val newType md =
+  compose [ printInstNamePrefix name
+          , inst
+          , printConstOrName val
+          , "to"
+          , printType newType
+          ]
+
 printFlaggedBinaryOp :: String -> Maybe Identifier -> [ArithFlag] ->
                         Type -> Value -> Value -> Maybe Metadata -> String
 printFlaggedBinaryOp inst name flags t v1 v2 _ =
@@ -366,6 +602,11 @@ printBinaryOp inst name t v1 v2 _ =
 printInstNamePrefix :: Maybe Identifier -> String
 printInstNamePrefix Nothing = ""
 printInstNamePrefix (Just n) = mconcat [ show n, " =" ]
+
+printDebugTag :: Maybe Value -> String
+printDebugTag Nothing = ""
+printDebugTag (Just (Value { valueName = Just n })) = ", !dbg " ++ show n
+printDebugTag (Just e) = error $ "Not metadata: " ++ printValue e
 
 printType :: Type -> String
 printType (TypeInteger bits) = "i" ++ show bits

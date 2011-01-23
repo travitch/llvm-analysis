@@ -73,8 +73,8 @@ instance Show LinkageType where
   show LTLinkOnceODR = "link_once_odr"
   show LTWeakODR = "weak_odr"
   show LTExtern = ""
-  show LTDLLImport = "dll_import"
-  show LTDLLExport = "dll_export"
+  show LTDLLImport = "dllimport"
+  show LTDLLExport = "dllexport"
 
 data CallingConvention = CCC
                        | CCFastCC
@@ -216,7 +216,19 @@ data ICmpCondition = ICmpEq
                    | ICmpSge
                    | ICmpSlt
                    | ICmpSle
-                     deriving (Show, Eq)
+                     deriving (Eq)
+
+instance Show ICmpCondition where
+  show ICmpEq = "eq"
+  show ICmpNe = "ne"
+  show ICmpUgt = "ugt"
+  show ICmpUge = "uge"
+  show ICmpUlt = "ult"
+  show ICmpUle = "ule"
+  show ICmpSgt = "sgt"
+  show ICmpSge = "sge"
+  show ICmpSlt = "slt"
+  show ICmpSle = "sle"
 
 data FCmpCondition = FCmpFalse
                    | FCmpOeq
@@ -234,7 +246,25 @@ data FCmpCondition = FCmpFalse
                    | FCmpUne
                    | FCmpUno
                    | FCmpTrue
-                     deriving (Show, Eq)
+                     deriving (Eq)
+
+instance Show FCmpCondition where
+  show FCmpFalse = "false"
+  show FCmpOeq = "oeq"
+  show FCmpOgt = "ogt"
+  show FCmpOge = "oge"
+  show FCmpOlt = "olt"
+  show FCmpOle = "ole"
+  show FCmpOne = "one"
+  show FCmpOrd = "ord"
+  show FCmpUeq = "ueq"
+  show FCmpUgt = "ugt"
+  show FCmpUge = "uge"
+  show FCmpUlt = "ult"
+  show FCmpUle = "ule"
+  show FCmpUne = "une"
+  show FCmpUno = "uno"
+  show FCmpTrue = "true"
 
 data GlobalAnnotation = GAConstant
                       | GAGlobal
