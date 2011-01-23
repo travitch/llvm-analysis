@@ -250,4 +250,8 @@ instance Show GlobalAnnotation where
   show GAPrivate = "private"
   show GAExternal = "external"
 
-data ArithFlag = AFNSW | AFNUW deriving (Show, Eq)
+data ArithFlag = AFNSW | AFNUW deriving (Eq)
+
+instance Show ArithFlag where
+  show AFNSW = "nsw"
+  show AFNUW = "nuw"
