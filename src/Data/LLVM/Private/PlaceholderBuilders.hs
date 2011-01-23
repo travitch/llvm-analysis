@@ -201,9 +201,11 @@ mkGetElementPtrInst ident inBounds ty val indices =
                         , unresInstMetadata = Nothing
                         }
 
-mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) -> [FunctionAttribute] -> GlobalDeclaration
-mkExternalFuncDecl retType ident (argTypes, isVararg) attrs = ExternalDecl t ident
-  where t = TypeFunction retType argTypes isVararg attrs
+mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) ->
+                      [FunctionAttribute] -> GlobalDeclaration
+mkExternalFuncDecl retType ident (argTypes, isVararg) attrs =
+  ExternalFuncDecl t ident attrs
+  where t = TypeFunction retType argTypes isVararg
 
 mkGlobalDecl :: Identifier -> Int -> [GlobalAnnotation] -> Type ->
                 PartialConstant -> Integer -> Maybe Text ->

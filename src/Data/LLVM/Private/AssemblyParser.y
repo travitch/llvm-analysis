@@ -274,7 +274,7 @@ ExternalDecl:
     "declare" list(ParameterAttribute) Type GlobalIdentifier "(" FuncTypeArgList ")" list(FunctionAttribute)
     { mkExternalFuncDecl $3 $4 $6 $8 }
   | "declare" list(ParameterAttribute) Type GlobalIdentifier
-    { ExternalDecl $3 $4 }
+    { ExternalValueDecl $3 $4 }
 
 MetadataConstant:
     Constant { Just $1 }
@@ -392,7 +392,7 @@ Type:
   | "[" intlit "x" Type "]" { TypeArray $2 $4 }
   | "<" intlit "x" Type ">" { TypeVector $2 $4 }
 --Might need to fix this to actually have attributes in the type
-  | Type "(" FuncTypeArgList ")" { TypeFunction $1 (fst $3) (snd $3) [] }
+  | Type "(" FuncTypeArgList ")" { TypeFunction $1 (fst $3) (snd $3) }
   | "{" sep(Type, ",") "}" { TypeStruct $2 }
   | "<" "{" sep(Type, ",") "}" ">" { TypePackedStruct $3 }
   | LocalIdentifier { TypeNamed $1 }

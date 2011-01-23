@@ -5,7 +5,6 @@ import Data.Map (Map, (!))
 import qualified Data.Map as M
 
 import Data.LLVM.Types
-import Data.LLVM.Private.AttributeTypes
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import Data.LLVM.Private.Translators.Instructions
 
@@ -14,12 +13,11 @@ mkFuncType :: (O.Type -> Type) -> O.GlobalDeclaration -> Type
 mkFuncType typeMapper O.FunctionDefinition { O.funcRetType = fret
                                            , O.funcParams = params
                                            , O.funcIsVararg = isVararg
-                                           , O.funcAttrs = attrs
                                            } = llvmType
   where rtype = typeMapper fret
         argTypes = map (typeMapper . xtype) params
         xtype (O.FormalParameter t _ _) = t
-        llvmType = TypeFunction rtype argTypes isVararg attrs
+        llvmType = TypeFunction rtype argTypes isVararg
 mkFuncType _ _ = error "Non-func decl in mkFuncType"
 
 translateFunctionDefinition :: (O.Type -> Type) ->
@@ -46,6 +44,7 @@ translateFunctionDefinition typeMapper pTransValOrConst globalMetadata vals decl
                              , functionAlign = O.funcAlign decl
                              , functionGCName = O.funcGCName decl
                              , functionIsVararg = O.funcIsVararg decl
+                             , functionAttrs = O.funcAttrs decl
                              }
                   }
         transValOrConst = pTransValOrConst localVals

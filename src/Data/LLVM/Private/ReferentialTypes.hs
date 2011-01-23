@@ -3,7 +3,6 @@ module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
                                           , Type(..)
                                           , Value(..)
                                           , ValueT(..)
-                                          , functionAttributes
                                           ) where
 
 import Data.Dwarf
@@ -30,11 +29,12 @@ data Type = TypeInteger Int -- bits
           | TypeMetadata
           | TypeArray Integer Type
           | TypeVector Integer Type
-          | TypeFunction Type [Type] Bool [FunctionAttribute] -- Return type, arg types, vararg
+          | TypeFunction Type [Type] Bool -- Return type, arg types, vararg
           | TypeOpaque
           | TypePointer Type -- (Maybe Int) -- Address Space
           | TypeStruct [Type]
           | TypePackedStruct [Type]
+--          | TypeNamed String Type
           deriving (Eq)
 
 data Metadata =
@@ -147,10 +147,6 @@ data Value = Value { valueType :: Type
                    }
            deriving (Eq)
 
-functionAttributes :: Value -> Maybe [FunctionAttribute]
-functionAttributes Value { valueType = TypeFunction _ _ _ l } = Just l
-functionAttributes _ = Nothing
-
 -- Functions have parameters if they are not external
 data ValueT = Function { functionType :: Type
                        , functionParameters :: [Value] -- A list of arguments
@@ -159,6 +155,7 @@ data ValueT = Function { functionType :: Type
                        , functionVisibility :: VisibilityStyle
                        , functionCC :: CallingConvention
                        , functionRetAttrs :: [ParamAttribute]
+                       , functionAttrs :: [FunctionAttribute]
                        , functionName :: Identifier
                        , functionSection :: Maybe Text
                        , functionAlign :: Integer
@@ -176,6 +173,7 @@ data ValueT = Function { functionType :: Type
                           , globalAliasValue :: Value
                           }
             | ExternalValue
+            | ExternalFunction [FunctionAttribute]
             | BasicBlock [Value]
             | Argument [ParamAttribute]
             | RetInst (Maybe Value)

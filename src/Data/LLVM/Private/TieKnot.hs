@@ -52,8 +52,10 @@ completeGraph typeMapper decls = M.elems globalDecls
             go rest (translateFunctionDefinition typeMapper transValOrConst metadata vals decl)
           O.GlobalAlias name linkage vis ty constant ->
             go rest (transAlias typeMapper (transValOrConst M.empty) getMetadata vals name linkage vis ty constant)
-          O.ExternalDecl ty ident ->
+          O.ExternalValueDecl ty ident ->
             go rest (transExternal typeMapper getMetadata vals ty ident)
+          O.ExternalFuncDecl ty ident attrs ->
+            go rest (transExternalFunc typeMapper getMetadata vals ty ident attrs)
           _ -> go rest vals
 
         -- Return the updated metadata graph - but needs to refer to
@@ -77,6 +79,14 @@ transExternal :: (O.Type -> Type) -> (Identifier -> Maybe Metadata) ->
 transExternal typeMapper getGlobalMD vals ty ident =
   M.insert ident val vals
   where val = mkValue (typeMapper ty) (Just ident) (getGlobalMD ident) ExternalValue
+
+transExternalFunc :: (O.Type -> Type) -> (Identifier -> Maybe Metadata) ->
+                 Map Identifier Value -> O.Type -> Identifier -> [FunctionAttribute] ->
+                 Map Identifier Value
+transExternalFunc typeMapper getGlobalMD vals ty ident attrs =
+  M.insert ident val vals
+  where val = mkValue (typeMapper ty) (Just ident) (getGlobalMD ident) (ExternalFunction attrs)
+
 
 transAlias :: (O.Type -> Type) -> (O.Constant -> Value) ->
               (Identifier -> Maybe Metadata) -> Map Identifier Value ->

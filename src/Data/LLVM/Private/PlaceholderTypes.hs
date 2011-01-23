@@ -145,7 +145,8 @@ data GlobalDeclaration = GlobalDeclaration Identifier Int [GlobalAnnotation] Typ
                        | GlobalAlias Identifier LinkageType VisibilityStyle Type Constant
                        | NamedType Identifier Type
                        | ModuleAssembly Assembly
-                       | ExternalDecl Type Identifier
+                       | ExternalValueDecl Type Identifier
+                       | ExternalFuncDecl Type Identifier [FunctionAttribute]
                        | NamedMetadata Identifier [Constant]
                        | UnnamedMetadata Identifier [Maybe Constant]
                        | FunctionDefinition { funcLinkage :: LinkageType
@@ -199,7 +200,7 @@ data Type = TypeInteger Int -- bits
           | TypeMetadata
           | TypeArray Integer Type
           | TypeVector Integer Type
-          | TypeFunction Type [Type] Bool [FunctionAttribute] -- Return type, arg types, vararg
+          | TypeFunction Type [Type] Bool -- Return type, arg types, vararg
           | TypeOpaque
           | TypePointer Type -- (Maybe Int) -- Address Space
           | TypeStruct [Type]

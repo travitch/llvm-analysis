@@ -79,6 +79,7 @@ printValue Value { valueContent =
                                , functionAlign = align
                                , functionGCName = gcname
                                , functionIsVararg = isVararg
+                               , functionAttrs = fattrs
                                }
                  } =
   compose [ "define", show linkage, show visStyle, show cc,
@@ -91,7 +92,7 @@ printValue Value { valueContent =
         vaTag = if isVararg then ", ..." else ""
         fAttrS = intercalate " " $ map show fattrs
         bodyS = unlines $ map printValue blockList
-        (TypeFunction rtype _ _ fattrs) = t
+        (TypeFunction rtype _ _) = t
 
 printValue Value { valueContent =
                       GlobalDeclaration { globalVariableAddressSpace = addrSpace
@@ -133,15 +134,37 @@ printValue Value { valueContent =
 
 printValue Value { valueContent = ExternalValue
                  , valueType = t
-                 , valueName = name
+                 , valueName = Just name
                  , valueMetadata = _
                  } = case t of
-  TypeFunction rtype argTypes isva attrs ->
+  TypeFunction rtype argTypes isva ->
     compose [ "declare", printType rtype, show name, "(",
               intercalate ", " $ map printType argTypes,
-              if isva then ", ..." else "", ")",
-              intercalate " " $ map show attrs ]
+              if isva then ", ..." else "", ")" ]
+--              intercalate " " $ map show attrs ]
   _ -> compose [ "declare", printType t, show name ]
+
+printValue Value { valueContent = ExternalFunction attrs
+                 , valueType = t
+                 , valueName = Just name
+                 , valueMetadata = _
+                 } = case t of
+  TypeFunction rtype argTypes isva ->
+    compose [ "declare", printType rtype, show name, "("
+            ,  intercalate ", " $ map printType argTypes
+            , if isva then ", ..." else "", ")"
+            , intercalate " " $ map show attrs ]
+  _ -> compose [ "declare", printType t, show name ]
+
+printValue Value { valueContent = ExternalValue
+                 , valueName = Nothing
+                 } =
+  error "External values must have names"
+
+printValue Value { valueContent = ExternalFunction _
+                 , valueName = Nothing
+                 } =
+  error "External functions must have names"
 
 printValue Value { valueContent = BasicBlock instructions
                  , valueName = Just (LocalIdentifier identifier)
@@ -842,8 +865,7 @@ printType TypeLabel = "label"
 printType TypeMetadata = "metadata"
 printType (TypeArray n ty) = mconcat [ "[", show n, " x ", printType ty, "]" ]
 printType (TypeVector n ty) = mconcat [ "<", show n, " x ", printType ty, ">" ]
--- FIXME: Put attrs in here somewhere
-printType (TypeFunction retT argTs isVa _) =
+printType (TypeFunction retT argTs isVa) =
   mconcat [ printType retT, "(", argVals, vaTag, ")" ]
   where argVals :: String
         argVals = intercalate ", " $ map printType argTs
