@@ -5,7 +5,7 @@ module Data.LLVM.Private.Printers ( printMetadata
                                   ) where
 
 import Data.List (intercalate)
-import Data.Maybe (maybe)
+-- import Data.Maybe (maybe)
 import Data.Monoid
 import Data.Text (unpack)
 
@@ -40,19 +40,30 @@ printAsm asm = mconcat asmLines
 
 -- When referencing a non-constant value during printing, just use
 -- this instead of printValue to avoid problems printing cyclic data.
-printName :: Value -> String
-printName Value { valueName = Just ident
-                , valueType = t
-                } =
+-- If the value doesn't have a name, just print it (it should be a
+-- constant).
+printConstOrName :: Value -> String
+printConstOrName Value { valueName = Just ident
+                       , valueType = t
+                       } =
   mconcat [ printType t, " ", show ident ]
-printName other = error $ "Cannot show the name of " ++ printValue other
+printConstOrName v@Value { valueType = t } =
+  mconcat [ printType t, " ", printValue v ]
 
+printConstOrNameNoType :: Value -> String
+printConstOrNameNoType Value { valueName = Just ident } = show ident
+printConsTOrNameNoType v@Value { valueName = Nothing } = printValue v
 
 compose :: [String] -> String
 compose = intercalate " " . filter (not . null)
 
 quote :: String -> String
 quote s = mconcat [ "\"", s, "\"" ]
+
+isInteger :: String -> Bool
+isInteger s = case reads s :: [(Integer, String)] of
+  [(_, "")] -> True
+  _ -> False
 
 printValue :: Value -> String
 printValue Value { valueContent =
@@ -105,6 +116,256 @@ printValue Value { valueContent =
         alignS = case align of
           0 -> ""
           _ -> ", align " ++ show align
+
+printValue Value { valueContent =
+                      GlobalAlias { globalAliasLinkage = linkage
+                                  , globalAliasVisibility = vis
+                                  , globalAliasValue = val
+                                  }
+                 , valueType = t
+                 , valueName = name
+                 , valueMetadata = md
+                 } =
+  compose [ show name, "alias", show linkage, show vis, printConstOrName val ]
+
+printValue Value { valueContent = ExternalValue
+                 , valueType = t
+                 , valueName = name
+                 , valueMetadata = md
+                 } = case t of
+  TypeFunction rtype argTypes isva attrs ->
+    compose [ "declare", printType rtype, show name, "(",
+              intercalate ", " $ map printType argTypes,
+              if isva then ", ..." else "", ")",
+              intercalate " " $ map show attrs ]
+  _ -> compose [ "declare", printType t, show name ]
+
+printValue Value { valueContent = BasicBlock instructions
+                 , valueName = Just (LocalIdentifier identifier)
+                 } = mconcat [ label, "\n", instS ]
+  where instS = unlines $ map (indent . printValue) instructions
+        identS = unpack identifier
+        indent = ("  "++)
+        label = if isInteger identS
+                then "; label:" ++ identS
+                else identS ++ ":"
+
+printValue Value { valueContent = BasicBlock instructions
+                 , valueName = _
+                 } = instS
+  where instS = unlines $ map (indent . printValue) instructions
+        indent = ("  "++)
+
+printValue Value { valueContent = Argument paramAttrs
+                 , valueName = paramName
+                 , valueType = paramType
+                 , valueMetadata = _
+                 } =
+  compose [ printType paramType
+          , intercalate " " $ map show paramAttrs
+          , show paramName
+          ]
+
+printValue Value { valueContent = RetInst val
+                 , valueMetadata = _
+                 } =
+  compose [ "ret", arg ]
+  where arg = case val of
+          Nothing -> "void"
+          Just aVal -> printConstOrName aVal
+
+printValue Value { valueContent = UnconditionalBranchInst dest
+                 , valueMetadata = _
+                 } =
+  compose [ "br", printConstOrName dest ]
+
+printValue Value { valueContent =
+                      BranchInst { branchCondition = cond
+                                 , branchTrueTarget = tTarget
+                                 , branchFalseTarget = fTarget
+                                 }
+                 , valueMetadata = _
+                 } =
+  compose [ "br", printConstOrName cond, ","
+          , printConstOrName tTarget, ","
+          , printConstOrName fTarget
+          ]
+
+printValue Value { valueContent =
+                      SwitchInst { switchValue = val
+                                 , switchDefaultTarget = defTarget
+                                 , switchCases = cases
+                                 }
+                 , valueMetadata = _
+                 } =
+  compose [ "switch", printConstOrName val, ","
+          , printConstOrName defTarget, "["
+          , caseDests, "]" ]
+  where caseDests = intercalate " " $ map printPair cases
+        printPair (caseVal, caseDest) = mconcat [ printConstOrName caseVal
+                                                , ", "
+                                                , printConstOrName caseDest
+                                                ]
+
+printValue Value { valueContent =
+                      IndirectBranchInst { indirectBranchAddress = addr
+                                         , indirectBranchTargets = targets
+                                         }
+                 , valueMetadata = md
+                 } =
+  compose [ "indirectbr", printConstOrName addr
+          , "[", targetS , "]"
+          ]
+  where targetS = intercalate ", " $ map printConstOrName targets
+
+printValue Value { valueContent = UnwindInst } = "unwind"
+printValue Value { valueContent = UnreachableInst } = "unreachable"
+
+printValue Value { valueContent = AddInst flags v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printFlaggedBinaryOp "add" name flags t v1 v2 md
+
+printValue Value { valueContent = SubInst flags v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printFlaggedBinaryOp "sub" name flags t v1 v2 md
+
+printValue Value { valueContent = MulInst flags v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printFlaggedBinaryOp "mul" name flags t v1 v2 md
+
+printValue Value { valueContent = DivInst v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printBinaryOp "div" name t v1 v2 md
+
+printValue Value { valueContent = RemInst v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printBinaryOp "rem" name t v1 v2 md
+
+printValue Value { valueContent = ShlInst v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printBinaryOp "shl" name t v1 v2 md
+
+printValue Value { valueContent = LshrInst v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printBinaryOp "lshr" name t v1 v2 md
+
+printValue Value { valueContent = AshrInst v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printBinaryOp "ashr" name t v1 v2 md
+
+printValue Value { valueContent = AndInst v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printBinaryOp "and" name t v1 v2 md
+
+printValue Value { valueContent = OrInst v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printBinaryOp "or" name t v1 v2 md
+
+printValue Value { valueContent = XorInst v1 v2
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = md
+                 } =
+  printBinaryOp "xor" name t v1 v2 md
+
+printValue Value { valueContent =
+                      ExtractElementInst { extractElementVector = vec
+                                         , extractElementIndex = idx
+                                         }
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , "extractelement"
+          , printConstOrName vec, ","
+          , printConstOrName idx
+          ]
+
+printValue Value { valueContent =
+                      InsertElementInst { insertElementVector = vec
+                                        , insertElementValue = val
+                                        , insertElementIndex = idx
+                                        }
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , "insertelement"
+          , printConstOrName vec, ","
+          , printConstOrName val, ","
+          , printConstOrName idx
+          ]
+
+printValue Value { valueContent =
+                      ShuffleVectorInst { shuffleVectorV1 = v1
+                                        , shuffleVectorV2 = v2
+                                        , shuffleVectorMask = mask
+                                        }
+                 , valueName = name
+                 , valueType = t
+                 , valueMetadata = _
+                 } =
+  compose [ printInstNamePrefix name
+          , "shufflevector"
+          , printConstOrName v1, ","
+          , printConstOrName v2, ","
+          , printConstOrName mask
+          ]
+
+printFlaggedBinaryOp :: String -> Maybe Identifier -> [ArithFlag] ->
+                        Type -> Value -> Value -> Maybe Metadata -> String
+printFlaggedBinaryOp inst name flags t v1 v2 _ =
+  compose [ printInstNamePrefix name, inst
+          , intercalate " " $ map show flags
+          , printType t
+          , printConstOrNameNoType v1, ","
+          , printConstOrNameNoType v2
+          ]
+
+printBinaryOp :: String -> Maybe Identifier -> Type ->
+                 Value -> Value -> Maybe Metadata -> String
+printBinaryOp inst name t v1 v2 _ =
+  compose [ printInstNamePrefix name, inst
+          , printType t
+          , printConstOrNameNoType v1, ","
+          , printConstOrNameNoType v2
+          ]
+
+printInstNamePrefix :: Maybe Identifier -> String
+printInstNamePrefix Nothing = ""
+printInstNamePrefix (Just n) = mconcat [ show n, " =" ]
 
 printType :: Type -> String
 printType (TypeInteger bits) = "i" ++ show bits
