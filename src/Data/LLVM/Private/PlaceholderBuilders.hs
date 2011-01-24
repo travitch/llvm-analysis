@@ -201,11 +201,16 @@ mkGetElementPtrInst ident inBounds ty val indices =
                         , unresInstMetadata = Nothing
                         }
 
+-- External function decls are weird - the full type is only required
+-- if the function is vararg or returns a function pointer.
+-- Otherwise, only the return type is explicit in the first argument.
 mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) ->
                       [FunctionAttribute] -> GlobalDeclaration
 mkExternalFuncDecl retType ident (argTypes, isVararg) attrs =
   ExternalFuncDecl t ident attrs
-  where t = TypeFunction retType argTypes isVararg
+  where t = case retType of
+          TypeFunction _ _ _ -> retType
+          _ -> TypeFunction retType argTypes isVararg
 
 mkGlobalDecl :: Identifier -> Int -> [GlobalAnnotation] -> Type ->
                 PartialConstant -> Integer -> Maybe Text ->
