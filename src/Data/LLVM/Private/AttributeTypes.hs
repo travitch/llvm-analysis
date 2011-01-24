@@ -84,7 +84,7 @@ data CallingConvention = CCC
                        deriving (Eq)
 
 instance Show CallingConvention where
-  show CCC = "ccc"
+  show CCC = ""
   show CCFastCC = "fastcc"
   show CCColdCC = "coldcc"
   show CCGHC = "cc 10"

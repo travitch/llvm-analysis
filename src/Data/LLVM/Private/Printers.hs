@@ -85,7 +85,7 @@ printValue Value { valueContent =
   compose [ "define", show linkage, show visStyle, show cc,
             retAttrS, printType rtype, show name, "(",
             argS, vaTag, ")", fAttrS, maybe "" unpack section,
-            "align", show align, maybe "" show gcname, "{\n",
+            printAlignment align, maybe "" show gcname, "{\n",
             bodyS, "}" ]
   where retAttrS = intercalate " " $ map show retAttrs
         argS = intercalate ", " $ map printValue args
@@ -183,7 +183,7 @@ printValue Value { valueContent = BasicBlock instructions
         indent = ("  "++)
 
 printValue Value { valueContent = Argument paramAttrs
-                 , valueName = paramName
+                 , valueName = Just paramName
                  , valueType = paramType
                  , valueMetadata = _
                  } =
@@ -191,6 +191,11 @@ printValue Value { valueContent = Argument paramAttrs
           , intercalate " " $ map show paramAttrs
           , show paramName
           ]
+
+printValue Value { valueContent = Argument _
+                 , valueName = Nothing
+                 } =
+  error "Arguments must have names"
 
 printValue Value { valueContent = RetInst val
                  , valueMetadata = _
@@ -877,4 +882,4 @@ printType (TypeStruct ts) = mconcat [ "{", fieldVals, "}" ]
   where fieldVals = intercalate ", " $ map printType ts
 printType (TypePackedStruct ts) = mconcat [ "{", fieldVals, "}" ]
   where fieldVals = intercalate ", " $ map printType ts
-printType (TypeNamed name t) = name
+printType (TypeNamed name _) = name
