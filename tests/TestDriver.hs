@@ -5,6 +5,7 @@ import Data.LLVM
 
 main = do
   [ fname ] <- getArgs
-  content <- T.readFile fname
-  let llvmModule = parseLLVMAsm content
+  llvmModule <- parseLLVMBitcode fname
+  -- content <- T.readFile fname
+  -- let llvmModule = parseLLVMAsm content
   putStrLn $ show llvmModule
