@@ -5,12 +5,19 @@ module Data.LLVM.Private.Printers ( printMetadata
                                   ) where
 
 import Data.List (intercalate)
--- import Data.Maybe (maybe)
 import Data.Monoid
 import Data.Text (unpack)
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.ReferentialTypes
+
+-- TODO List
+--
+-- * Pretty up the DataLayout
+-- * Print out named type definitions
+-- * Print metadata
+-- * Make the function type printing as flexible as the official
+--   version
 
 -- FIXME: implement this large thing
 printMetadata :: Metadata -> String
@@ -141,7 +148,6 @@ printValue Value { valueContent = ExternalValue
     compose [ "declare", printType rtype, show name, "(",
               intercalate ", " $ map printType argTypes,
               if isva then ", ..." else "", ")" ]
---              intercalate " " $ map show attrs ]
   _ -> compose [ "declare", printType t, show name ]
 
 printValue Value { valueContent = ExternalFunction attrs
