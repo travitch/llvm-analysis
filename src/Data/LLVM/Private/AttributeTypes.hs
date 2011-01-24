@@ -25,7 +25,7 @@ import Data.Set (Set)
 import Data.Text (Text, unpack)
 
 data Assembly = Assembly Text
-                deriving (Eq)
+                deriving (Eq, Ord)
 
 instance Show Assembly where
   show (Assembly txt) = unpack txt
@@ -56,7 +56,7 @@ data LinkageType = LTPrivate
                  | LTExtern -- Default
                  | LTDLLImport
                  | LTDLLExport
-                   deriving (Eq)
+                   deriving (Eq, Ord)
 
 instance Show LinkageType where
   show LTPrivate = "private"
@@ -81,7 +81,7 @@ data CallingConvention = CCC
                        | CCColdCC
                        | CCGHC
                        | CCN Int
-                       deriving (Eq)
+                       deriving (Eq, Ord)
 
 instance Show CallingConvention where
   show CCC = ""
@@ -93,7 +93,7 @@ instance Show CallingConvention where
 data VisibilityStyle = VisibilityDefault
                      | VisibilityHidden
                      | VisibilityProtected
-                       deriving (Eq)
+                       deriving (Eq, Ord)
 
 instance Show VisibilityStyle where
   show VisibilityDefault = ""
@@ -108,7 +108,7 @@ data ParamAttribute = PAZeroExt
                     | PANoAlias
                     | PANoCapture
                     | PANest
-                    deriving (Eq)
+                    deriving (Eq, Ord)
 
 instance Show ParamAttribute where
   show PAZeroExt = "zeroext"
@@ -135,7 +135,7 @@ data FunctionAttribute = FAAlignStack Int
                        | FAReadOnly
                        | FASSP
                        | FASSPReq
-                       deriving (Eq)
+                       deriving (Eq, Ord)
 
 instance Show FunctionAttribute where
   show (FAAlignStack n) = "alignstack(" ++ show n ++ ")"
@@ -156,11 +156,15 @@ instance Show FunctionAttribute where
 
 data Endian = EBig
             | ELittle
-              deriving (Show, Eq)
+              deriving (Eq, Ord)
+
+instance Show Endian where
+  show EBig = "E"
+  show ELittle = "e"
 
 -- Track the ABI alignment and preferred alignment
 data AlignSpec = AlignSpec Int Int
-                 deriving (Show, Eq)
+                 deriving (Show, Eq, Ord)
 
 data TargetTriple = TargetTriple Text
                     deriving (Eq)
@@ -201,7 +205,7 @@ defaultDataLayout = DataLayout { endianness = EBig
                                , nativeWidths = Set.empty
                                }
 
-data GCName = GCName Text deriving (Eq)
+data GCName = GCName Text deriving (Eq, Ord)
 
 instance Show GCName where
   show (GCName t) = "gc \"" ++ (unpack t) ++ "\""
@@ -216,7 +220,7 @@ data ICmpCondition = ICmpEq
                    | ICmpSge
                    | ICmpSlt
                    | ICmpSle
-                     deriving (Eq)
+                     deriving (Eq, Ord)
 
 instance Show ICmpCondition where
   show ICmpEq = "eq"
@@ -246,7 +250,7 @@ data FCmpCondition = FCmpFalse
                    | FCmpUne
                    | FCmpUno
                    | FCmpTrue
-                     deriving (Eq)
+                     deriving (Eq, Ord)
 
 instance Show FCmpCondition where
   show FCmpFalse = "false"
@@ -271,7 +275,7 @@ data GlobalAnnotation = GAConstant
                       | GACommon
                       | GAPrivate
                       | GAExternal
-                        deriving (Eq)
+                        deriving (Eq, Ord)
 
 instance Show GlobalAnnotation where
   show GAConstant = "constant"
@@ -280,7 +284,8 @@ instance Show GlobalAnnotation where
   show GAPrivate = "private"
   show GAExternal = "external"
 
-data ArithFlag = AFNSW | AFNUW deriving (Eq)
+data ArithFlag = AFNSW | AFNUW
+               deriving (Eq, Ord)
 
 instance Show ArithFlag where
   show AFNSW = "nsw"

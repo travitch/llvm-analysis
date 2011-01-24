@@ -1,3 +1,4 @@
+{-# LANGUAGE StandaloneDeriving #-}
 module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
                                           , Module(..)
                                           , Type(..)
@@ -10,6 +11,12 @@ import Data.Text (Text)
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.DwarfHelpers
+
+deriving instance Ord DW_LANG
+deriving instance Ord DW_VIRTUALITY
+deriving instance Ord DW_ATE
+deriving instance Ord DW_TAG
+deriving instance Ord DW_VAR_TAG
 
 data Module = Module { moduleDataLayout :: DataLayout
                      , moduleTarget :: TargetTriple
@@ -35,7 +42,7 @@ data Type = TypeInteger Int -- bits
           | TypeStruct [Type]
           | TypePackedStruct [Type]
           | TypeNamed String Type
-          deriving (Eq)
+          deriving (Ord, Eq)
 
 data Metadata =
   MetaSourceLocation { metaSourceRow :: Integer
@@ -135,7 +142,7 @@ data Metadata =
                 }
   | MetadataList [Metadata]
   | MetadataValueConstant Value
-  deriving (Eq)
+  deriving (Ord, Eq)
 
 -- valueName is mostly informational at this point.  All references
 -- will be resolved as part of the graph, but the name will be useful
@@ -145,7 +152,7 @@ data Value = Value { valueType :: Type
                    , valueMetadata :: Maybe Metadata
                    , valueContent :: ValueT
                    }
-           deriving (Eq)
+           deriving (Ord, Eq)
 
 -- Functions have parameters if they are not external
 data ValueT = Function { functionType :: Type
@@ -278,4 +285,4 @@ data ValueT = Function { functionType :: Type
             | ConstantValue ValueT
             | InlineAsm Text Text
             | MetadataValue Metadata
-            deriving (Eq)
+            deriving (Ord, Eq)
