@@ -29,9 +29,9 @@ data EdgeCondition = UnconditionalEdge
 instance Show EdgeCondition where
   show UnconditionalEdge = ""
   show DefaultEdge = "<default>"
-  show (TrueEdge v) = show v ++ " is true"
-  show (FalseEdge v) = show v ++ " is false"
-  show (EqualityEdge v1 v2) = concat [ show v1, " is ", show v2 ]
+  show (TrueEdge v) = {- show v ++ -}" is true"
+  show (FalseEdge v) = {- show v ++ -} " is false"
+  show (EqualityEdge v1 v2) = "is" -- concat [ show v1, " is ", show v2 ]
   show (IndirectEdge v) = show v ++ " (indirect)"
 
 -- | Each instruction in the function body is a node in the graph.
@@ -42,9 +42,9 @@ instance Show EdgeCondition where
 -- The other function, makeCompactCFG, has a basic-block-granularity
 -- CFG that can be easier to visualize.
 makeCFG :: Value -> CFG
-makeCFG func = mkGraph cfgNodes $ concat cfgEdges `debug` (show cfgEdges)
+makeCFG func = mkGraph (cfgNodes `debug` ("nnodes = " ++ show cfgNodes)) $ concat (cfgEdges `debug` ("nedges: " ++ show (take 5 cfgEdges)))
   where body = functionBody $ valueContent func
-        (cfgNodes, cfgEdges, nodeIDs) = foldr buildGraphBlock ([], [], M.empty) (body `debug` ("Blocks: " ++ show (length body)))
+        (cfgNodes, cfgEdges, nodeIDs) = foldl buildGraphBlock ([], [], M.empty) (body `debug` ("Blocks: " ++ show (length body)))
         instIdent :: Value -> Int
         instIdent v = nodeIDs ! v
         jumpTargetId :: Value -> Int
@@ -54,14 +54,14 @@ makeCFG func = mkGraph cfgNodes $ concat cfgEdges `debug` (show cfgEdges)
           (thisNodeId, jumpTargetId dest, EqualityEdge cond val)
         indirectEdge thisNodeId addr target =
           (thisNodeId, jumpTargetId target, IndirectEdge addr)
-        buildGraphBlock Value { valueContent = BasicBlock allInsts@(_:insts) } acc =
-          foldl' buildGraphInst acc instsAndSuccs `debug` ("Insts and succs: " ++ show instsAndSuccs)
+        buildGraphBlock acc Value { valueContent = BasicBlock allInsts@(_:insts) } =
+          (foldl buildGraphInst acc instsAndSuccs) `debug` ("Insts and succs: " ++ show instsAndSuccs)
           where instsAndSuccs = if null insts
                                 then terminator
                                 else offsetPairs ++ terminator
                 offsetPairs = zip allInsts $ map Just insts
                 terminator = [(last allInsts, Nothing)]
-        buildGraphBlock v _ = error $ "Not a BasicBlock: " ++ show v
+        buildGraphBlock _ v = error $ "Not a BasicBlock: " ++ show v
         buildGraphInst acc (v@Value { valueContent = c }, Nothing) =
           (nodeAcc', edgeAcc', nodeMap') `debug` ("Built edges for terminator " ++ show v)
           where (nodeAcc, edgeAcc, nodeMap) = acc
@@ -86,8 +86,8 @@ makeCFG func = mkGraph cfgNodes $ concat cfgEdges `debug` (show cfgEdges)
                              , branchTrueTarget = tTarget
                              , branchFalseTarget = fTarget
                              } ->
-                    [ (thisNodeId, jumpTargetId tTarget, TrueEdge cond)
-                    , (thisNodeId, jumpTargetId fTarget, FalseEdge cond)
+                    [ (thisNodeId, jumpTargetId tTarget, UnconditionalEdge) -- TrueEdge cond)
+                    , (thisNodeId, jumpTargetId fTarget, UnconditionalEdge) -- FalseEdge cond)
                     ]
                   SwitchInst { switchValue = cond
                              , switchDefaultTarget = defTarget

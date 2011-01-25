@@ -20,5 +20,9 @@ dumpModule m = do
   putStrLn $ show m
   let cfgs = M.elems $ moduleCFGs m
   putStrLn $ "CFGs: " ++ (show $ length cfgs)
-  viewCFG $ cfgs !! 1
-  viewCFG $ cfgs !! 0
+  let g1 = cfgs !! 1
+      g0 = cfgs !! 0
+  print g1
+  viewCFG g1
+  print g0
+  viewCFG g0
