@@ -10,6 +10,8 @@ import Data.LLVM.Private.Translators.Functions
 import Data.LLVM.Private.Translators.Metadata
 import Data.LLVM.Private.Translators.Types
 import qualified Data.LLVM.Private.PlaceholderTypes as O
+
+import Data.LLVM.CFG
 import Data.LLVM.Types
 
 -- Idea:
@@ -21,14 +23,17 @@ import Data.LLVM.Types
 tieKnot :: O.Module -> Module
 tieKnot (O.Module layout triple decls) =
   Module { moduleDataLayout = layout
-           , moduleTarget = triple
-           , moduleAssembly = moduleAsm
-           , moduleGlobals = globalValues
-           }
+         , moduleTarget = triple
+         , moduleAssembly = moduleAsm
+         , moduleGlobals = globalValues
+         , moduleCFGs = M.fromList $ zip funcs $ map makeCFG funcs
+         }
   where typeMapper = translateType decls
         moduleAsm = extractModuleAssembly decls
         globalValues :: [Value]
         globalValues = completeGraph typeMapper decls
+        funcs = filter valueIsFunction globalValues
+
 
 -- FIXME: Could do something with the named metadata.  There seem to
 -- be two entries that don't really give much information: the lists

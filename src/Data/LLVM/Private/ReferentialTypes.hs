@@ -1,9 +1,9 @@
 {-# LANGUAGE StandaloneDeriving #-}
 module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
-                                          , Module(..)
                                           , Type(..)
                                           , Value(..)
                                           , ValueT(..)
+                                          , valueIsFunction
                                           ) where
 
 import Data.Dwarf
@@ -17,12 +17,6 @@ deriving instance Ord DW_VIRTUALITY
 deriving instance Ord DW_ATE
 deriving instance Ord DW_TAG
 deriving instance Ord DW_VAR_TAG
-
-data Module = Module { moduleDataLayout :: DataLayout
-                     , moduleTarget :: TargetTriple
-                     , moduleAssembly :: [Assembly]
-                     , moduleGlobals :: [Value]
-                     }
 
 data Type = TypeInteger Int -- bits
           | TypeFloat
@@ -286,3 +280,8 @@ data ValueT = Function { functionType :: Type
             | InlineAsm Text Text
             | MetadataValue Metadata
             deriving (Ord, Eq)
+
+valueIsFunction :: Value -> Bool
+valueIsFunction Value { valueContent = Function {} } = True
+valueIsFunction _ = False
+

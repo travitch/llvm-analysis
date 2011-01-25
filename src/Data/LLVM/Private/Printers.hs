@@ -1,5 +1,5 @@
 module Data.LLVM.Private.Printers ( printMetadata
-                                  , printModule
+                                  , printAsm
                                   , printType
                                   , printValue
                                   ) where
@@ -22,18 +22,6 @@ import Data.LLVM.Private.ReferentialTypes
 -- FIXME: implement this large thing
 printMetadata :: Metadata -> String
 printMetadata _ = "metadata"
-
-printModule :: Module -> String
-printModule Module { moduleDataLayout = layout
-                   , moduleTarget = triple
-                   , moduleAssembly = asm
-                   , moduleGlobals = vals
-                   } =
-  mconcat [ layoutS, "\n", tripleS, "\n", asmS, "\n", valS, "\n" ]
-  where layoutS = mconcat [ "target datalayout = \"", show layout, "\"" ]
-        tripleS = mconcat [ "target triple = \"", show triple, "\"" ]
-        asmS = printAsm asm
-        valS = intercalate "\n" $ map printValue vals
 
 -- Take all of the asm chunks, break their contents into lines,
 -- then wrap each of those lines in the 'module asm' wrapper.
@@ -179,7 +167,7 @@ printValue Value { valueContent = BasicBlock instructions
         identS = unpack identifier
         indent = ("  "++)
         label = if isInteger identS
-                then "; label:" ++ identS
+                then "; <label>:" ++ identS
                 else identS ++ ":"
 
 printValue Value { valueContent = BasicBlock instructions
@@ -886,6 +874,15 @@ printType TypeOpaque = "opaque"
 printType (TypePointer ty) = mconcat [ printType ty, "*" ]
 printType (TypeStruct ts) = mconcat [ "{", fieldVals, "}" ]
   where fieldVals = intercalate ", " $ map printType ts
-printType (TypePackedStruct ts) = mconcat [ "{", fieldVals, "}" ]
+printType (TypePackedStruct ts) = mconcat [ "<{", fieldVals, "}>" ]
   where fieldVals = intercalate ", " $ map printType ts
 printType (TypeNamed name _) = name
+
+instance Show Metadata where
+  show = printMetadata
+
+instance Show Type where
+  show = printType
+
+instance Show Value where
+  show = printValue

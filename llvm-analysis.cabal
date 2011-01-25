@@ -55,7 +55,9 @@ library
 
   -- Modules not exported by this package.
   exposed-modules: Data.LLVM,
+                   Data.LLVM.CFG,
                    Data.LLVM.Types,
+                   Data.LLVM.Visualization,
                    Data.LLVM.Private.AssemblyParser,
                    Data.LLVM.Private.AttributeTypes,
                    Data.LLVM.Private.DwarfHelpers,
@@ -90,7 +92,7 @@ executable parser-tests
 
 executable parser-driver
   if flag(buildTests)
-    build-depends: llvm-analysis, haskell98, text, base > 3 && < 5
+    build-depends: llvm-analysis, haskell98, text, base > 3 && < 5, containers
   else
     buildable: False
 
