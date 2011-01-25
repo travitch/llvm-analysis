@@ -3,6 +3,7 @@ module Data.LLVM.CFG ( CFG
                      , makeCFG
                      ) where
 
+import Data.List (foldl')
 import Data.Graph.Inductive
 import Data.GraphViz
 import Data.Map ((!))
@@ -54,14 +55,14 @@ makeCFG func = mkGraph cfgNodes $ concat cfgEdges `debug` (show cfgEdges)
         indirectEdge thisNodeId addr target =
           (thisNodeId, jumpTargetId target, IndirectEdge addr)
         buildGraphBlock Value { valueContent = BasicBlock allInsts@(_:insts) } acc =
-          foldr buildGraphInst acc instsAndSuccs `debug` ("Insts and succs: " ++ show instsAndSuccs)
+          foldl' buildGraphInst acc instsAndSuccs `debug` ("Insts and succs: " ++ show instsAndSuccs)
           where instsAndSuccs = if null insts
                                 then terminator
                                 else offsetPairs ++ terminator
                 offsetPairs = zip allInsts $ map Just insts
                 terminator = [(last allInsts, Nothing)]
         buildGraphBlock v _ = error $ "Not a BasicBlock: " ++ show v
-        buildGraphInst (v@Value { valueContent = c }, Nothing) acc =
+        buildGraphInst acc (v@Value { valueContent = c }, Nothing) =
           (nodeAcc', edgeAcc', nodeMap') `debug` ("Built edges for terminator " ++ show v)
           where (nodeAcc, edgeAcc, nodeMap) = acc
                 nodeAcc' = thisNode : nodeAcc
@@ -100,7 +101,7 @@ makeCFG func = mkGraph cfgNodes $ concat cfgEdges `debug` (show cfgEdges)
                                      } ->
                     map (indirectEdge thisNodeId addr) targets
                   _ -> error ("Last instruction in a block should be a jump: " ++ show v)
-        buildGraphInst (v@Value { valueContent = c }, Just successor) acc =
+        buildGraphInst acc (v@Value { valueContent = c }, Just successor) =
           (nodeAcc', edgeAcc', nodeMap') `debug` ("Built edges for " ++ show v)
           -- buildGraphInst (nodeAcc', edgeAcc', nodeMap') rest
           where (nodeAcc, edgeAcc, nodeMap) = acc
