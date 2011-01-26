@@ -42,42 +42,42 @@ instance Show EdgeCondition where
 -- The other function, makeCompactCFG, has a basic-block-granularity
 -- CFG that can be easier to visualize.
 makeCFG :: Value -> CFG
-makeCFG func = mkGraph (cfgNodes `debug` ("nnodes = " ++ show cfgNodes)) $ concat (cfgEdges `debug` ("nedges: " ++ show (take 4 cfgEdges)))
+makeCFG func = mkGraph (concat cfgNodes) (concat $ concat $ cfgEdges)
   where body = functionBody $ valueContent func
         allInstructions = concatMap (\(Value { valueContent = BasicBlock is }) -> is) body
         (nodeCount, nodeIDs) = foldl' labelInstruction (0, M.empty) allInstructions
         labelInstruction (idx, m) val = (idx+1, M.insert val idx m)
-        (cfgNodes, cfgEdges) = foldl' buildGraphBlock ([], []) (body `debug` ("Blocks: " ++ show (length body)))
 
         instIdent :: Value -> Int
-        instIdent v = nodeIDs ! v
+        instIdent = (nodeIDs !)
         jumpTargetId :: Value -> Int
-        jumpTargetId Value { valueContent = BasicBlock (t:_) } = instIdent (t `debug` ("Target for jump: " ++ show (instIdent t)))
+        jumpTargetId Value { valueContent = BasicBlock (t:_) } = instIdent t
         jumpTargetId v = error $ "Value is not a basic block: " ++ show v
 
         caseEdge thisNodeId cond (val, dest) =
           (thisNodeId, jumpTargetId dest, EqualityEdge cond val)
         indirectEdge thisNodeId addr target =
           (thisNodeId, jumpTargetId target, IndirectEdge addr)
-        buildGraphBlock acc Value { valueContent = BasicBlock allInsts@(_:insts) } =
-          (foldl' buildGraphInst acc instsAndSuccs) `debug` ("Insts and succs: " ++ show instsAndSuccs)
-          where instsAndSuccs = if null insts
-                                then terminator
-                                else offsetPairs ++ terminator
-                offsetPairs = zip allInsts $ map Just insts
-                terminator = [(last allInsts, Nothing)]
-        buildGraphBlock _ v = error $ "Not a BasicBlock: " ++ show v
-        buildGraphInst acc (v@Value { valueContent = c }, Nothing) =
-          (nodeAcc', edgeAcc') `debug` ("Built edges for terminator (" ++ show theseEdges ++ ")")
-          where (nodeAcc, edgeAcc) = acc
-                nodeAcc' = thisNode : nodeAcc
-                edgeAcc' = theseEdges : edgeAcc
-                thisNodeId = instIdent v
-                thisNode = (thisNodeId, v) `debug` ("Trying to build terminator inst edges: " ++ show v)
+
+        (cfgNodes, cfgEdges) = unzip $ map buildBlockGraph body
+
+        buildBlockGraph Value { valueContent = BasicBlock blockInsts@(_:successors) } =
+          foldl' buildGraphInst ([], []) instsAndSuccessors
+          where instsAndSuccessors = if null successors
+                                     then terminator
+                                     else offsetPairs ++ terminator
+                offsetPairs = zip blockInsts $ map Just successors
+                terminator = [(last blockInsts, Nothing)]
+        buildBlockGraph v = error $ "Not a BasicBlock: " ++ show v
+
+        buildGraphInst (nodeAcc, edgeAcc) (v@Value { valueContent = c }, Nothing) =
+          (thisNode : nodeAcc, theseEdges : edgeAcc)
+          where thisNodeId = instIdent v
+                thisNode = (thisNodeId, v)
                 -- Note: branch targets are all basic blocks.  The
                 -- lookup function handles grabbing the first real
                 -- instruction from the basic block.
-                theseEdges = case c `debug` ("Switching on " ++ show v) of
+                theseEdges = case c of
                   -- Returns have no intraprocedural edges
                   RetInst _ -> []
                   -- Unwinds also have no intraprocedural edges
@@ -90,8 +90,8 @@ makeCFG func = mkGraph (cfgNodes `debug` ("nnodes = " ++ show cfgNodes)) $ conca
                              , branchTrueTarget = tTarget
                              , branchFalseTarget = fTarget
                              } ->
-                    [ (thisNodeId, jumpTargetId tTarget `debug` ("true edge "), UnconditionalEdge) -- TrueEdge cond)
-                    , (thisNodeId, jumpTargetId fTarget `debug` "false edge", UnconditionalEdge) -- FalseEdge cond)
+                    [ (thisNodeId, jumpTargetId tTarget, TrueEdge cond)
+                    , (thisNodeId, jumpTargetId fTarget, FalseEdge cond)
                     ]
                   SwitchInst { switchValue = cond
                              , switchDefaultTarget = defTarget
@@ -105,13 +105,10 @@ makeCFG func = mkGraph (cfgNodes `debug` ("nnodes = " ++ show cfgNodes)) $ conca
                                      } ->
                     map (indirectEdge thisNodeId addr) targets
                   _ -> error ("Last instruction in a block should be a jump: " ++ show v)
-        buildGraphInst acc (v@Value { valueContent = c }, Just successor) =
-          (nodeAcc', edgeAcc') `debug` ("Built edges for " ++ show v)
-          where (nodeAcc, edgeAcc) = acc
-                nodeAcc' = thisNode : nodeAcc
-                edgeAcc' = theseEdges : edgeAcc
-                thisNodeId = instIdent v
-                thisNode = (thisNodeId, v) `debug` ("A node: " ++ show v)
+        buildGraphInst (nodeAcc, edgeAcc) (v@Value { valueContent = c }, Just successor) =
+          (thisNode : nodeAcc, theseEdges : edgeAcc)
+          where thisNodeId = instIdent v
+                thisNode = (thisNodeId, v)
                 theseEdges = case c of
                   Function {} -> error "Functions should not be in the CFG"
                   GlobalDeclaration {} -> error "Globals should not be in the CFG"
