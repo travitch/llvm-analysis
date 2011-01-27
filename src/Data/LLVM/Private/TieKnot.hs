@@ -4,7 +4,7 @@ import qualified Data.Map as M
 import Data.Map (Map)
 import Data.Text (Text)
 
-import Data.LLVM.Private.AttributeTypes
+import Data.LLVM.Private.KnotHelpers
 import Data.LLVM.Private.Translators.Constants
 import Data.LLVM.Private.Translators.Functions
 import Data.LLVM.Private.Translators.Metadata
@@ -13,6 +13,9 @@ import qualified Data.LLVM.Private.PlaceholderTypes as O
 
 import Data.LLVM.CFG
 import Data.LLVM.Types
+
+import Debug.Trace
+debug = flip trace
 
 -- Idea:
 -- 1) Extract module assembly since it stands alone.
@@ -41,8 +44,8 @@ tieKnot (O.Module layout triple decls) =
 completeGraph :: (O.Type -> Type) ->
                  [O.GlobalDeclaration] ->
                  [Value]
-completeGraph typeMapper decls = M.elems globalDecls
-  where globalDecls = go decls M.empty
+completeGraph typeMapper decls = M.elems $ getGlobals identDict
+  where identDict = go decls emptyDict
         (boundMD, mdForGlobals) = mdGo decls (M.empty, M.empty)
         metadata = M.union boundMD mdForGlobals
         mdGo [] (md, mv) = (md, mv)
@@ -52,11 +55,12 @@ completeGraph typeMapper decls = M.elems globalDecls
         go [] vals = vals
         go (decl:rest) vals = case decl of
           O.GlobalDeclaration name addrspace annots ty initializer align section ->
-            go rest (transGlobalVar typeMapper (transValOrConst M.empty) getMetadata vals name addrspace annots ty initializer align section)
-          O.FunctionDefinition {} ->
-            go rest (translateFunctionDefinition typeMapper transValOrConst metadata vals decl)
+            go rest (transGlobalVar typeMapper (trConst M.empty) getMetadata vals name addrspace annots ty initializer align section)
+          O.FunctionDefinition { O.funcName = fname } ->
+            let locals = getFunctionLocals fname identDict
+            in go rest (translateFunctionDefinition typeMapper (trConst locals) metadata vals decl)
           O.GlobalAlias name linkage vis ty constant ->
-            go rest (transAlias typeMapper (transValOrConst M.empty) getMetadata vals name linkage vis ty constant)
+            go rest (transAlias typeMapper (trConst M.empty) getMetadata vals name linkage vis ty constant)
           O.ExternalValueDecl ty ident ->
             go rest (transExternal typeMapper getMetadata vals ty ident)
           O.ExternalFuncDecl ty ident attrs ->
@@ -66,57 +70,64 @@ completeGraph typeMapper decls = M.elems globalDecls
         -- Return the updated metadata graph - but needs to refer to
         -- the "completed" version in 'metadata'
         getMetadata ident = M.lookup ident metadata
-        transMetadata = translateMetadata (transValOrConst M.empty) metadata
-        transValOrConst = translateConstant typeMapper globalDecls
+        transMetadata = translateMetadata (trConst M.empty) metadata
+        trConst :: Map Identifier Value -> O.Constant -> IdentDict -> (Value, IdentDict)
+        trConst = translateConstant typeMapper (getGlobals identDict)
 
 
-mkValue :: Type -> Maybe Identifier -> Maybe Metadata -> ValueT -> Value
-mkValue ty ident md val =
-  Value { valueType = ty
-          , valueName = ident
-          , valueMetadata = md
-          , valueContent = val
-          }
+mkValue :: Type -> Maybe Identifier -> Maybe Metadata -> ValueT ->
+           IdentDict -> (Value, IdentDict)
+mkValue ty ident md val dict =
+  (Value { valueType = ty
+         , valueName = ident
+         , valueMetadata = md
+         , valueContent = val
+         , valueUniqueId = uid
+         }, s)
+  where (uid, s) = nextSequenceNumber dict
 
 transExternal :: (O.Type -> Type) -> (Identifier -> Maybe Metadata) ->
-                 Map Identifier Value -> O.Type -> Identifier ->
-                 Map Identifier Value
+                 IdentDict -> O.Type -> Identifier ->
+                 IdentDict
 transExternal typeMapper getGlobalMD vals ty ident =
-  M.insert ident val vals
-  where val = mkValue (typeMapper ty) (Just ident) (getGlobalMD ident) ExternalValue
+  addGlobal ident val vals'
+  where (val, vals') = mkValue (typeMapper ty) (Just ident) (getGlobalMD ident) ExternalValue vals
 
 transExternalFunc :: (O.Type -> Type) -> (Identifier -> Maybe Metadata) ->
-                 Map Identifier Value -> O.Type -> Identifier -> [FunctionAttribute] ->
-                 Map Identifier Value
+                 IdentDict -> O.Type -> Identifier -> [FunctionAttribute] ->
+                 IdentDict
 transExternalFunc typeMapper getGlobalMD vals ty ident attrs =
-  M.insert ident val vals
-  where val = mkValue (typeMapper ty) (Just ident) (getGlobalMD ident) (ExternalFunction attrs)
+  addGlobal ident val vals'
+  where (val, vals') = mkValue (typeMapper ty) (Just ident) (getGlobalMD ident) (ExternalFunction attrs) vals
 
 
-transAlias :: (O.Type -> Type) -> (O.Constant -> Value) ->
-              (Identifier -> Maybe Metadata) -> Map Identifier Value ->
+transAlias :: (O.Type -> Type) -> (O.Constant -> IdentDict -> (Value, IdentDict)) ->
+              (Identifier -> Maybe Metadata) -> IdentDict ->
               Identifier -> LinkageType -> VisibilityStyle ->
-              O.Type -> O.Constant -> Map Identifier Value
-transAlias typeMapper transValOrConst getGlobalMD vals name linkage vis ty constant =
-  M.insert name val vals
-  where val = mkValue (typeMapper ty) (Just name) (getGlobalMD name) val'
+              O.Type -> O.Constant -> IdentDict
+transAlias typeMapper trConst getGlobalMD dict name linkage vis ty constant =
+  addGlobal name val d2
+  where (aliasVal, d1) = trConst constant dict
+        (val, d2) = mkValue (typeMapper ty) (Just name) (getGlobalMD name) val' d1
         val' = GlobalAlias { globalAliasLinkage = linkage
-                             , globalAliasVisibility = vis
-                             , globalAliasValue = transValOrConst constant
-                             }
+                           , globalAliasVisibility = vis
+                           , globalAliasValue = aliasVal
+                           }
 
-transGlobalVar :: (O.Type -> Type) -> (O.Constant -> Value) ->
+transGlobalVar :: (O.Type -> Type) ->
+                  (O.Constant -> IdentDict -> (Value, IdentDict)) ->
                   (Identifier -> Maybe Metadata) ->
-                  Map Identifier Value -> Identifier -> Int ->
+                  IdentDict -> Identifier -> Int ->
                   [GlobalAnnotation] -> O.Type -> O.Constant -> Integer ->
                   Maybe Text ->
-                  Map Identifier Value
-transGlobalVar typeMapper transValOrConst getGlobalMD vals name addrspace annots ty initializer align section =
-  M.insert name val vals
-  where val = mkValue (typeMapper ty) (Just name) (getGlobalMD name) val'
-        val' = GlobalDeclaration { globalVariableAddressSpace = addrspace
+                  IdentDict
+transGlobalVar typeMapper trConst getGlobalMD dict name addrspace annots ty initializer align section =
+  addGlobal name val d2
+  where (i, d1) = trConst initializer dict
+        (val, d2) = mkValue (typeMapper ty) (Just name) (getGlobalMD name) decl d1
+        decl = GlobalDeclaration { globalVariableAddressSpace = addrspace
                                  , globalVariableAnnotations = annots
-                                 , globalVariableInitializer = transValOrConst initializer
+                                 , globalVariableInitializer = i
                                  , globalVariableAlignment = align
                                  , globalVariableSection = section
                                  }

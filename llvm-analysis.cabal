@@ -61,6 +61,7 @@ library
                    Data.LLVM.Private.AssemblyParser,
                    Data.LLVM.Private.AttributeTypes,
                    Data.LLVM.Private.DwarfHelpers,
+                   Data.LLVM.Private.KnotHelpers,
                    Data.LLVM.Private.Lexer,
                    Data.LLVM.Private.ParsingMonad,
                    Data.LLVM.Private.PlaceholderBuilders,

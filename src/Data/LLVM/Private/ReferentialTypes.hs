@@ -145,8 +145,14 @@ data Value = Value { valueType :: Type
                    , valueName :: Maybe Identifier
                    , valueMetadata :: Maybe Metadata
                    , valueContent :: ValueT
+                   , valueUniqueId :: Integer
                    }
-           deriving (Ord, Eq)
+
+instance Eq Value where
+  (Value { valueUniqueId = i1 }) == (Value { valueUniqueId = i2 }) = i1 == i2
+
+instance Ord Value where
+  (Value { valueUniqueId = i1 }) `compare` (Value { valueUniqueId = i2 }) = i1 `compare` i2
 
 -- Functions have parameters if they are not external
 data ValueT = Function { functionType :: Type

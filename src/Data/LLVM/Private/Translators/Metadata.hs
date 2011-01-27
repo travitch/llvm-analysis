@@ -5,7 +5,7 @@ import qualified Data.Map as M
 import Data.Map (Map, (!))
 import Data.Maybe (fromJust)
 
-import Data.LLVM.Private.AttributeTypes
+import Data.LLVM.Private.KnotHelpers
 import Data.LLVM.Private.DwarfHelpers
 import Data.LLVM.Private.PlaceholderTypeExtractors
 import qualified Data.LLVM.Private.PlaceholderTypes as O
@@ -24,7 +24,7 @@ llvmDebugVersion = 524288
 -- of metadata (besides the source locations handled above) should
 -- have an i32 tag as the first argument
 
-translateMetadata :: (O.Constant -> Value) ->
+translateMetadata :: (O.Constant -> IdentDict -> (Value, IdentDict)) ->
                      (Map Identifier Metadata) ->
                      (Map Identifier Metadata) ->
                      (Map Identifier Metadata) ->
@@ -63,8 +63,9 @@ translateMetadata trConst allMetadata md valmd name reflist =
             [Just elt] -> translateConstant elt
             _ -> mkMetadataOrSrcLoc reflist
 
+        -- FIXME: this needs to have real identifiers generated
         translateConstant :: O.Constant -> (Metadata, Maybe Identifier)
-        translateConstant elt = (MetadataValueConstant (trConst elt), Nothing)
+        translateConstant elt = (MetadataValueConstant (fst (trConst elt emptyDict)), Nothing)
 
         mkMetadataOrSrcLoc :: [Maybe O.Constant] -> (Metadata, Maybe Identifier)
         mkMetadataOrSrcLoc vals@[Just tag, a, b, Nothing] =
