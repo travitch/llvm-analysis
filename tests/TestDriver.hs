@@ -24,5 +24,10 @@ dumpModule m = do
       g0 = cfgs !! 0
   print g1
   viewCFG g1
-  -- print g0
+  print g0
   -- viewCFG g0
+
+printG0 (Right m) = do
+  let cfgs = M.elems $ moduleCFGs m
+      g0 = cfgs !! 0
+  print g0
