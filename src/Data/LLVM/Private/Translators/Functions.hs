@@ -23,10 +23,10 @@ mkFuncType _ _ = error "Non-func decl in mkFuncType"
 
 translateFunctionDefinition :: (O.Type -> Type) ->
                                (O.Constant -> IdStream -> Value) ->
-                               (Map Identifier Metadata) ->
+                               Map Identifier Metadata ->
                                IdStream ->
                                O.GlobalDeclaration ->
-                               (Map Identifier Value, Value)
+                               (SymbolTable, Value)
 translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) decl =
   (localVals, v)
   where v = Value { valueType = ftype
@@ -67,7 +67,7 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
         -- Map from parameter names to their translated values
         parameterVals =
           map translateParameter (zip paramIds placeholderParams)
-        translateParameter (uid, (O.FormalParameter ty attrs paramIdent)) =
+        translateParameter (uid, O.FormalParameter ty attrs paramIdent) =
            Value { valueType = typeMapper ty
                  , valueName = Just paramIdent
                  -- Note: Parameter metadata is mapped in an odd way -
@@ -80,7 +80,7 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
                  }
         -- This is the initial list of local values available to the function
         -- Parameters must have names
-        paramMap = M.fromList $ zip (map xtract parameterVals) $ parameterVals
+        paramMap = M.fromList $ zip (map xtract parameterVals) parameterVals
           where xtract = (maybe (error "Parameters must have identifiers") id) . valueName
 
         -- Remove @llvm.dbg.* calls from the body after extracting the
@@ -102,7 +102,7 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
         -- of the function.
         translateBody = mapAccumR translateBlock (bodyIds, paramMap)
 
-        translateBlock ((blockId:blockRestIds), locals) (O.BasicBlock blockName placeholderInsts) =
+        translateBlock (blockId:blockRestIds, locals) (O.BasicBlock blockName placeholderInsts) =
           ((restStream, updatedMap), bb)
           where bb = Value { valueType = TypeLabel
                            , valueName = blockName
@@ -116,8 +116,8 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
                   Nothing -> blocksWithLocals
                   Just aBlockName -> M.insert aBlockName bb blocksWithLocals
 
-        translateInsts locals idstream insts =
-          mapAccumR trInst (idstream, locals) insts
+        translateInsts locals idstream =
+          mapAccumR trInst (idstream, locals)
         trInst = transInst typeMapper trConst getMetadata
         -- Returns a new body and a map of identifiers (vals) to
         -- metadata identifiers
@@ -144,14 +144,14 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
 
         -- Always discard the instruction, but update the metadata map
         -- when possible
-        destructureDebugCall [ ((O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _), [])
-                             , ((O.ValueRef i@(MetaIdentifier _)), []) ] acc@(md, insts) =
+        destructureDebugCall [ (O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _, [])
+                             , (O.ValueRef i@(MetaIdentifier _), []) ] acc@(md, insts) =
           case getMetadata i of
             Nothing -> acc
             Just metadata -> (M.insert varRef metadata md, insts)
-        destructureDebugCall [ ((O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _), [])
+        destructureDebugCall [ (O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _, [])
                              , _
-                             , ((O.ValueRef i@(MetaIdentifier _)), []) ] acc@(md, insts) =
+                             , (O.ValueRef i@(MetaIdentifier _), []) ] acc@(md, insts) =
           case getMetadata i of
             Nothing -> acc
             Just metadata -> (M.insert varRef metadata md, insts)

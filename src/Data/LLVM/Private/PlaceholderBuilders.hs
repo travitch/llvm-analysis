@@ -137,7 +137,7 @@ mkPhiNode ident ty vals =
 -- performed element-wise in the vectors.  That said, this behavior
 -- isn't implemented in LLVM yet so it is a moot point, for now.
 mkSelectInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Type -> PartialConstant -> m Instruction
-mkSelectInst ident selty sel t1 v1 t2 v2 = do
+mkSelectInst ident selty sel t1 v1 t2 v2 =
   if t1 /= t2
     then fail "Vectors must be of the same type"
     else mk'
@@ -157,7 +157,7 @@ mkCallInst mident isTail cc pattrs rtype mftype func params fAttrs =
                      , callFunction = realFunc
                      , callArguments = params
                      , callAttrs = fAttrs
-                     , callHasSRet = any (==PASRet) $ concat $ map snd params
+                     , callHasSRet = any (==PASRet) $ concatMap snd params
                      }
         realFunc = case (func rtype, mftype) of
           (ValueRef _, _) -> func rtype
@@ -177,7 +177,7 @@ mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
                        , invokeAttrs = fattrs
                        , invokeNormalLabel = normal
                        , invokeUnwindLabel = unwind
-                       , invokeHasSRet = any (==PASRet) $ concat $ map snd params
+                       , invokeHasSRet = any (==PASRet) $ concatMap snd params
                        }
         realFunc = case func rtype of
           ValueRef _ -> func rtype
@@ -248,7 +248,7 @@ mkFunctionDef linkage vis cc retAttr retTy name (args, isVararg) fAttrs section 
                      }
 
 mkMDNode :: Identifier -> [Maybe Constant] -> GlobalDeclaration
-mkMDNode name vals = UnnamedMetadata name vals
+mkMDNode = UnnamedMetadata
 
 mkNamedMetadata :: Identifier -> [Identifier] -> GlobalDeclaration
 mkNamedMetadata name names = NamedMetadata name vals

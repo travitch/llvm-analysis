@@ -36,9 +36,9 @@ data Identifier = LocalIdentifier Text
                   deriving (Eq, Ord)
 
 instance Show Identifier where
-  show (LocalIdentifier t) = "%" ++ unpack t
-  show (GlobalIdentifier t) = "@" ++ unpack t
-  show (MetaIdentifier t) = "!" ++ unpack t
+  show (LocalIdentifier t) = '%' : unpack t
+  show (GlobalIdentifier t) = '@' : unpack t
+  show (MetaIdentifier t) = '!' : unpack t
 
 data LinkageType = LTPrivate
                  | LTLinkerPrivate
@@ -208,7 +208,7 @@ defaultDataLayout = DataLayout { endianness = EBig
 data GCName = GCName Text deriving (Eq, Ord)
 
 instance Show GCName where
-  show (GCName t) = "gc \"" ++ (unpack t) ++ "\""
+  show (GCName t) = "gc \"" ++ unpack t ++ "\""
 
 data ICmpCondition = ICmpEq
                    | ICmpNe

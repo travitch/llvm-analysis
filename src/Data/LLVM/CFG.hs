@@ -37,7 +37,7 @@ instance Show EdgeCondition where
 -- The other function, makeCompactCFG, has a basic-block-granularity
 -- CFG that can be easier to visualize.
 makeCFG :: Value -> CFG
-makeCFG func = mkGraph (concat cfgNodes) (concat $ concat $ cfgEdges)
+makeCFG func = mkGraph (concat cfgNodes) (concat $ concat cfgEdges)
   where body = functionBody $ valueContent func
         allInstructions = concatMap (\(Value { valueContent = BasicBlock is }) -> is) body
         (nodeCount, nodeIDs) = foldl' labelInstruction (0, M.empty) allInstructions

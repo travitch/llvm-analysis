@@ -50,7 +50,7 @@ printConstOrNameNoType Value { valueName = Just ident } = show ident
 printConstOrNameNoType v@Value { valueName = Nothing } = printValue v
 
 compose :: [String] -> String
-compose = intercalate " " . filter (not . null)
+compose = unwords . filter (not . null)
 
 quote :: String -> String
 quote s = mconcat [ "\"", s, "\"" ]
@@ -82,10 +82,10 @@ printValue Value { valueContent =
             argS, vaTag, ")", fAttrS, maybe "" unpack section,
             printAlignment align, maybe "" show gcname, "{\n",
             bodyS, "}" ]
-  where retAttrS = intercalate " " $ map show retAttrs
+  where retAttrS = unwords $ map show retAttrs
         argS = intercalate ", " $ map printValue args
         vaTag = if isVararg then ", ..." else ""
-        fAttrS = intercalate " " $ map show fattrs
+        fAttrS = unwords $ map show fattrs
         bodyS = unlines $ map printValue blockList
         (TypeFunction rtype _ _) = t
 
@@ -108,7 +108,7 @@ printValue Value { valueContent =
   where addrSpaceS = case addrSpace of
           0 -> ""
           _ -> "addrspace(" ++ show addrSpace ++ ")"
-        annotsS = intercalate " " $ map show annots
+        annotsS = unwords $ map show annots
         sectionS = maybe "" ((", section "++) . quote . unpack) section
 
 printValue Value { valueContent = GlobalDeclaration {}
@@ -147,7 +147,7 @@ printValue Value { valueContent = ExternalFunction attrs
     compose [ "declare", printType rtype, show name, "("
             ,  intercalate ", " $ map printType argTypes
             , if isva then ", ..." else "", ")"
-            , intercalate " " $ map show attrs ]
+            , unwords $ map show attrs ]
   _ -> compose [ "declare", printType t, show name ]
 
 printValue Value { valueContent = ExternalValue
@@ -182,7 +182,7 @@ printValue Value { valueContent = Argument paramAttrs
                  , valueMetadata = _
                  } =
   compose [ printType paramType
-          , intercalate " " $ map show paramAttrs
+          , unwords $ map show paramAttrs
           , show paramName
           ]
 
@@ -226,7 +226,7 @@ printValue Value { valueContent =
   compose [ "switch", printConstOrName val, ","
           , printConstOrName defTarget, "["
           , caseDests, "]" ]
-  where caseDests = intercalate " " $ map printPair cases
+  where caseDests = unwords $ map printPair cases
         printPair (caseVal, caseDest) = mconcat [ printConstOrName caseVal
                                                 , ", "
                                                 , printConstOrName caseDest
@@ -412,7 +412,7 @@ printValue Value { valueContent = AllocaInst ty elems align
           ]
   where count = case elems of
           Value { valueContent = ConstantInt 1 } -> ""
-          _ -> ", " ++ (printConstOrName elems)
+          _ -> ", " ++ printConstOrName elems
 
 printValue Value { valueContent = LoadInst volatile src align
                  , valueName = name
@@ -605,13 +605,13 @@ printValue Value { valueContent =
           , printTailTag isTail
           , "call"
           , show cc
-          , intercalate " " $ map show pattrs
+          , unwords $ map show pattrs
           , printType rtype
           , printConstOrNameNoType f
           , "("
           , intercalate ", " $ map printArgument args
           , ")"
-          , intercalate " " $ map show cattrs
+          , unwords $ map show cattrs
           ]
 
 printValue Value { valueContent =
@@ -632,12 +632,12 @@ printValue Value { valueContent =
   compose [ printInstNamePrefix name
           , "invoke"
           , show cc
-          , intercalate " " $ map show pattrs
+          , unwords $ map show pattrs
           , printConstOrName f
           , "("
           , intercalate ", " $ map printArgument args
           , ")"
-          , intercalate " " $ map show attrs
+          , unwords $ map show attrs
           , "to"
           , printConstOrName nlabel
           , "unwind"
@@ -691,7 +691,7 @@ printValue Value { valueContent = MetadataValue _ } = error "Can't print metadat
 printArgument :: (Value, [ParamAttribute]) -> String
 printArgument (v, atts) =
   compose [ printType $ valueType v
-          , intercalate " " $ map show atts
+          , unwords $ map show atts
           , printConstOrNameNoType v
           ]
 
@@ -827,7 +827,7 @@ printFlaggedBinaryOp :: String -> Maybe Identifier -> [ArithFlag] ->
                         Type -> Value -> Value -> Maybe Metadata -> String
 printFlaggedBinaryOp inst name flags t v1 v2 _ =
   compose [ printInstNamePrefix name, inst
-          , intercalate " " $ map show flags
+          , unwords $ map show flags
           , printType t
           , printConstOrNameNoType v1, ","
           , printConstOrNameNoType v2
@@ -852,7 +852,7 @@ printDebugTag (Just (Value { valueName = Just n })) = ", !dbg " ++ show n
 printDebugTag (Just e) = error $ "Not metadata: " ++ printValue e
 
 printType :: Type -> String
-printType (TypeInteger bits) = "i" ++ show bits
+printType (TypeInteger bits) = 'i' : show bits
 printType TypeFloat = "float"
 printType TypeDouble = "double"
 printType TypeFP128 = "fp128"

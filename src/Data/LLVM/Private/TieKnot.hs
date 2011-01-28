@@ -44,9 +44,9 @@ completeGraph :: (O.Type -> Type) ->
 completeGraph typeMapper decls = M.elems globalValues
   where globalValues = go decls M.empty initialStream
         (boundMD, mdForGlobals) = mdGo decls (M.empty, M.empty)
-        metadata = M.union boundMD mdForGlobals
+        metadata = boundMD `M.union` mdForGlobals
         mdGo [] (md, mv) = (md, mv)
-        mdGo ((O.UnnamedMetadata name refs) : rest) (md, mv) =
+        mdGo (O.UnnamedMetadata name refs : rest) (md, mv) =
           mdGo rest (transMetadata md mv name refs)
         mdGo (_:rest) vs = mdGo rest vs
 
