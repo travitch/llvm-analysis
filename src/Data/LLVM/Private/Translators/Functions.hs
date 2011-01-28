@@ -68,7 +68,7 @@ translateFunctionDefinition typeMapper trConst globalMetadata dict (thisId:restI
         -- stream.  We don't need to split the stream since parameter
         -- creation doesn't involve recursive translation.  The rest
         -- of the IDs are for the translation of the function body.
-        (paramIds, bodyIds) = splitAt (length placeholderParams) restIds
+        (paramIds, bodyIds) = splitStream restIds
         -- Map from parameter names to their translated values
         (dictWithParams, parameterVals) =
           mapAccumR translateParameter dict (zip paramIds placeholderParams)
@@ -104,15 +104,15 @@ translateFunctionDefinition typeMapper trConst globalMetadata dict (thisId:restI
         -- of the function.
         translateBody = mapAccumR translateBlock (bodyIds, dictWithParams)
 
-        translateBlock ((thisId:restIds), locals) (O.BasicBlock blockName placeholderInsts) =
+        translateBlock ((blockId:blockRestIds), locals) (O.BasicBlock blockName placeholderInsts) =
           ((restStream, updatedMap), bb)
           where bb = Value { valueType = TypeLabel
                            , valueName = blockName
                            , valueMetadata = Nothing -- can BBs have metadata?
                            , valueContent = BasicBlock insts
-                           , valueUniqueId = thisId
+                           , valueUniqueId = blockId
                            }
-                (blockStream, restStream) = splitStream restIds
+                (blockStream, restStream) = splitStream blockRestIds
                 ((_,blocksWithLocals), insts) = translateInsts locals blockStream placeholderInsts
                 updatedMap = case blockName of
                   Nothing -> blocksWithLocals
