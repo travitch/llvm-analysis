@@ -9,10 +9,7 @@ import qualified Data.LLVM.Private.PlaceholderTypes as O
 translateInstruction :: (O.Type -> Type) -> (O.Constant -> IdStream -> Value) ->
                         O.InstructionT -> IdStream -> ValueT
 translateInstruction typeMapper trConst oldContent idStream = newContent
-  where -- trPair (v, t) = (trConst v, trConst t)
-        -- trArg (v, atts) = (trConst v, atts)
-
-        transMap aStream vals =
+  where transMap aStream vals =
           snd $ mapAccumR f aStream vals
           where f s v = let (thisStream, otherStream) = splitStream s
                             c = trConst v thisStream

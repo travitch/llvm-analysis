@@ -2,16 +2,13 @@
 module Data.LLVM.Private.Translators.Functions ( translateFunctionDefinition ) where
 
 import Data.List (mapAccumR)
-import Data.Map (Map, (!))
+import Data.Map (Map)
 import qualified Data.Map as M
 
 import Data.LLVM.Types
 import Data.LLVM.Private.KnotHelpers
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import Data.LLVM.Private.Translators.Instructions
-
-import Debug.Trace
-debug = flip trace
 
 mkFuncType :: (O.Type -> Type) -> O.GlobalDeclaration -> Type
 mkFuncType typeMapper O.FunctionDefinition { O.funcRetType = fret
@@ -27,12 +24,11 @@ mkFuncType _ _ = error "Non-func decl in mkFuncType"
 translateFunctionDefinition :: (O.Type -> Type) ->
                                (O.Constant -> IdStream -> Value) ->
                                (Map Identifier Metadata) ->
-                               -- IdentDict ->
                                IdStream ->
                                O.GlobalDeclaration ->
-                               (Map Identifier Value, Value) -- IdentDict
+                               (Map Identifier Value, Value)
 translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) decl =
-  (localVals, v) -- addGlobal functionIdentifier v dictWithLocals
+  (localVals, v)
   where v = Value { valueType = ftype
                   , valueName = Just functionIdentifier
                   , valueMetadata = getMetadata functionIdentifier
@@ -54,8 +50,6 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
                   , valueUniqueId = thisId
                   }
 
-        -- addFuncLocal = addLocal functionIdentifier
-
         -- Trivial metadata lookup function
         getMetadata i = M.lookup i globalMetadata
 
@@ -69,7 +63,7 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
         -- stream.  We don't need to split the stream since parameter
         -- creation doesn't involve recursive translation.  The rest
         -- of the IDs are for the translation of the function body.
-        (paramIds, bodyIds) = splitStream restIds
+        (paramIds, bodyIds) = splitAt (length placeholderParams) restIds
         -- Map from parameter names to their translated values
         parameterVals =
           map translateParameter (zip paramIds placeholderParams)
@@ -121,7 +115,6 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
                 updatedMap = case blockName of
                   Nothing -> blocksWithLocals
                   Just aBlockName -> M.insert aBlockName bb blocksWithLocals
-                    --addFuncLocal aBlockName bb blocksWithLocals
 
         translateInsts locals idstream insts =
           mapAccumR trInst (idstream, locals) insts

@@ -9,9 +9,6 @@ import qualified Data.LLVM.Private.PlaceholderTypes as O
 import Data.LLVM.Private.Translators.Instructions
 import Data.LLVM.Types
 
-import Debug.Trace
-debug = flip trace
-
 mkCVal :: Integer -> Type -> ValueT -> Value
 mkCVal uid ty c = Value { valueName = Nothing
                         , valueMetadata = Nothing
