@@ -27,11 +27,12 @@ mkFuncType _ _ = error "Non-func decl in mkFuncType"
 translateFunctionDefinition :: (O.Type -> Type) ->
                                (O.Constant -> IdStream -> Value) ->
                                (Map Identifier Metadata) ->
-                               IdentDict -> IdStream ->
+                               -- IdentDict ->
+                               IdStream ->
                                O.GlobalDeclaration ->
-                               IdentDict
-translateFunctionDefinition typeMapper trConst globalMetadata dict (thisId:restIds) decl =
-  addGlobal functionIdentifier v dictWithLocals
+                               (Map Identifier Value, Value) -- IdentDict
+translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) decl =
+  (localVals, v) -- addGlobal functionIdentifier v dictWithLocals
   where v = Value { valueType = ftype
                   , valueName = Just functionIdentifier
                   , valueMetadata = getMetadata functionIdentifier
@@ -53,7 +54,7 @@ translateFunctionDefinition typeMapper trConst globalMetadata dict (thisId:restI
                   , valueUniqueId = thisId
                   }
 
-        addFuncLocal = addLocal functionIdentifier
+        -- addFuncLocal = addLocal functionIdentifier
 
         -- Trivial metadata lookup function
         getMetadata i = M.lookup i globalMetadata
@@ -70,20 +71,23 @@ translateFunctionDefinition typeMapper trConst globalMetadata dict (thisId:restI
         -- of the IDs are for the translation of the function body.
         (paramIds, bodyIds) = splitStream restIds
         -- Map from parameter names to their translated values
-        (dictWithParams, parameterVals) =
-          mapAccumR translateParameter dict (zip paramIds placeholderParams)
-        translateParameter d (uid, (O.FormalParameter ty attrs paramIdent)) =
-          (addFuncLocal paramIdent param d, param)
-          where param = Value { valueType = typeMapper ty
-                              , valueName = Just paramIdent
-                              -- Note: Parameter metadata is mapped in an odd way -
-                              -- via pseudo-calls to llvm.dbg.declare (or .value).
-                              -- We construct this map by preprocessing the function
-                              -- body so that we can map metadata to parameters here.
-                              , valueMetadata = M.lookup paramIdent localMetadata
-                              , valueContent = Argument attrs
-                              , valueUniqueId = uid
-                              }
+        parameterVals =
+          map translateParameter (zip paramIds placeholderParams)
+        translateParameter (uid, (O.FormalParameter ty attrs paramIdent)) =
+           Value { valueType = typeMapper ty
+                 , valueName = Just paramIdent
+                 -- Note: Parameter metadata is mapped in an odd way -
+                 -- via pseudo-calls to llvm.dbg.declare (or .value).
+                 -- We construct this map by preprocessing the function
+                 -- body so that we can map metadata to parameters here.
+                 , valueMetadata = M.lookup paramIdent localMetadata
+                 , valueContent = Argument attrs
+                 , valueUniqueId = uid
+                 }
+        -- This is the initial list of local values available to the function
+        -- Parameters must have names
+        paramMap = M.fromList $ zip (map xtract parameterVals) $ parameterVals
+          where xtract = (maybe (error "Parameters must have identifiers") id) . valueName
 
         -- Remove @llvm.dbg.* calls from the body after extracting the
         -- information they provide.  Some of the debug information
@@ -97,12 +101,12 @@ translateFunctionDefinition typeMapper trConst globalMetadata dict (thisId:restI
         -- Tie the knot on the function body, converting all
         -- instructions to values.  The ignored return value is the
         -- rest of the ID stream.
-        ((_, dictWithLocals), translatedBody) = translateBody noDebugBody
+        ((_, localVals), translatedBody) = translateBody noDebugBody
 
 
         -- Note, the set of locals is initialized with the parameters
         -- of the function.
-        translateBody = mapAccumR translateBlock (bodyIds, dictWithParams)
+        translateBody = mapAccumR translateBlock (bodyIds, paramMap)
 
         translateBlock ((blockId:blockRestIds), locals) (O.BasicBlock blockName placeholderInsts) =
           ((restStream, updatedMap), bb)
@@ -116,11 +120,12 @@ translateFunctionDefinition typeMapper trConst globalMetadata dict (thisId:restI
                 ((_,blocksWithLocals), insts) = translateInsts locals blockStream placeholderInsts
                 updatedMap = case blockName of
                   Nothing -> blocksWithLocals
-                  Just aBlockName -> addFuncLocal aBlockName bb blocksWithLocals
+                  Just aBlockName -> M.insert aBlockName bb blocksWithLocals
+                    --addFuncLocal aBlockName bb blocksWithLocals
 
         translateInsts locals idstream insts =
           mapAccumR trInst (idstream, locals) insts
-        trInst = transInst addFuncLocal typeMapper trConst getMetadata
+        trInst = transInst typeMapper trConst getMetadata
         -- Returns a new body and a map of identifiers (vals) to
         -- metadata identifiers
         stripDebugCalls = foldr undebugBlock (M.empty, [])
@@ -160,17 +165,16 @@ translateFunctionDefinition typeMapper trConst globalMetadata dict (thisId:restI
         destructureDebugCall _ acc = acc
 
 
-transInst :: (Identifier -> Value -> IdentDict -> IdentDict) ->
-             (O.Type -> Type) ->
+transInst :: (O.Type -> Type) ->
              (O.Constant -> IdStream -> Value) ->
              (Identifier -> Maybe Metadata) ->
-             (IdStream, IdentDict) ->
+             (IdStream, Map Identifier Value) ->
              O.Instruction ->
-             ((IdStream, IdentDict), Value)
-transInst addFuncLocal typeMapper trConst getMetadata (thisId:idStream, dict) i =
+             ((IdStream, Map Identifier Value), Value)
+transInst typeMapper trConst getMetadata (thisId:idStream, dict) i =
   case instName of
     Nothing -> ((restStream, dict), newValue)
-    Just valName -> ((restStream, addFuncLocal valName newValue dict), newValue)
+    Just valName -> ((restStream, M.insert valName newValue dict), newValue)
   where newValue = repackInst i content
         oldContent = case i of
           O.Instruction { O.instContent = oc } -> oc

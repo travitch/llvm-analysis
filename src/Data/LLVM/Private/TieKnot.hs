@@ -52,17 +52,19 @@ completeGraph typeMapper decls = M.elems $ getGlobals identDict
         mdGo ((O.UnnamedMetadata name refs) : rest) (md, mv) =
           mdGo rest (transMetadata md mv name refs)
         mdGo (_:rest) vs = mdGo rest vs
+        -- FIXME: Turn this into a mapAccumR
         go [] vals _ = vals
         go (decl:rest) vals idstream@(thisId:restIds) =
           let (s1, s2) = splitStream idstream
           in case decl of
           O.GlobalDeclaration name addrspace annots ty initializer align section ->
-            go rest (transGlobalVar typeMapper (trConst M.empty) getMetadata vals s1 name addrspace annots ty initializer align section) s2
+            go rest (transGlobalVar typeMapper trGlobal getMetadata vals s1 name addrspace annots ty initializer align section) s2
           O.FunctionDefinition { O.funcName = fname } ->
-            let locals = getFunctionLocals fname identDict
-            in go rest (translateFunctionDefinition typeMapper (trConst locals) metadata vals s1 decl) s2
+            let (locals, global) = translateFunctionDefinition typeMapper (trConst locals) metadata s1 decl
+                updatedVals = addGlobal fname global vals
+            in go rest updatedVals s2
           O.GlobalAlias name linkage vis ty constant ->
-            go rest (transAlias typeMapper (trConst M.empty) getMetadata vals s1 name linkage vis ty constant) s2
+            go rest (transAlias typeMapper trGlobal getMetadata vals s1 name linkage vis ty constant) s2
           O.ExternalValueDecl ty ident ->
             go rest (transExternal typeMapper getMetadata vals thisId ty ident) restIds
           O.ExternalFuncDecl ty ident attrs ->
@@ -75,6 +77,7 @@ completeGraph typeMapper decls = M.elems $ getGlobals identDict
         transMetadata = translateMetadata (trConst M.empty) metadata
         trConst :: Map Identifier Value -> O.Constant -> IdStream -> Value
         trConst = translateConstant typeMapper (getGlobals identDict)
+        trGlobal = trConst M.empty
 
 
 mkValue :: Integer -> Type -> Maybe Identifier -> Maybe Metadata -> ValueT ->
