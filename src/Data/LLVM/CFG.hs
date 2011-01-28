@@ -5,16 +5,11 @@ module Data.LLVM.CFG ( CFG
 
 import Data.List (foldl')
 import Data.Graph.Inductive
-import Data.GraphViz
 import Data.Map ((!))
 import qualified Data.Map as M
 
 import Data.LLVM.Private.Printers ( )
 import Data.LLVM.Private.ReferentialTypes
-
-import Debug.Trace
-
-debug = flip trace
 
 type CFG = Gr Value EdgeCondition
 
@@ -29,9 +24,9 @@ data EdgeCondition = UnconditionalEdge
 instance Show EdgeCondition where
   show UnconditionalEdge = ""
   show DefaultEdge = "<default>"
-  show (TrueEdge v) = {- show v ++ -}" is true"
-  show (FalseEdge v) = {- show v ++ -} " is false"
-  show (EqualityEdge v1 v2) = "is" -- concat [ show v1, " is ", show v2 ]
+  show (TrueEdge v) = show v ++ " is true"
+  show (FalseEdge v) = show v ++ " is false"
+  show (EqualityEdge v1 v2) = concat [ show v1, " is ", show v2 ]
   show (IndirectEdge v) = show v ++ " (indirect)"
 
 -- | Each instruction in the function body is a node in the graph.
