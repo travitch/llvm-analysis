@@ -1,7 +1,7 @@
 module Data.LLVM.Private.Translators.Constants ( translateConstant
-                                               , transMap
                                                ) where
 
+import Data.List (mapAccumR)
 import Data.Map (Map, (!))
 
 import Data.LLVM.Private.KnotHelpers
@@ -12,58 +12,57 @@ import Data.LLVM.Types
 import Debug.Trace
 debug = flip trace
 
-transMap trConst dict vals =
-  foldr f ([], dict) vals
-  where f v (acc,d) =
-          let (c, d') = trConst v d
-          in (c : acc, d')
-
-mkCVal :: Type -> ValueT -> IdentDict -> (Value, IdentDict)
-mkCVal ty c d = (v, d')
-  where v = Value { valueName = Nothing
-                  , valueMetadata = Nothing
-                  , valueType = ty
-                  , valueContent = c
-                  , valueUniqueId = uid
-                  }
-        (uid, d') = nextSequenceNumber d
+mkCVal :: Integer -> Type -> ValueT -> Value
+mkCVal uid ty c = Value { valueName = Nothing
+                        , valueMetadata = Nothing
+                        , valueType = ty
+                        , valueContent = c
+                        , valueUniqueId = uid
+                        }
 
 translateConstant :: (O.Type -> Type) -> Map Identifier Value ->
-                     Map Identifier Value -> O.Constant -> IdentDict ->
-                     (Value, IdentDict)
-translateConstant typeMapper globalDecls localDecls v d = case v of
-  O.ConstValue c ty -> trConstVal ty c
-  O.ValueRef ident -> case ident of
-    GlobalIdentifier _ -> (globalDecls ! ident, d)
-    LocalIdentifier _ -> (localDecls ! ident `debug` ("Symbol lookup: " ++ show ident), d)
-    _ -> error $ "Metadata identifiers cannot be translated with trConst " ++ show ident
+                     Map Identifier Value -> O.Constant -> IdStream ->
+                     Value
+translateConstant typeMapper globalDecls localDecls v (thisId:restIds) =
+  case v of
+    O.ConstValue c ty -> trConstVal ty c
+    O.ValueRef ident -> case ident of
+      GlobalIdentifier _ -> globalDecls ! ident
+      LocalIdentifier _ -> localDecls ! ident
+      _ -> error $ "Metadata identifiers cannot be translated with trConst " ++ show ident
   where trConst = translateConstant typeMapper globalDecls localDecls
+        transMap idstream vals =
+          snd $ mapAccumR f idstream vals
+          where f s val = let (thisStream, otherStream) = splitStream s
+                              c = trConst val thisStream
+                          in (otherStream, c)
+
         trConstVal ty c = x
           where t = typeMapper ty
                 x = case c of
                   O.BlockAddress fIdent bIdent ->
                     let ba = BlockAddress (globalDecls ! fIdent) (localDecls ! bIdent)
-                    in mkCVal t ba d
-                  O.ConstantAggregateZero -> mkCVal t ConstantAggregateZero d
+                    in mkCVal thisId t ba
+                  O.ConstantAggregateZero -> mkCVal thisId t ConstantAggregateZero
                   O.ConstantArray cs ->
-                    let (vs, d') = transMap trConst d cs
-                    in mkCVal t (ConstantArray vs ) d'
+                    let vs = transMap restIds cs
+                    in mkCVal thisId t (ConstantArray vs )
                   O.ConstantStruct cs ->
-                    let (vs, d') = transMap trConst d cs
-                    in mkCVal t (ConstantStruct vs) d'
+                    let vs = transMap restIds cs
+                    in mkCVal thisId t (ConstantStruct vs)
                   O.ConstantExpr inst ->
-                    let (i, d') = translateInstruction typeMapper trConst inst d
-                    in mkCVal t i d'
-                  O.ConstantFP fp -> mkCVal t (ConstantFP fp) d
-                  O.ConstantInt i -> mkCVal t (ConstantInt i) d
-                  O.ConstantString txt -> mkCVal t (ConstantString txt) d
-                  O.ConstantPointerNull -> mkCVal t ConstantPointerNull d
+                    let i = translateInstruction typeMapper trConst inst restIds
+                    in mkCVal thisId t i
+                  O.ConstantFP fp -> mkCVal thisId t (ConstantFP fp)
+                  O.ConstantInt i -> mkCVal thisId t (ConstantInt i)
+                  O.ConstantString txt -> mkCVal thisId t (ConstantString txt)
+                  O.ConstantPointerNull -> mkCVal thisId t ConstantPointerNull
                   O.ConstantVector cs ->
-                    let (vs, d') = transMap trConst d cs
-                    in mkCVal t (ConstantVector vs) d'
+                    let vs = transMap restIds cs
+                    in mkCVal thisId t (ConstantVector vs)
                   O.InlineAsm asm constraints ->
-                    mkCVal t (InlineAsm asm constraints) d
-                  O.UndefValue -> mkCVal t UndefValue d
+                    mkCVal thisId t (InlineAsm asm constraints)
+                  O.UndefValue -> mkCVal thisId t UndefValue
                   O.MDNode _ ->
                     error "translateConstant should never recieve an MDNode"
                   O.MDString _ ->

@@ -1,162 +1,184 @@
 module Data.LLVM.Private.Translators.Instructions ( translateInstruction ) where
 
+import Data.List (mapAccumR)
+
 import Data.LLVM.Types
 import Data.LLVM.Private.KnotHelpers
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 
+translateInstruction :: (O.Type -> Type) -> (O.Constant -> IdStream -> Value) ->
+                        O.InstructionT -> IdStream -> ValueT
+translateInstruction typeMapper trConst oldContent idStream = newContent
+  where -- trPair (v, t) = (trConst v, trConst t)
+        -- trArg (v, atts) = (trConst v, atts)
 
-translateInstruction :: (O.Type -> Type) -> (O.Constant -> IdentDict -> (Value, IdentDict)) ->
-                        O.InstructionT -> IdentDict -> (ValueT, IdentDict)
-translateInstruction typeMapper trConst oldContent dict = newContent
-  where trPair (v, t) = (trConst v, trConst t)
-        trArg (v, atts) = (trConst v, atts)
+        transMap aStream vals =
+          snd $ mapAccumR f aStream vals
+          where f s v = let (thisStream, otherStream) = splitStream s
+                            c = trConst v thisStream
+                        in (otherStream, c)
 
-        transMap dct vals =
-          foldr f ([], dct) vals
-          where f v (acc,d) =
-                  let (c, d') = trConst v d
-                  in (c : acc, d')
+        trFlaggedBinop cons flags lhs rhs s =
+          let (lstream, rstream) = splitStream s
+              l = trConst lhs lstream
+              r = trConst rhs rstream
+          in cons flags l r
 
-        trFlaggedBinop cons flags lhs rhs d =
-          let (l, d1) = trConst lhs d
-              (r, d2) = trConst rhs d1
-          in (cons flags l r, d2)
+        trBinop cons lhs rhs s =
+          let (lstream, rstream) = splitStream s
+              l = trConst lhs lstream
+              r = trConst rhs rstream
+          in cons l r
 
-        trBinop cons lhs rhs d =
-          let (l, d1) = trConst lhs d
-              (r, d2) = trConst rhs d1
-          in (cons l r, d2)
-
-        trCast cons val ty d =
-          let (v, d1) = trConst val d
-          in (cons v (typeMapper ty), d1)
+        trCast cons val ty s =
+          let v = trConst val s
+          in cons v (typeMapper ty)
 
         newContent = case oldContent of
-          O.RetInst Nothing -> (RetInst Nothing, dict)
+          O.RetInst Nothing -> RetInst Nothing
           O.RetInst (Just c) ->
-            let (c', d1) = trConst c dict
-            in (RetInst (Just c'), d1)
+            let c' = trConst c idStream
+            in RetInst (Just c')
           O.UnconditionalBranchInst target ->
-            let (t', d1) = trConst target dict
-            in (UnconditionalBranchInst t', d1)
+            let t' = trConst target idStream
+            in UnconditionalBranchInst t'
           O.BranchInst cond tTarget fTarget ->
-            let (c', d1) = trConst cond dict
-                (t', d2) = trConst tTarget d1
-                (f', d3) = trConst fTarget d2
-            in (BranchInst { branchCondition = c'
-                           , branchTrueTarget = t'
-                           , branchFalseTarget = f'
-                           }, d3)
+            let (condstream, bstream) = splitStream idStream
+                (tstream, fstream) = splitStream bstream
+                c' = trConst cond condstream
+                t' = trConst tTarget tstream
+                f' = trConst fTarget fstream
+            in BranchInst { branchCondition = c'
+                          , branchTrueTarget = t'
+                          , branchFalseTarget = f'
+                          }
           O.SwitchInst val defTarget cases ->
-            let (vs, dests) = unzip cases
-                (v', d1) = trConst val dict
-                (dt', d2) = trConst defTarget d1
-                (vs', d3) = transMap d2 vs
-                (dests', d4) = transMap d3 dests
-            in (SwitchInst { switchValue = v'
-                           , switchDefaultTarget = dt'
-                           , switchCases = zip vs' dests'
-                           }, d4)
+            let (valStream, ostream1) = splitStream idStream
+                (defStream, ostream2) = splitStream ostream1
+                (caseStream, targetStream) = splitStream ostream2
+                (vs, dests) = unzip cases
+                v' = trConst val valStream
+                dt' = trConst defTarget defStream
+                vs' = transMap caseStream vs
+                dests' = transMap targetStream dests
+            in SwitchInst { switchValue = v'
+                          , switchDefaultTarget = dt'
+                          , switchCases = zip vs' dests'
+                          }
           O.IndirectBranchInst val dests ->
-            let (v', d1) = trConst val dict
-                (ds', d2) = transMap d1 dests
-            in (IndirectBranchInst { indirectBranchAddress = v'
-                                   , indirectBranchTargets = ds'
-                                   }, d2)
-          O.UnwindInst -> (UnwindInst, dict)
-          O.UnreachableInst -> (UnreachableInst, dict)
-          O.AddInst flags lhs rhs -> trFlaggedBinop AddInst flags lhs rhs dict
-          O.SubInst flags lhs rhs -> trFlaggedBinop SubInst flags lhs rhs dict
-          O.MulInst flags lhs rhs -> trFlaggedBinop MulInst flags lhs rhs dict
-          O.DivInst lhs rhs -> trBinop DivInst lhs rhs dict
-          O.RemInst lhs rhs -> trBinop RemInst lhs rhs dict
-          O.ShlInst lhs rhs -> trBinop ShlInst lhs rhs dict
-          O.LshrInst lhs rhs -> trBinop LshrInst lhs rhs dict
-          O.AshrInst lhs rhs -> trBinop AshrInst lhs rhs dict
-          O.AndInst lhs rhs -> trBinop AndInst lhs rhs dict
-          O.OrInst lhs rhs -> trBinop OrInst lhs rhs dict
-          O.XorInst lhs rhs -> trBinop XorInst lhs rhs dict
+            let (valStream, destStream) = splitStream idStream
+                v' = trConst val valStream
+                ds' = transMap destStream dests
+            in IndirectBranchInst { indirectBranchAddress = v'
+                                  , indirectBranchTargets = ds'
+                                  }
+          O.UnwindInst -> UnwindInst
+          O.UnreachableInst -> UnreachableInst
+          O.AddInst flags lhs rhs -> trFlaggedBinop AddInst flags lhs rhs idStream
+          O.SubInst flags lhs rhs -> trFlaggedBinop SubInst flags lhs rhs idStream
+          O.MulInst flags lhs rhs -> trFlaggedBinop MulInst flags lhs rhs idStream
+          O.DivInst lhs rhs -> trBinop DivInst lhs rhs idStream
+          O.RemInst lhs rhs -> trBinop RemInst lhs rhs idStream
+          O.ShlInst lhs rhs -> trBinop ShlInst lhs rhs idStream
+          O.LshrInst lhs rhs -> trBinop LshrInst lhs rhs idStream
+          O.AshrInst lhs rhs -> trBinop AshrInst lhs rhs idStream
+          O.AndInst lhs rhs -> trBinop AndInst lhs rhs idStream
+          O.OrInst lhs rhs -> trBinop OrInst lhs rhs idStream
+          O.XorInst lhs rhs -> trBinop XorInst lhs rhs idStream
           O.ExtractElementInst vec idx ->
-            let (v', d1) = trConst vec dict
-                (i', d2) = trConst idx d1
-            in (ExtractElementInst { extractElementVector = v'
-                                   , extractElementIndex = i'
-                                   }, d2)
+            let (vStream, iStream) = splitStream idStream
+                v' = trConst vec vStream
+                i' = trConst idx iStream
+            in ExtractElementInst { extractElementVector = v'
+                                  , extractElementIndex = i'
+                                  }
           O.InsertElementInst vec elt idx ->
-            let (v', d1) = trConst vec dict
-                (e', d2) = trConst elt d1
-                (i', d3) = trConst idx d2
-            in (InsertElementInst { insertElementVector = v'
-                                  , insertElementValue = e'
-                                  , insertElementIndex = i'
-                                  }, d3)
+            let (vStream, ostream) = splitStream idStream
+                (eStream, iStream) = splitStream ostream
+                v' = trConst vec vStream
+                e' = trConst elt eStream
+                i' = trConst idx iStream
+            in InsertElementInst { insertElementVector = v'
+                                 , insertElementValue = e'
+                                 , insertElementIndex = i'
+                                 }
           O.ShuffleVectorInst vec1 vec2 mask ->
-            let (v1, d1) = trConst vec1 dict
-                (v2, d2) = trConst vec2 d1
-                (m, d3) = trConst mask d2
-            in (ShuffleVectorInst { shuffleVectorV1 = v1
-                                  , shuffleVectorV2 = v2
-                                  , shuffleVectorMask = m
-                                  }, d3)
+            let (v1Stream, ostream) = splitStream idStream
+                (v2Stream, maskStream) = splitStream ostream
+                v1 = trConst vec1 v1Stream
+                v2 = trConst vec2 v2Stream
+                m = trConst mask maskStream
+            in ShuffleVectorInst { shuffleVectorV1 = v1
+                                 , shuffleVectorV2 = v2
+                                 , shuffleVectorMask = m
+                                 }
           O.ExtractValueInst agg indices ->
-            let (a, d1) = trConst agg dict
-            in (ExtractValueInst { extractValueAggregate = a
-                                 , extractValueIndices = indices
-                                 }, d1)
+            let a = trConst agg idStream
+            in ExtractValueInst { extractValueAggregate = a
+                                , extractValueIndices = indices
+                                }
           O.InsertValueInst agg val indices ->
-            let (a, d1) = trConst agg dict
-                (v, d2) = trConst val d1
-            in (InsertValueInst { insertValueAggregate = a
-                                , insertValueValue = v
-                                , insertValueIndices = indices
-                                }, d2)
+            let (aStream, vStream) = splitStream idStream
+                a = trConst agg aStream
+                v = trConst val vStream
+            in InsertValueInst { insertValueAggregate = a
+                               , insertValueValue = v
+                               , insertValueIndices = indices
+                               }
           O.AllocaInst ty val align ->
-            let (v, d1) = trConst val dict
-            in (AllocaInst (typeMapper ty) v align, d1)
+            let v = trConst val idStream
+            in AllocaInst (typeMapper ty) v align
           O.LoadInst volatile dest align ->
-            let (v, d1) = trConst dest dict
-            in (LoadInst volatile v align, d1)
+            let v = trConst dest idStream
+            in LoadInst volatile v align
           O.StoreInst volatile value dest align ->
-            let (v, d1) = trConst value dict
-                (d', d2) = trConst dest d1
-            in (StoreInst volatile v d' align, d2)
-          O.TruncInst val ty -> trCast TruncInst val ty dict
-          O.ZExtInst val ty -> trCast ZExtInst val ty dict
-          O.SExtInst val ty -> trCast SExtInst val ty dict
-          O.FPTruncInst val ty -> trCast FPTruncInst val ty dict
-          O.FPExtInst val ty -> trCast FPExtInst val ty dict
-          O.FPToUIInst val ty -> trCast FPToUIInst val ty dict
-          O.FPToSIInst val ty -> trCast FPToSIInst val ty dict
-          O.UIToFPInst val ty -> trCast UIToFPInst val ty dict
-          O.SIToFPInst val ty -> trCast SIToFPInst val ty dict
-          O.PtrToIntInst val ty -> trCast PtrToIntInst val ty dict
-          O.IntToPtrInst val ty -> trCast IntToPtrInst val ty dict
-          O.BitcastInst val ty -> trCast BitcastInst val ty dict
+            let (vStream, dStream) = splitStream idStream
+                v = trConst value vStream
+                d' = trConst dest dStream
+            in StoreInst volatile v d' align
+          O.TruncInst val ty -> trCast TruncInst val ty idStream
+          O.ZExtInst val ty -> trCast ZExtInst val ty idStream
+          O.SExtInst val ty -> trCast SExtInst val ty idStream
+          O.FPTruncInst val ty -> trCast FPTruncInst val ty idStream
+          O.FPExtInst val ty -> trCast FPExtInst val ty idStream
+          O.FPToUIInst val ty -> trCast FPToUIInst val ty idStream
+          O.FPToSIInst val ty -> trCast FPToSIInst val ty idStream
+          O.UIToFPInst val ty -> trCast UIToFPInst val ty idStream
+          O.SIToFPInst val ty -> trCast SIToFPInst val ty idStream
+          O.PtrToIntInst val ty -> trCast PtrToIntInst val ty idStream
+          O.IntToPtrInst val ty -> trCast IntToPtrInst val ty idStream
+          O.BitcastInst val ty -> trCast BitcastInst val ty idStream
           O.ICmpInst cond val1 val2 ->
-            let (v1, d1) = trConst val1 dict
-                (v2, d2) = trConst val2 d1
-            in (ICmpInst cond v1 v2, d2)
+            let (s1, s2) = splitStream idStream
+                v1 = trConst val1 s1
+                v2 = trConst val2 s2
+            in ICmpInst cond v1 v2
           O.FCmpInst cond val1 val2 ->
-            let (v1, d1) = trConst val1 dict
-                (v2, d2) = trConst val2 d1
-            in (FCmpInst cond v1 v2, d2)
+            let (s1, s2) = splitStream idStream
+                v1 = trConst val1 s1
+                v2 = trConst val2 s2
+            in FCmpInst cond v1 v2
           O.PhiNode vals ->
             let (consts, lbls) = unzip vals
-                (cs', d1) = transMap dict consts
-                (lbls', d2) = transMap d1 lbls
-            in (PhiNode $ zip cs' lbls', d2)
+                (s1, s2) = splitStream idStream
+                cs' = transMap s1 consts
+                lbls' = transMap s2 lbls
+            in PhiNode $ zip cs' lbls'
           O.SelectInst cond val1 val2 ->
-            let (c', d1) = trConst cond dict
-                (v1', d2) = trConst val1 d1
-                (v2', d3) = trConst val2 d2
-            in (SelectInst c' v1' v2', d3)
+            let (cStream, ostream) = splitStream idStream
+                (s1, s2) = splitStream ostream
+                c' = trConst cond cStream
+                v1' = trConst val1 s1
+                v2' = trConst val2 s2
+            in SelectInst c' v1' v2'
           O.GetElementPtrInst inBounds val indices ->
-            let (v', d1) = trConst val dict
-                (idxs, d2) = transMap d1 indices
-            in (GetElementPtrInst { getElementPtrInBounds = inBounds
-                                  , getElementPtrValue = v'
-                                  , getElementPtrIndices = idxs
-                                  }, d2)
+            let (s1, s2) = splitStream idStream
+                v' = trConst val s1
+                idxs = transMap s2 indices
+            in GetElementPtrInst { getElementPtrInBounds = inBounds
+                                 , getElementPtrValue = v'
+                                 , getElementPtrIndices = idxs
+                                 }
           O.CallInst { O.callIsTail = isTail
                      , O.callConvention = cc
                      , O.callParamAttrs = paramAttrs
@@ -166,10 +188,11 @@ translateInstruction typeMapper trConst oldContent dict = newContent
                      , O.callAttrs = cAttrs
                      , O.callHasSRet = hasSRet
                      } ->
-            let (f, d1) = trConst func dict
+            let (s1, s2) = splitStream idStream
+                f = trConst func s1
                 (consts, attrs) = unzip args
-                (as, d2) = transMap d1 consts
-            in (CallInst { callIsTail = isTail
+                as = transMap s2 consts
+            in CallInst { callIsTail = isTail
                          , callConvention = cc
                          , callParamAttrs = paramAttrs
                          , callRetType = typeMapper rtype
@@ -177,7 +200,7 @@ translateInstruction typeMapper trConst oldContent dict = newContent
                          , callArguments = zip as attrs
                          , callAttrs = cAttrs
                          , callHasSRet = hasSRet
-                         }, d2)
+                         }
           O.InvokeInst { O.invokeConvention = cc
                        , O.invokeParamAttrs = paramAttrs
                        , O.invokeRetType = rtype
@@ -188,21 +211,24 @@ translateInstruction typeMapper trConst oldContent dict = newContent
                        , O.invokeUnwindLabel = unwindLabl
                        , O.invokeHasSRet = hasSRet
                        } ->
-            let (f, d1) = trConst func dict
-                (consts, attrs) = unzip args
-                (as, d2) = transMap d1 consts
-                (nl, d3) = trConst normLabl d2
-                (ul, d4) = trConst unwindLabl d3
-            in (InvokeInst { invokeConvention = cc
-                           , invokeParamAttrs = paramAttrs
-                           , invokeRetType = typeMapper rtype
-                           , invokeFunction = f
-                           , invokeArguments = zip as attrs
-                           , invokeAttrs = funcAttrs
-                           , invokeNormalLabel = nl
-                           , invokeUnwindLabel = ul
-                           , invokeHasSRet = hasSRet
-                           }, d4)
+            let (consts, attrs) = unzip args
+                (fStream, r1) = splitStream idStream
+                (aStream, r2) = splitStream r1
+                (ns, us) = splitStream r2
+                f = trConst func fStream
+                as = transMap aStream consts
+                nl = trConst normLabl ns
+                ul = trConst unwindLabl us
+            in InvokeInst { invokeConvention = cc
+                          , invokeParamAttrs = paramAttrs
+                          , invokeRetType = typeMapper rtype
+                          , invokeFunction = f
+                          , invokeArguments = zip as attrs
+                          , invokeAttrs = funcAttrs
+                          , invokeNormalLabel = nl
+                          , invokeUnwindLabel = ul
+                          , invokeHasSRet = hasSRet
+                          }
           O.VaArgInst val ty ->
-            let (v', d1) = trConst val dict
-            in (VaArgInst v' (typeMapper ty), d1)
+            let v' = trConst val idStream
+            in VaArgInst v' (typeMapper ty)

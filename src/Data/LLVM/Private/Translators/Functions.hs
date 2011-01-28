@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Data.LLVM.Private.Translators.Functions ( translateFunctionDefinition ) where
 
+import Data.List (mapAccumR)
 import Data.Map (Map, (!))
 import qualified Data.Map as M
 
@@ -24,13 +25,13 @@ mkFuncType typeMapper O.FunctionDefinition { O.funcRetType = fret
 mkFuncType _ _ = error "Non-func decl in mkFuncType"
 
 translateFunctionDefinition :: (O.Type -> Type) ->
-                               (O.Constant -> IdentDict -> (Value, IdentDict)) ->
+                               (O.Constant -> IdStream -> Value) ->
                                (Map Identifier Metadata) ->
-                               IdentDict ->
+                               IdentDict -> IdStream ->
                                O.GlobalDeclaration ->
                                IdentDict
-translateFunctionDefinition typeMapper trConst globalMetadata vals decl =
-  addGlobal fName v finalDict
+translateFunctionDefinition typeMapper trConst globalMetadata dict (thisId:restIds) decl =
+  addGlobal functionIdentifier v dictWithLocals
   where v = Value { valueType = ftype
                   , valueName = Just functionIdentifier
                   , valueMetadata = getMetadata functionIdentifier
@@ -42,49 +43,37 @@ translateFunctionDefinition typeMapper trConst globalMetadata vals decl =
                              , functionVisibility = O.funcVisibility decl
                              , functionCC = O.funcCC decl
                              , functionRetAttrs = O.funcRetAttrs decl
-                             , functionName = fName
+                             , functionName = functionIdentifier
                              , functionSection = O.funcSection decl
                              , functionAlign = O.funcAlign decl
                              , functionGCName = O.funcGCName decl
                              , functionIsVararg = O.funcIsVararg decl
                              , functionAttrs = O.funcAttrs decl
                              }
-                  , valueUniqueId = funcUID
+                  , valueUniqueId = thisId
                   }
-        (funcUID, finalDict) = nextSequenceNumber dictWithLocals
 
-        addFuncLocal = addLocal fName
+        addFuncLocal = addLocal functionIdentifier
 
         -- Trivial metadata lookup function
         getMetadata i = M.lookup i globalMetadata
 
-        -- Helper to translate the placeholder constants from the parser
-        -- into real values
-        -- trConst (O.ValueRef localIdent@(LocalIdentifier _)) =
-        --   (localVals ! localIdent)
-        -- trConst c = transValOrConst c
-        fName = O.funcName decl
-        -- Translated type of the function
-        ftype = mkFuncType typeMapper decl
-        -- Map from parameter names to their translated values
-        (parameterVals, dictWithParams) =
-          foldr translateParameter ([], vals) (O.funcParams decl)
         -- Name of the function
         functionIdentifier = O.funcName decl
-        -- Remove @llvm.dbg.* calls from the body after extracting the
-        -- information they provide.  Some of the debug information
-        -- (e.g. changes in variable values) are ignored.  That
-        -- information is implicit in phi nodes.  There is actually
-        -- some information in this metadata map for local variables,
-        -- too.  I'm not attaching that for now since it doesn't seem
-        -- all that useful and is somewhat inconvenient.  It could be
-        -- fixed if necessary.
-        (localMetadata, noDebugBody) = stripDebugCalls (O.funcBody decl)
-        -- Tie the knot on the function body, converting all
-        -- instructions to values
-        (translatedBody, dictWithLocals) = translateBody noDebugBody
-        translateParameter (O.FormalParameter ty attrs paramIdent) (acc, d) =
-          (param : acc, addFuncLocal paramIdent param d')
+        -- Translated type of the function
+        ftype = mkFuncType typeMapper decl
+        placeholderParams = O.funcParams decl
+
+        -- Reserve unique IDs for parameters without splitting the
+        -- stream.  We don't need to split the stream since parameter
+        -- creation doesn't involve recursive translation.  The rest
+        -- of the IDs are for the translation of the function body.
+        (paramIds, bodyIds) = splitAt (length placeholderParams) restIds
+        -- Map from parameter names to their translated values
+        (dictWithParams, parameterVals) =
+          mapAccumR translateParameter dict (zip paramIds placeholderParams)
+        translateParameter d (uid, (O.FormalParameter ty attrs paramIdent)) =
+          (addFuncLocal paramIdent param d, param)
           where param = Value { valueType = typeMapper ty
                               , valueName = Just paramIdent
                               -- Note: Parameter metadata is mapped in an odd way -
@@ -95,25 +84,42 @@ translateFunctionDefinition typeMapper trConst globalMetadata vals decl =
                               , valueContent = Argument attrs
                               , valueUniqueId = uid
                               }
-                (uid, d') = nextSequenceNumber d
+
+        -- Remove @llvm.dbg.* calls from the body after extracting the
+        -- information they provide.  Some of the debug information
+        -- (e.g. changes in variable values) are ignored.  That
+        -- information is implicit in phi nodes.  There is actually
+        -- some information in this metadata map for local variables,
+        -- too.  I'm not attaching that for now since it doesn't seem
+        -- all that useful and is somewhat inconvenient.  It could be
+        -- fixed if necessary.
+        (localMetadata, noDebugBody) = stripDebugCalls (O.funcBody decl)
+        -- Tie the knot on the function body, converting all
+        -- instructions to values.  The ignored return value is the
+        -- rest of the ID stream.
+        ((_, dictWithLocals), translatedBody) = translateBody noDebugBody
+
+
         -- Note, the set of locals is initialized with the parameters
         -- of the function.
-        translateBody = foldr translateBlock ([], dictWithParams)
-        translateBlock (O.BasicBlock blockName placeholderInsts) (blocks, locals) =
-          (bb : blocks, updatedMap)
+        translateBody = mapAccumR translateBlock (bodyIds, dictWithParams)
+
+        translateBlock ((thisId:restIds), locals) (O.BasicBlock blockName placeholderInsts) =
+          ((restStream, updatedMap), bb)
           where bb = Value { valueType = TypeLabel
                            , valueName = blockName
                            , valueMetadata = Nothing -- can BBs have metadata?
                            , valueContent = BasicBlock insts
-                           , valueUniqueId = blockid
+                           , valueUniqueId = thisId
                            }
-                (insts, blocksWithLocals) = translateInsts locals placeholderInsts
-                (blockid, localsDict) = nextSequenceNumber blocksWithLocals
+                (blockStream, restStream) = splitStream restIds
+                ((_,blocksWithLocals), insts) = translateInsts locals blockStream placeholderInsts
                 updatedMap = case blockName of
-                  Nothing -> localsDict
-                  Just aBlockName -> addFuncLocal aBlockName bb localsDict
+                  Nothing -> blocksWithLocals
+                  Just aBlockName -> addFuncLocal aBlockName bb blocksWithLocals
 
-        translateInsts locals = foldr trInst ([], locals)
+        translateInsts locals idstream insts =
+          mapAccumR trInst (idstream, locals) insts
         trInst = transInst addFuncLocal typeMapper trConst getMetadata
         -- Returns a new body and a map of identifiers (vals) to
         -- metadata identifiers
@@ -156,23 +162,25 @@ translateFunctionDefinition typeMapper trConst globalMetadata vals decl =
 
 transInst :: (Identifier -> Value -> IdentDict -> IdentDict) ->
              (O.Type -> Type) ->
-             (O.Constant -> IdentDict -> (Value, IdentDict)) ->
+             (O.Constant -> IdStream -> Value) ->
              (Identifier -> Maybe Metadata) ->
+             (IdStream, IdentDict) ->
              O.Instruction ->
-             ([Value], IdentDict) ->
-             ([Value], IdentDict)
-transInst addFuncLocal typeMapper trConst getMetadata i (insts, dict) =
+             ((IdStream, IdentDict), Value)
+transInst addFuncLocal typeMapper trConst getMetadata (thisId:idStream, dict) i =
   case instName of
-    Nothing -> (newValue : insts, valueDict)
-    Just valName -> (newValue : insts, addFuncLocal valName newValue valueDict)
-  where (newValue, valueDict) = repackInst i content instDict
+    Nothing -> ((restStream, dict), newValue)
+    Just valName -> ((restStream, addFuncLocal valName newValue dict), newValue)
+  where newValue = repackInst i content
         oldContent = case i of
           O.Instruction { O.instContent = oc } -> oc
           O.UnresolvedInst { O.unresInstContent = oc } -> oc
         instName = case i of
           O.Instruction { O.instName = iname } -> iname
           O.UnresolvedInst { O.unresInstName = iname } -> iname
-        (content, instDict) = translateInstruction typeMapper trConst oldContent dict
+        content = translateInstruction typeMapper trConst oldContent instStream
+
+        (instStream, restStream) = splitStream idStream
 
         -- This helper converts the non-content fields of an instruction to
         -- the equivalent fields in a Value.  It performs the necessary
@@ -183,24 +191,22 @@ transInst addFuncLocal typeMapper trConst getMetadata i (insts, dict) =
         repackInst O.Instruction { O.instType = itype
                                  , O.instName = iname
                                  , O.instMetadata = md
-                                 } newContent d = (v, d')
+                                 } newContent = v
           where v = Value { valueType = typeMapper itype
                           , valueName = iname
                           , valueMetadata = maybe Nothing getMetadata md
                           , valueContent = newContent
-                          , valueUniqueId = uid
+                          , valueUniqueId = thisId
                           }
-                (uid, d') = nextSequenceNumber d
         repackInst ui@O.UnresolvedInst { O.unresInstName = iname
                                        , O.unresInstMetadata = md
-                                       } newContent d = (v, d')
+                                       } newContent = v
           where v = Value { valueType = t
                           , valueName = iname
                           , valueMetadata = maybe Nothing getMetadata md
                           , valueContent = newContent
-                          , valueUniqueId = uid
+                          , valueUniqueId = thisId
                           }
-                (uid, d') = nextSequenceNumber d
                 t = case newContent of
                   ExtractValueInst { extractValueAggregate = agg
                                    , extractValueIndices = indices

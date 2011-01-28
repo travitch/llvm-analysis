@@ -24,7 +24,7 @@ llvmDebugVersion = 524288
 -- of metadata (besides the source locations handled above) should
 -- have an i32 tag as the first argument
 
-translateMetadata :: (O.Constant -> IdentDict -> (Value, IdentDict)) ->
+translateMetadata :: (O.Constant -> IdStream -> Value) ->
                      (Map Identifier Metadata) ->
                      (Map Identifier Metadata) ->
                      (Map Identifier Metadata) ->
@@ -65,7 +65,7 @@ translateMetadata trConst allMetadata md valmd name reflist =
 
         -- FIXME: this needs to have real identifiers generated
         translateConstant :: O.Constant -> (Metadata, Maybe Identifier)
-        translateConstant elt = (MetadataValueConstant (fst (trConst elt emptyDict)), Nothing)
+        translateConstant elt = (MetadataValueConstant (trConst elt [0..]), Nothing)
 
         mkMetadataOrSrcLoc :: [Maybe O.Constant] -> (Metadata, Maybe Identifier)
         mkMetadataOrSrcLoc vals@[Just tag, a, b, Nothing] =

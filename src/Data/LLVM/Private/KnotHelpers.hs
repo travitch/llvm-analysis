@@ -1,10 +1,13 @@
 module Data.LLVM.Private.KnotHelpers ( IdentDict
+                                     , IdStream
                                      , addGlobal
                                      , addLocal
                                      , emptyDict
                                      , getFunctionLocals
                                      , getGlobals
                                      , nextSequenceNumber
+                                     , initialStream
+                                     , splitStream
                                      ) where
 
 import Data.Map (Map, (!))
@@ -46,3 +49,12 @@ getGlobals IdentDict { globalValues = gvs } = gvs
 nextSequenceNumber :: IdentDict -> (Integer, IdentDict)
 nextSequenceNumber d@IdentDict { sequenceNumber = n } = (n, nxt `debug` ("ID: " ++ show n))
   where nxt = d { sequenceNumber = n + 1 }
+
+type IdStream = [Integer]
+
+splitStream :: IdStream -> (IdStream, IdStream)
+splitStream (x:xs) = (x:bs, as)
+  where (as, bs) = splitStream xs
+
+initialStream :: IdStream
+initialStream = [ 0 .. ]
