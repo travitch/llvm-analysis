@@ -50,7 +50,7 @@ library
 
   -- Packages needed in order to build this package.
   build-depends: text, base > 3 && < 5, array, data-binary-ieee754,
-                 containers, dwarf, fgl, graphviz, process
+                 hamtmap, dwarf, fgl, graphviz, process, hashable
   hs-source-dirs: src
 
   -- Modules not exported by this package.
@@ -59,6 +59,7 @@ library
                    Data.LLVM.Types,
                    Data.LLVM.Visualization,
                    Data.LLVM.Private.AssemblyParser,
+                   Data.LLVM.Private.Identifiers,
                    Data.LLVM.Private.AttributeTypes,
                    Data.LLVM.Private.DwarfHelpers,
                    Data.LLVM.Private.KnotHelpers,
@@ -93,7 +94,7 @@ executable parser-tests
 
 executable parser-driver
   if flag(buildTests)
-    build-depends: llvm-analysis, haskell98, text, base > 3 && < 5, containers
+    build-depends: llvm-analysis, haskell98, text, base > 3 && < 5, hamtmap
   else
     buildable: False
 

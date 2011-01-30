@@ -2,8 +2,7 @@
 module Data.LLVM.Private.Translators.Functions ( translateFunctionDefinition ) where
 
 import Data.List (mapAccumR)
-import Data.Map (Map)
-import qualified Data.Map as M
+import qualified Data.HamtMap as M
 
 import Data.LLVM.Types
 import Data.LLVM.Private.KnotHelpers
@@ -129,13 +128,13 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
         undebugInst i acc@(md, insts) = case i of
           O.Instruction { O.instContent =
                              O.CallInst { O.callFunction =
-                                             O.ValueRef (GlobalIdentifier "llvm.dbg.declare")
+                                             O.ValueRef GlobalIdentifier { globalIdentifier = "llvm.dbg.declare" }
                                         , O.callArguments = args
                                         }
                         } -> destructureDebugCall args acc
           O.Instruction { O.instContent =
                              O.CallInst { O.callFunction =
-                                             O.ValueRef (GlobalIdentifier "llvm.dbg.value")
+                                             O.ValueRef GlobalIdentifier { globalIdentifier = "llvm.dbg.value" }
                                         , O.callArguments = args
                                         }
                         } -> destructureDebugCall args acc
@@ -145,13 +144,13 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
         -- Always discard the instruction, but update the metadata map
         -- when possible
         destructureDebugCall [ (O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _, [])
-                             , (O.ValueRef i@(MetaIdentifier _), []) ] acc@(md, insts) =
+                             , (O.ValueRef i@(MetaIdentifier {}), []) ] acc@(md, insts) =
           case getMetadata i of
             Nothing -> acc
             Just metadata -> (M.insert varRef metadata md, insts)
         destructureDebugCall [ (O.ConstValue (O.MDNode [Just (O.ValueRef varRef)]) _, [])
                              , _
-                             , (O.ValueRef i@(MetaIdentifier _), []) ] acc@(md, insts) =
+                             , (O.ValueRef i@(MetaIdentifier {}), []) ] acc@(md, insts) =
           case getMetadata i of
             Nothing -> acc
             Just metadata -> (M.insert varRef metadata md, insts)

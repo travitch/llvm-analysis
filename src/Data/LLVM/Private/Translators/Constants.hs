@@ -2,7 +2,7 @@ module Data.LLVM.Private.Translators.Constants ( translateConstant
                                                ) where
 
 import Data.List (mapAccumR)
-import Data.Map (Map, (!))
+import Data.HamtMap ((!))
 
 import Data.LLVM.Private.KnotHelpers
 import qualified Data.LLVM.Private.PlaceholderTypes as O
@@ -23,10 +23,12 @@ translateConstant :: (O.Type -> Type) -> Map Identifier Value ->
 translateConstant typeMapper globalDecls localDecls v (thisId:restIds) =
   case v of
     O.ConstValue c ty -> trConstVal ty c
-    O.ValueRef ident -> case ident of
-      GlobalIdentifier _ -> globalDecls ! ident
-      LocalIdentifier _ -> localDecls ! ident
-      _ -> error $ "Metadata identifiers cannot be translated with trConst " ++ show ident
+    O.ValueRef ident ->
+      case ident of
+        LocalIdentifier {} -> localDecls ! ident
+        GlobalIdentifier {} -> globalDecls ! ident
+        _ -> error $ "Metadata identifiers cannot be translated with trConst " ++ show ident
+
   where trConst = translateConstant typeMapper globalDecls localDecls
         transMap idstream vals =
           snd $ mapAccumR f idstream vals

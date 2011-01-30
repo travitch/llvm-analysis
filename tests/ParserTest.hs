@@ -9,19 +9,19 @@ import Data.LLVM.Private.ParsingMonad
 import Data.LLVM.Private.PlaceholderTypes
 
 identParser = maybeRunLLVMParser parseIdentifier
-identTests = [ ("localIdentNamed", assertEqual, "parse %local", LocalIdentifier "local", identParser "%local")
-             , ("localIdentUnnamed", assertEqual, "parse %123", LocalIdentifier "123", identParser "%123")
-             , ("localIdentWithDot", assertEqual, "parse %local.ident", LocalIdentifier "local.ident", identParser "%local.ident")
-             , ("localIdentWithUnder", assertEqual, "parse %local_ident", LocalIdentifier "local_ident", identParser "%local_ident")
-             , ("localIdentWithDollar", assertEqual, "parse %local$ident", LocalIdentifier "local$ident", identParser "%local$ident")
-             , ("localIdentQuoted", assertEqual, "parse %\"local ident\"", LocalIdentifier "local ident", identParser "%\"local ident\"")
+identTests = [ ("localIdentNamed", assertEqual, "parse %local", makeLocalIdentifier "local", identParser "%local")
+             , ("localIdentUnnamed", assertEqual, "parse %123", makeLocalIdentifier "123", identParser "%123")
+             , ("localIdentWithDot", assertEqual, "parse %local.ident", makeLocalIdentifier "local.ident", identParser "%local.ident")
+             , ("localIdentWithUnder", assertEqual, "parse %local_ident", makeLocalIdentifier "local_ident", identParser "%local_ident")
+             , ("localIdentWithDollar", assertEqual, "parse %local$ident", makeLocalIdentifier "local$ident", identParser "%local$ident")
+             , ("localIdentQuoted", assertEqual, "parse %\"local ident\"", makeLocalIdentifier "local ident", identParser "%\"local ident\"")
                -- Global Identifiers
-             , ("globalIdentNamed", assertEqual, "parse @global", GlobalIdentifier "global", identParser "@global")
-             , ("globalIdentUnnamed", assertEqual, "parse @123", GlobalIdentifier "123", identParser "@123")
-             , ("globalIdentWithDot", assertEqual, "parse @global.ident", GlobalIdentifier "global.ident", identParser "@global.ident")
-             , ("globalIdentWithUnder", assertEqual, "parse @global_ident", GlobalIdentifier "global_ident", identParser "@global_ident")
-             , ("globalIdentWithDollar", assertEqual, "parse @global$ident", GlobalIdentifier "global$ident", identParser "@global$ident")
-             , ("globalIdentQuoted", assertEqual, "parse @\"global ident\"", GlobalIdentifier "global ident", identParser "@\"global ident\"")
+             , ("globalIdentNamed", assertEqual, "parse @global", makeGlobalIdentifier "global", identParser "@global")
+             , ("globalIdentUnnamed", assertEqual, "parse @123", makeGlobalIdentifier "123", identParser "@123")
+             , ("globalIdentWithDot", assertEqual, "parse @global.ident", makeGlobalIdentifier "global.ident", identParser "@global.ident")
+             , ("globalIdentWithUnder", assertEqual, "parse @global_ident", makeGlobalIdentifier "global_ident", identParser "@global_ident")
+             , ("globalIdentWithDollar", assertEqual, "parse @global$ident", makeGlobalIdentifier "global$ident", identParser "@global$ident")
+             , ("globalIdentQuoted", assertEqual, "parse @\"global ident\"", makeGlobalIdentifier "global ident", identParser "@\"global ident\"")
              ]
 
 

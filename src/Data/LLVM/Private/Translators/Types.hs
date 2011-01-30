@@ -1,7 +1,7 @@
 module Data.LLVM.Private.Translators.Types ( translateType ) where
 
-import qualified Data.Map as M
-import Data.Map ((!))
+import qualified Data.HamtMap as M
+import Data.HamtMap ((!))
 
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import qualified Data.LLVM.Types as N

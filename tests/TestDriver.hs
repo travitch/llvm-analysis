@@ -2,7 +2,7 @@ import qualified Data.Text.IO as T
 import System ( getArgs )
 
 import Data.Either
-import qualified Data.Map as M
+import qualified Data.HamtMap as M
 
 import Data.LLVM
 import Data.LLVM.Types

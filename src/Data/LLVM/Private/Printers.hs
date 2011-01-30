@@ -161,10 +161,10 @@ printValue Value { valueContent = ExternalFunction _
   error "External functions must have names"
 
 printValue Value { valueContent = BasicBlock instructions
-                 , valueName = Just (LocalIdentifier identifier)
+                 , valueName = Just identifier
                  } = mconcat [ label, "\n", instS ]
   where instS = unlines $ map (indent . printValue) instructions
-        identS = unpack identifier
+        identS = identifierAsString identifier
         indent = ("  "++)
         label = if isInteger identS
                 then "; <label>:" ++ identS

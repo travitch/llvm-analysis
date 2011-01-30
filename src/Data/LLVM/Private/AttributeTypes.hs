@@ -9,20 +9,17 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , TargetTriple(..)
                                         , AlignSpec(..)
                                         , defaultDataLayout
-                                        -- , Type(..)
                                         , GCName(..)
                                         , ICmpCondition(..)
                                         , FCmpCondition(..)
                                         , GlobalAnnotation(..)
-                                        , Identifier(..)
                                         , Assembly(..)
+                                        , module Data.LLVM.Private.Identifiers
                                         ) where
 
-import qualified Data.Map as Map
-import qualified Data.Set as Set
-import Data.Map (Map)
-import Data.Set (Set)
 import Data.Text (Text, unpack)
+
+import Data.LLVM.Private.Identifiers
 
 data Assembly = Assembly Text
                 deriving (Eq, Ord)
@@ -30,15 +27,6 @@ data Assembly = Assembly Text
 instance Show Assembly where
   show (Assembly txt) = unpack txt
 
-data Identifier = LocalIdentifier Text
-                | GlobalIdentifier Text
-                | MetaIdentifier Text
-                  deriving (Eq, Ord)
-
-instance Show Identifier where
-  show (LocalIdentifier t) = '%' : unpack t
-  show (GlobalIdentifier t) = '@' : unpack t
-  show (MetaIdentifier t) = '!' : unpack t
 
 data LinkageType = LTPrivate
                  | LTLinkerPrivate
@@ -174,12 +162,12 @@ instance Show TargetTriple where
 
 data DataLayout = DataLayout { endianness :: Endian
                              , pointerAlign :: (Int, AlignSpec)
-                             , intAlign :: Map Int AlignSpec
-                             , vectorAlign :: Map Int AlignSpec
-                             , floatAlign :: Map Int AlignSpec
-                             , aggregateAlign :: Map Int AlignSpec
-                             , stackAlign :: Map Int AlignSpec
-                             , nativeWidths :: Set Int
+                             , intAlign :: [ (Int, AlignSpec) ]
+                             , vectorAlign :: [ (Int, AlignSpec) ]
+                             , floatAlign :: [ (Int, AlignSpec) ]
+                             , aggregateAlign :: [ (Int, AlignSpec) ]
+                             , stackAlign :: [ (Int, AlignSpec) ]
+                             , nativeWidths :: [ Int ]
                              }
                   deriving (Show, Eq)
 
@@ -188,21 +176,21 @@ data DataLayout = DataLayout { endianness :: Endian
 defaultDataLayout :: DataLayout
 defaultDataLayout = DataLayout { endianness = EBig
                                , pointerAlign = (64, AlignSpec 64 64)
-                               , intAlign = Map.fromList [ (1, AlignSpec 8 8)
-                                                         , (8, AlignSpec 8 8)
-                                                         , (16, AlignSpec 16 16)
-                                                         , (32, AlignSpec 32 32)
-                                                         , (64, AlignSpec 32 64)
-                                                         ]
-                               , vectorAlign = Map.fromList [ (64, AlignSpec 64 64)
-                                                            , (128, AlignSpec 128 128)
-                                                            ]
-                               , floatAlign = Map.fromList [ (32, AlignSpec 32 32)
-                                                           , (64, AlignSpec 64 64)
-                                                           ]
-                               , aggregateAlign = Map.fromList [ (0, AlignSpec 0 1) ]
-                               , stackAlign = Map.fromList [ (0, AlignSpec 64 64) ]
-                               , nativeWidths = Set.empty
+                               , intAlign = [ (1, AlignSpec 8 8)
+                                            , (8, AlignSpec 8 8)
+                                            , (16, AlignSpec 16 16)
+                                            , (32, AlignSpec 32 32)
+                                            , (64, AlignSpec 32 64)
+                                            ]
+                               , vectorAlign = [ (64, AlignSpec 64 64)
+                                               , (128, AlignSpec 128 128)
+                                               ]
+                               , floatAlign = [ (32, AlignSpec 32 32)
+                                              , (64, AlignSpec 64 64)
+                                              ]
+                               , aggregateAlign = [ (0, AlignSpec 0 1) ]
+                               , stackAlign = [ (0, AlignSpec 64 64) ]
+                               , nativeWidths = [] -- Set.empty
                                }
 
 data GCName = GCName Text deriving (Eq, Ord)

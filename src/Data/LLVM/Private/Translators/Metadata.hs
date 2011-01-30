@@ -1,8 +1,8 @@
 module Data.LLVM.Private.Translators.Metadata ( translateMetadata ) where
 
 import Data.Dwarf
-import qualified Data.Map as M
-import Data.Map (Map, (!))
+import qualified Data.HamtMap as M
+import Data.HamtMap ((!))
 import Data.Maybe (fromJust)
 
 import Data.LLVM.Private.KnotHelpers
@@ -41,7 +41,7 @@ translateMetadata trConst allMetadata md valmd name reflist =
         metaRef c = error ("Constant is not a metadata reference: " ++ show c)
 
         allRefsMetadata = all isMetadata reflist
-        isMetadata (Just (O.ValueRef (MetaIdentifier _))) = True
+        isMetadata (Just (O.ValueRef MetaIdentifier {})) = True
         isMetadata _ = False
 
         -- Turn source location meta records into a source location object;

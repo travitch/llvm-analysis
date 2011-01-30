@@ -5,8 +5,8 @@ module Data.LLVM.CFG ( CFG
 
 import Data.List (foldl')
 import Data.Graph.Inductive
-import Data.Map ((!))
-import qualified Data.Map as M
+import Data.HamtMap ((!))
+import qualified Data.HamtMap as M
 
 import Data.LLVM.Private.Printers ( )
 import Data.LLVM.Private.ReferentialTypes

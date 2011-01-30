@@ -7,6 +7,7 @@ module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
                                           ) where
 
 import Data.Dwarf
+import Data.Hashable
 import Data.Text (Text)
 
 import Data.LLVM.Private.AttributeTypes
@@ -153,6 +154,12 @@ instance Eq Value where
 
 instance Ord Value where
   (Value { valueUniqueId = i1 }) `compare` (Value { valueUniqueId = i2 }) = i1 `compare` i2
+
+maxInt :: Integer
+maxInt = fromIntegral (maxBound :: Int)
+
+instance Hashable Value where
+  hash Value { valueUniqueId = i } = fromIntegral $ (i `mod` maxInt)
 
 -- Functions have parameters if they are not external
 data ValueT = Function { functionType :: Type

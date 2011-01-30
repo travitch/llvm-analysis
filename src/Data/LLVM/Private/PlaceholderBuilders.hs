@@ -224,7 +224,7 @@ mkBasicBlock :: Maybe Text -> [Instruction] -> BasicBlock
 mkBasicBlock t = BasicBlock identifier
   where identifier = case t of
           Nothing -> Nothing
-          Just name -> Just $ LocalIdentifier name
+          Just name -> Just $ makeLocalIdentifier name
 
 mkFunctionDef :: LinkageType -> VisibilityStyle -> CallingConvention ->
                  [ParamAttribute] -> Type -> Identifier ->

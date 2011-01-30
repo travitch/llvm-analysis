@@ -325,13 +325,13 @@ VisibilityStyle:
   |             { VisibilityDefault }
 
 GlobalIdentifier:
-  gident { GlobalIdentifier $1 }
+  gident { makeGlobalIdentifier $1 }
 
 LocalIdentifier:
-  lident { LocalIdentifier $1 }
+  lident { makeLocalIdentifier $1 }
 
 MetaIdentifier:
-  mdname { MetaIdentifier $1 }
+  mdname { makeMetaIdentifier $1 }
 
 Identifier:
     LocalIdentifier  { $1 }

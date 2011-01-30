@@ -4,12 +4,12 @@ module Data.LLVM.Private.KnotHelpers ( SymbolTable
                                      , splitStream
                                      ) where
 
-import Data.Map (Map)
+import Data.HamtMap (HamtMap)
 
 import Data.LLVM.Types
 
 
-type SymbolTable = Map Identifier Value
+type SymbolTable = HamtMap Identifier Value
 
 type IdStream = [Integer]
 

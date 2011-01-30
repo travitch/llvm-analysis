@@ -1,7 +1,6 @@
 module Data.LLVM.Private.TieKnot ( tieKnot ) where
 
-import qualified Data.Map as M
-import Data.Map (Map)
+import qualified Data.HamtMap as M
 import Data.Text (Text)
 
 import Data.LLVM.Private.KnotHelpers
@@ -34,6 +33,9 @@ tieKnot (O.Module layout triple decls) =
         globalValues = completeGraph typeMapper decls
         funcs = filter valueIsFunction globalValues
 
+htUnion t1 t2 = foldr addElt t1 l
+  where l = M.toList t2
+        addElt (k, v) t = M.insert k v t
 
 -- FIXME: Could do something with the named metadata.  There seem to
 -- be two entries that don't really give much information: the lists
@@ -44,7 +46,7 @@ completeGraph :: (O.Type -> Type) ->
 completeGraph typeMapper decls = M.elems globalValues
   where globalValues = go decls M.empty initialStream
         (boundMD, mdForGlobals) = mdGo decls (M.empty, M.empty)
-        metadata = boundMD `M.union` mdForGlobals
+        metadata = boundMD `htUnion` mdForGlobals
         mdGo [] (md, mv) = (md, mv)
         mdGo (O.UnnamedMetadata name refs : rest) (md, mv) =
           mdGo rest (transMetadata md mv name refs)
