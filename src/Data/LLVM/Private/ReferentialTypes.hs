@@ -177,7 +177,8 @@ data ValueT = Function { functionType :: Type
                        , functionIsVararg :: Bool
                        }
             | GlobalDeclaration { globalVariableAddressSpace :: Int
-                                , globalVariableAnnotations :: [GlobalAnnotation]
+                                , globalVariableLinkage :: LinkageType
+                                , globalVariableAnnotation :: GlobalAnnotation
                                 , globalVariableInitializer :: Value
                                 , globalVariableAlignment :: Integer
                                 , globalVariableSection :: Maybe Text

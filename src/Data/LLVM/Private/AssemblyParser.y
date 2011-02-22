@@ -1,5 +1,6 @@
 {
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -w #-}
 module Data.LLVM.Private.AssemblyParser ( parser
                                         , parseIdentifier
                                         , parseCallingConvention
@@ -251,8 +252,8 @@ TypeDeclaration:
   LocalIdentifier "=" "type" Type { NamedType $1 $4 }
 
 GlobalDecl:
-  GlobalIdentifier "=" AddrSpace list(GlobalAnnotation) Type PartialConstant GlobalDeclTail -- AlignmentSpec
-  { mkGlobalDecl $1 $3 $4 $5 $6 (fst $7) (snd $7) }
+  GlobalIdentifier "=" AddrSpace LinkageType GlobalAnnotation Type PartialConstant GlobalDeclTail
+  { mkGlobalDecl $1 $3 $4 $5 $6 $7 (fst $8) (snd $8) }
 
 FunctionDefinition:
   "define" LinkageType VisibilityStyle CallingConvention list(ParameterAttribute)
@@ -429,9 +430,6 @@ AddrSpace:
 GlobalAnnotation:
     "constant" { GAConstant }
   | "global"   { GAGlobal }
-  | "common"   { GACommon }
-  | "private"  { GAPrivate }
-  | "external" { GAExternal }
 
 FuncArgList:
     Type list(ParameterAttribute) LocalIdentifier MoreFuncArgs

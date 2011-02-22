@@ -83,20 +83,20 @@ library
   ghc-options: -Wall -fno-warn-lazy-unlifted-bindings
 
 executable parser-tests
-  if flag(buildTests)
-    build-depends: HUnit, llvm-analysis, base > 3 && < 5
-  else
-    buildable: False
+  --if flag(buildTests)
+  build-depends: HUnit, llvm-analysis, base > 3 && < 5
+  --else
+  --  buildable: False
 
   main-is: ParserTest.hs
   hs-source-dirs: tests
   extensions: OverloadedStrings
 
 executable parser-driver
-  if flag(buildTests)
-    build-depends: llvm-analysis, haskell98, text, base > 3 && < 5, hamtmap
-  else
-    buildable: False
+  --if flag(buildTests)
+  build-depends: llvm-analysis, haskell98, text, base > 3 && < 5, hamtmap
+  --else
+  --  buildable: False
 
   ghc-options: -Wall
   main-is: TestDriver.hs

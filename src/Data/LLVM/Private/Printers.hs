@@ -91,7 +91,8 @@ printValue Value { valueContent =
 
 printValue Value { valueContent =
                       GlobalDeclaration { globalVariableAddressSpace = addrSpace
-                                        , globalVariableAnnotations = annots
+                                        , globalVariableLinkage = linkage
+                                        , globalVariableAnnotation = annot
                                         , globalVariableInitializer = initializer
                                         , globalVariableAlignment = align
                                         , globalVariableSection = section
@@ -101,14 +102,15 @@ printValue Value { valueContent =
                  , valueMetadata = _
                  } =
    -- Don't show t here since showing the initializer will handle it
-  compose [ show name, "=", addrSpaceS, annotsS,
+  compose [ show name, "=", addrSpaceS, linkageS, annotsS,
             printConstOrName initializer, sectionS
           , printAlignment align
           ]
   where addrSpaceS = case addrSpace of
           0 -> ""
           _ -> "addrspace(" ++ show addrSpace ++ ")"
-        annotsS = unwords $ map show annots
+        linkageS = show linkage
+        annotsS = show annot
         sectionS = maybe "" ((", section "++) . quote . unpack) section
 
 printValue Value { valueContent = GlobalDeclaration {}

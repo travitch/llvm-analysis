@@ -56,8 +56,8 @@ completeGraph typeMapper decls = M.elems globalValues
         go (decl:rest) vals idstream@(thisId:restIds) =
           let (s1, s2) = splitStream idstream
           in case decl of
-          O.GlobalDeclaration name addrspace annots ty initializer align section ->
-            let g = transGlobalVar typeMapper trGlobal getMetadata s1 name addrspace annots ty initializer align section
+          O.GlobalDeclaration name addrspace linkage annot ty initializer align section ->
+            let g = transGlobalVar typeMapper trGlobal getMetadata s1 name addrspace linkage annot ty initializer align section
                 updatedVals = M.insert name g vals
             in go rest updatedVals s2
           O.FunctionDefinition { O.funcName = fname } ->
@@ -126,16 +126,17 @@ transAlias typeMapper trConst getGlobalMD (thisId:restIds) name linkage vis ty c
 transGlobalVar :: (O.Type -> Type) ->
                   (O.Constant -> IdStream -> Value) ->
                   (Identifier -> Maybe Metadata) ->
-                  IdStream -> Identifier -> Int ->
-                  [GlobalAnnotation] -> O.Type -> O.Constant -> Integer ->
+                  IdStream -> Identifier -> Int -> LinkageType ->
+                  GlobalAnnotation -> O.Type -> O.Constant -> Integer ->
                   Maybe Text ->
                   Value
-transGlobalVar typeMapper trConst getGlobalMD (thisId:restIds) name addrspace annots ty initializer align section =
+transGlobalVar typeMapper trConst getGlobalMD (thisId:restIds) name addrspace linkage annot ty initializer align section =
   val
   where i = trConst initializer restIds
         val = mkValue thisId (typeMapper ty) (Just name) (getGlobalMD name) decl
         decl = GlobalDeclaration { globalVariableAddressSpace = addrspace
-                                 , globalVariableAnnotations = annots
+                                 , globalVariableLinkage = linkage
+                                 , globalVariableAnnotation = annot
                                  , globalVariableInitializer = i
                                  , globalVariableAlignment = align
                                  , globalVariableSection = section
