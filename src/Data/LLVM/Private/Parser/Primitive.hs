@@ -2,8 +2,8 @@ module Data.LLVM.Private.Parser.Primitive ( AssemblyParser
                                           , tokenAs
                                           , lexTokenAs
                                           , consumeToken
-                                          , stringMatcher
                                           , parseInteger
+                                          , parseString
                                           , manyChain
                                           ) where
 
@@ -45,15 +45,16 @@ consumeToken t = tokenAs matcher >> return ()
           then Just t
           else Nothing
 
-stringMatcher :: LexerToken -> Maybe Text
-stringMatcher x =
-  case x of
-    TString s -> Just s
-    _ -> Nothing
-
 parseInteger :: AssemblyParser Integer
 parseInteger = tokenAs matcher
   where matcher x =
           case x of
             TIntLit i -> Just i
+            _ -> Nothing
+
+parseString :: AssemblyParser Text
+parseString = tokenAs matcher
+  where matcher x =
+          case x of
+            TString s -> Just s
             _ -> Nothing
