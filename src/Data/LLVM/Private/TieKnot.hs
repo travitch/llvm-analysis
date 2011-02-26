@@ -127,12 +127,12 @@ transGlobalVar :: (O.Type -> Type) ->
                   (O.Constant -> IdStream -> Value) ->
                   (Identifier -> Maybe Metadata) ->
                   IdStream -> Identifier -> Int -> LinkageType ->
-                  GlobalAnnotation -> O.Type -> O.Constant -> Integer ->
+                  GlobalAnnotation -> O.Type -> Maybe O.Constant -> Integer ->
                   Maybe Text ->
                   Value
 transGlobalVar typeMapper trConst getGlobalMD (thisId:restIds) name addrspace linkage annot ty initializer align section =
   val
-  where i = trConst initializer restIds
+  where i = maybe Nothing (Just . ((flip trConst) restIds)) initializer
         val = mkValue thisId (typeMapper ty) (Just name) (getGlobalMD name) decl
         decl = GlobalDeclaration { globalVariableAddressSpace = addrspace
                                  , globalVariableLinkage = linkage

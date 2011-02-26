@@ -179,7 +179,7 @@ data ValueT = Function { functionType :: Type
             | GlobalDeclaration { globalVariableAddressSpace :: Int
                                 , globalVariableLinkage :: LinkageType
                                 , globalVariableAnnotation :: GlobalAnnotation
-                                , globalVariableInitializer :: Value
+                                , globalVariableInitializer :: Maybe Value
                                 , globalVariableAlignment :: Integer
                                 , globalVariableSection :: Maybe Text
                                 }

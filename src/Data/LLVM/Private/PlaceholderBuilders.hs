@@ -213,12 +213,14 @@ mkExternalFuncDecl retType ident (argTypes, isVararg) attrs =
           _ -> TypeFunction retType argTypes isVararg
 
 mkGlobalDecl :: Identifier -> Int -> LinkageType -> GlobalAnnotation -> Type ->
-                PartialConstant -> Integer -> Maybe Text ->
+                Maybe PartialConstant -> Integer -> Maybe Text ->
                 GlobalDeclaration
 mkGlobalDecl ident addrSpace linkage annot initType initializer align section =
   GlobalDeclaration ident addrSpace linkage annot t i align section
   where t = TypePointer initType
-        i = initializer initType
+        i = case initializer of
+          Just i' -> Just $ i' initType
+          Nothing -> Nothing
 
 mkBasicBlock :: Maybe Text -> [Instruction] -> BasicBlock
 mkBasicBlock t = BasicBlock identifier

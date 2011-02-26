@@ -1,6 +1,6 @@
 {
 {-# LANGUAGE RankNTypes, OverloadedStrings #-}
-module Data.LLVM.Private.Lexer ( lexer, Token(..) ) where
+module Data.LLVM.Private.Lexer ( lexer, LexerToken(..), Token, AlexPosn(..) ) where
 
 import Data.Binary.IEEE754
 import Data.Monoid
@@ -97,6 +97,7 @@ tokens :-
   "weak_odr"  { simpleTok TWeakODR }
   "dllimport" { simpleTok TDLLImport }
   "dllexport" { simpleTok TDLLExport }
+  "external"  { simpleTok TExternal }
 
   -- Calling Conventions
   "ccc"    { simpleTok TCCCCC }
@@ -259,226 +260,228 @@ tokens :-
   $whitespace+ ;
 
 {
-data Token = TIntLit AlexPosn Integer
-           | TFloatLit AlexPosn Double
-           | TStringLit AlexPosn Text
-           | TMetadataString AlexPosn Text
-           | TTrueLit AlexPosn
-           | TFalseLit AlexPosn
-           | TNullLit AlexPosn
-           | TUndefLit AlexPosn
-           | TZeroInitializer AlexPosn
-           | TString AlexPosn Text
-           | TLabel AlexPosn Text
+data LexerToken = TIntLit Integer
+           | TFloatLit Double
+           | TStringLit Text
+           | TMetadataString Text
+           | TTrueLit
+           | TFalseLit
+           | TNullLit
+           | TUndefLit
+           | TZeroInitializer
+           | TString Text
+           | TLabel Text
 
            -- Operator-like tokens
-           | TComma AlexPosn
-           | TAssign AlexPosn
-           | TStar AlexPosn
-           | TLParen AlexPosn
-           | TRParen AlexPosn
-           | TLSquare AlexPosn
-           | TRSquare AlexPosn
-           | TLCurl AlexPosn
-           | TRCurl AlexPosn
-           | TLAngle AlexPosn
-           | TRAngle AlexPosn
-           | TBang AlexPosn
-           | TAggLen AlexPosn
-           | TTo AlexPosn
-           | TDotDotDot AlexPosn
+           | TComma
+           | TAssign
+           | TStar
+           | TLParen
+           | TRParen
+           | TLSquare
+           | TRSquare
+           | TLCurl
+           | TRCurl
+           | TLAngle
+           | TRAngle
+           | TBang
+           | TAggLen
+           | TTo
+           | TDotDotDot
 
            -- Identifiers
-           | TLocalIdent AlexPosn Text
-           | TGlobalIdent AlexPosn Text
-           | TMetadataName AlexPosn Text
+           | TLocalIdent Text
+           | TGlobalIdent Text
+           | TMetadataName Text
 
            -- Linkage Types
-           | TPrivate AlexPosn
-           | TLinkerPrivate AlexPosn
-           | TLinkerPrivateWeak AlexPosn
-           | TLinkerPrivateWeakDefAuto AlexPosn
-           | TInternal AlexPosn
-           | TAvailableExternally AlexPosn
-           | TLinkOnce AlexPosn
-           | TWeak AlexPosn
-           | TCommon AlexPosn
-           | TAppending AlexPosn
-           | TExternWeak AlexPosn
-           | TLinkOnceODR AlexPosn
-           | TWeakODR AlexPosn
-           | TDLLImport AlexPosn
-           | TDLLExport AlexPosn
+           | TPrivate
+           | TLinkerPrivate
+           | TLinkerPrivateWeak
+           | TLinkerPrivateWeakDefAuto
+           | TInternal
+           | TAvailableExternally
+           | TLinkOnce
+           | TWeak
+           | TCommon
+           | TAppending
+           | TExternWeak
+           | TLinkOnceODR
+           | TWeakODR
+           | TDLLImport
+           | TDLLExport
 
            -- Calling Conventions
-           | TCCCCC AlexPosn
-           | TCCFastCC AlexPosn
-           | TCCColdCC AlexPosn
-           | TCCGHC AlexPosn
-           | TCCN AlexPosn Int
+           | TCCCCC
+           | TCCFastCC
+           | TCCColdCC
+           | TCCGHC
+           | TCCN Int
 
            -- Visibility Style
-           | TVisDefault AlexPosn
-           | TVisHidden AlexPosn
-           | TVisProtected AlexPosn
+           | TVisDefault
+           | TVisHidden
+           | TVisProtected
 
            -- Param Attributes
-           | TPAZeroExt AlexPosn
-           | TPASignExt AlexPosn
-           | TPAInReg AlexPosn
-           | TPAByVal AlexPosn
-           | TPASRet AlexPosn
-           | TPANoAlias AlexPosn
-           | TPANoCapture AlexPosn
-           | TPANest AlexPosn
+           | TPAZeroExt
+           | TPASignExt
+           | TPAInReg
+           | TPAByVal
+           | TPASRet
+           | TPANoAlias
+           | TPANoCapture
+           | TPANest
 
            -- Function Attributes
-           | TFAAlignStack AlexPosn Int
-           | TFAAlwaysInline AlexPosn
-           | TFAHotPatch AlexPosn
-           | TFAInlineHint AlexPosn
-           | TFANaked AlexPosn
-           | TFANoImplicitFloat AlexPosn
-           | TFANoInline AlexPosn
-           | TFANoRedZone AlexPosn
-           | TFANoReturn AlexPosn
-           | TFANoUnwind AlexPosn
-           | TFAOptSize AlexPosn
-           | TFAReadNone AlexPosn
-           | TFAReadOnly AlexPosn
-           | TFASSP AlexPosn
-           | TFASSPReq AlexPosn
+           | TFAAlignStack Int
+           | TFAAlwaysInline
+           | TFAHotPatch
+           | TFAInlineHint
+           | TFANaked
+           | TFANoImplicitFloat
+           | TFANoInline
+           | TFANoRedZone
+           | TFANoReturn
+           | TFANoUnwind
+           | TFAOptSize
+           | TFAReadNone
+           | TFAReadOnly
+           | TFASSP
+           | TFASSPReq
 
            -- Types
-           | TIntegralT AlexPosn Int -- bitsize
-           | TFloatT AlexPosn
-           | TDoubleT AlexPosn
-           | TX86_FP80T AlexPosn
-           | TFP128T AlexPosn
-           | TPPC_FP128T AlexPosn
-           | TX86mmxT AlexPosn
-           | TVoidT AlexPosn
-           | TMetadataT AlexPosn
-           | TOpaqueT AlexPosn
-           | TUprefT AlexPosn Int
-           | TLabelT AlexPosn
+           | TIntegralT Int -- bitsize
+           | TFloatT
+           | TDoubleT
+           | TX86_FP80T
+           | TFP128T
+           | TPPC_FP128T
+           | TX86mmxT
+           | TVoidT
+           | TMetadataT
+           | TOpaqueT
+           | TUprefT Int
+           | TLabelT
 
            -- Keywords
-           | TType AlexPosn
-           | TAddrspace AlexPosn Int
-           | TConstant AlexPosn
-           | TSection AlexPosn
-           | TAlign AlexPosn
-           | TAlignStack AlexPosn
-           | TSideEffect AlexPosn
-           | TAlias AlexPosn
-           | TDeclare AlexPosn
-           | TDefine AlexPosn
-           | TGC AlexPosn
-           | TModule AlexPosn
-           | TAsm AlexPosn
-           | TTarget AlexPosn
-           | TDataLayout AlexPosn
-           | TBlockAddress AlexPosn
-           | TInbounds AlexPosn
-           | TGlobal AlexPosn
-           | TTail AlexPosn
-           | TTriple AlexPosn
-           | TDbg AlexPosn
-           | TExternal AlexPosn
+           | TType
+           | TAddrspace Int
+           | TConstant
+           | TSection
+           | TAlign
+           | TAlignStack
+           | TSideEffect
+           | TAlias
+           | TDeclare
+           | TDefine
+           | TGC
+           | TModule
+           | TAsm
+           | TTarget
+           | TDataLayout
+           | TBlockAddress
+           | TInbounds
+           | TGlobal
+           | TTail
+           | TTriple
+           | TDbg
+           | TExternal
 
            -- Add modifiers
-           | TNUW AlexPosn
-           | TNSW AlexPosn
+           | TNUW
+           | TNSW
 
            -- Div mods
-           | TExact AlexPosn
+           | TExact
 
            -- Load/Store mods
-           | TVolatile AlexPosn
+           | TVolatile
 
            -- Instructions
-           | TTrunc AlexPosn
-           | TZext AlexPosn
-           | TSext AlexPosn
-           | TFpTrunc AlexPosn
-           | TFpExt AlexPosn
-           | TFpToUI AlexPosn
-           | TFpToSI AlexPosn
-           | TUIToFp AlexPosn
-           | TSIToFp AlexPosn
-           | TPtrToInt AlexPosn
-           | TIntToPtr AlexPosn
-           | TBitCast AlexPosn
-           | TGetElementPtr AlexPosn
-           | TSelect AlexPosn
-           | TIcmp AlexPosn
-           | TFcmp AlexPosn
-           | TExtractElement AlexPosn
-           | TInsertElement AlexPosn
-           | TShuffleVector AlexPosn
-           | TExtractValue AlexPosn
-           | TInsertValue AlexPosn
-           | TCall AlexPosn
-           | TRet AlexPosn
-           | TBr AlexPosn
-           | TSwitch AlexPosn
-           | TIndirectBr AlexPosn
-           | TInvoke AlexPosn
-           | TUnwind AlexPosn
-           | TUnreachable AlexPosn
-           | TAdd AlexPosn
-           | TFadd AlexPosn
-           | TSub AlexPosn
-           | TFsub AlexPosn
-           | TMul AlexPosn
-           | TFmul AlexPosn
-           | TUdiv AlexPosn
-           | TSdiv AlexPosn
-           | TFdiv AlexPosn
-           | TUrem AlexPosn
-           | TSrem AlexPosn
-           | TFrem AlexPosn
-           | TShl AlexPosn
-           | TLshr AlexPosn
-           | TAshr AlexPosn
-           | TAnd AlexPosn
-           | TOr AlexPosn
-           | TXor AlexPosn
-           | TAlloca AlexPosn
-           | TLoad AlexPosn
-           | TStore AlexPosn
-           | TPhi AlexPosn
-           | TVaArg AlexPosn
+           | TTrunc
+           | TZext
+           | TSext
+           | TFpTrunc
+           | TFpExt
+           | TFpToUI
+           | TFpToSI
+           | TUIToFp
+           | TSIToFp
+           | TPtrToInt
+           | TIntToPtr
+           | TBitCast
+           | TGetElementPtr
+           | TSelect
+           | TIcmp
+           | TFcmp
+           | TExtractElement
+           | TInsertElement
+           | TShuffleVector
+           | TExtractValue
+           | TInsertValue
+           | TCall
+           | TRet
+           | TBr
+           | TSwitch
+           | TIndirectBr
+           | TInvoke
+           | TUnwind
+           | TUnreachable
+           | TAdd
+           | TFadd
+           | TSub
+           | TFsub
+           | TMul
+           | TFmul
+           | TUdiv
+           | TSdiv
+           | TFdiv
+           | TUrem
+           | TSrem
+           | TFrem
+           | TShl
+           | TLshr
+           | TAshr
+           | TAnd
+           | TOr
+           | TXor
+           | TAlloca
+           | TLoad
+           | TStore
+           | TPhi
+           | TVaArg
            -- cmp styles
-           | Teq AlexPosn
-           | Tne AlexPosn
-           | Tugt AlexPosn
-           | Tuge AlexPosn
-           | Tult AlexPosn
-           | Tule AlexPosn
-           | Tsgt AlexPosn
-           | Tsge AlexPosn
-           | Tslt AlexPosn
-           | Tsle AlexPosn
-           | Toeq AlexPosn
-           | Togt AlexPosn
-           | Toge AlexPosn
-           | Tolt AlexPosn
-           | Tole AlexPosn
-           | Tone AlexPosn
-           | Tord AlexPosn
-           | Tueq AlexPosn
-           | Tune AlexPosn
-           | Tuno AlexPosn
-         deriving (Show)
+           | Teq
+           | Tne
+           | Tugt
+           | Tuge
+           | Tult
+           | Tule
+           | Tsgt
+           | Tsge
+           | Tslt
+           | Tsle
+           | Toeq
+           | Togt
+           | Toge
+           | Tolt
+           | Tole
+           | Tone
+           | Tord
+           | Tueq
+           | Tune
+           | Tuno
+         deriving (Show, Eq)
 
-simpleTok :: (AlexPosn -> Token) -> AlexPosn -> Text -> Token
-simpleTok tcons pos _ = tcons pos
+type Token = (AlexPosn, LexerToken)
 
-stringTok :: (AlexPosn -> Text -> Token) -> (Text -> Text) ->
+simpleTok :: LexerToken -> AlexPosn -> Text -> Token
+simpleTok t pos _ = (pos, t)
+
+stringTok :: (Text -> LexerToken) -> (Text -> Text) ->
              AlexPosn -> Text -> Token
-stringTok tcons fltr pos s = tcons pos (fltr s)
+stringTok t fltr pos s = (pos, t (fltr s))
 
 -- Helpers for constructing identifiers
 mkGlobalIdent = stringTok TGlobalIdent stripSigil
@@ -496,10 +499,10 @@ mkAnonLabel = stringTok TLabel (T.takeWhile isDigit . T.drop 10)
   where isDigit c = c >= '0' && c <= '9'
 
 -- Helpers for the simple literals
-mkIntLit pos s = TIntLit pos $ readText s
-mkFloatLit pos s = TFloatLit pos $ readText s
+mkIntLit pos s = (pos, TIntLit $ readText s)
+mkFloatLit pos s = (pos, TFloatLit $ readText s)
 -- Drop the first pfxLen characters (0x)
-mkHexFloatLit pfxLen pos s = TFloatLit pos $ wordToDouble $ readText s'
+mkHexFloatLit pfxLen pos s = (pos, TFloatLit $ wordToDouble $ readText s')
   where s' = "0x" `mappend` (T.drop pfxLen s)
 -- Strip off the leading c and then unquote
 mkStringConstant = stringTok TStringLit (unquote . T.tail)
@@ -509,17 +512,17 @@ readText :: (Read a) => Text -> a
 readText = read . T.unpack
 
 -- Discard "cc "
-mkNumberedCC pos s = TCCN pos $ readText $ T.drop 3 s
+mkNumberedCC pos s = (pos, TCCN $ readText $ T.drop 3 s)
 
 -- Extract part between parens (TFAAlignStack Int)
-mkAlignStack pos s = TFAAlignStack pos $ readText s'
+mkAlignStack pos s = (pos, TFAAlignStack $ readText s')
   where s' = T.drop 11 $ T.init s
 
 -- Types
-mkTypeUpref pos s = TUprefT pos $ readText $ T.tail s
-mkIntegralType pos s = TIntegralT pos $ readText $ T.tail s
+mkTypeUpref pos s = (pos, TUprefT $ readText $ T.tail s)
+mkIntegralType pos s = (pos, TIntegralT $ readText $ T.tail s)
 
-mkAddrSpace pos s = TAddrspace pos $ readText s'
+mkAddrSpace pos s = (pos, TAddrspace $ readText s')
   where s' = T.drop 10 $ T.init s
 
 -- Exported interface

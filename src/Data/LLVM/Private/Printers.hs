@@ -102,8 +102,8 @@ printValue Value { valueContent =
                  , valueMetadata = _
                  } =
    -- Don't show t here since showing the initializer will handle it
-  compose [ show name, "=", addrSpaceS, linkageS, annotsS,
-            printConstOrName initializer, sectionS
+  compose [ show name, "=", addrSpaceS, linkageS, annotsS
+          , initS, sectionS
           , printAlignment align
           ]
   where addrSpaceS = case addrSpace of
@@ -112,6 +112,7 @@ printValue Value { valueContent =
         linkageS = show linkage
         annotsS = show annot
         sectionS = maybe "" ((", section "++) . quote . unpack) section
+        initS = maybe "" printConstOrName initializer
 
 printValue Value { valueContent = GlobalDeclaration {}
                  , valueName = Nothing

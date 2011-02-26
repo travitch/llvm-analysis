@@ -252,8 +252,8 @@ TypeDeclaration:
   LocalIdentifier "=" "type" Type { NamedType $1 $4 }
 
 GlobalDecl:
-  GlobalIdentifier "=" AddrSpace LinkageType GlobalAnnotation Type PartialConstant GlobalDeclTail
-  { mkGlobalDecl $1 $3 $4 $5 $6 $7 (fst $8) (snd $8) }
+  GlobalIdentifier "=" AddrSpace LinkageType GlobalAnnotation Type GlobalDeclTail
+  { mkGlobalDecl $1 $3 $4 $5 $6 (fst $7) (fst (snd $7)) (snd (snd $7)) }
 
 FunctionDefinition:
   "define" LinkageType VisibilityStyle CallingConvention list(ParameterAttribute)
@@ -308,6 +308,7 @@ LinkageType:
   | "weak_odr"  { LTWeakODR }
   | "dllimport" { LTDLLImport }
   | "dllexport" { LTDLLExport }
+  | "external"  { LTExtern }
   |             { LTExtern } -- The default
 
 
@@ -415,9 +416,16 @@ MoreFuncTypeArgsOrVararg:
     Type list(ParameterAttribute) MoreFuncTypeArgs { ($1 : (fst $3), snd $3) }
   | "..."                 { ([], True) }
 
+-- The initializer for a global (probably) can't refer to another variable
+-- directly.  Only take "proper" constants.
 GlobalDeclTail:
-  "," GlobalDeclSectionOrAlign { $2 }
-  |                            { (0, Nothing) }
+    NonIdentPartialConstant GlobalDeclTailMaybeComma { (Just $1, $2) }
+  | "," GlobalDeclSectionOrAlign { (Nothing, $2) }
+  |                              { (Nothing, (0, Nothing)) }
+
+GlobalDeclTailMaybeComma:
+    "," GlobalDeclSectionOrAlign { $2 }
+  |                              { (0, Nothing) }
 
 GlobalDeclSectionOrAlign:
     "section" string AlignmentSpec { ($3, Just $2) }
@@ -526,6 +534,9 @@ AllConstants:
 PartialConstant:
     AllConstants { ConstValue $1 }
   | Identifier   { valueRef $1 }
+
+NonIdentPartialConstant:
+  AllConstants { ConstValue $1 }
 
 -- These are full constants
 Constant:
@@ -646,9 +657,6 @@ InstructionNoMD:
 InBounds:
     "inbounds" { True  }
   |            { False }
-
-ExtraIntLitIndex:
-  "," intlit { $2 }
 
 CallIdentifier:
   LocalIdentifier "=" { $1 }

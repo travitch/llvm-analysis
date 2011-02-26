@@ -10,7 +10,7 @@ import qualified Data.Text.IO as T
 import System.Process
 
 import Data.LLVM.Types
-import Data.LLVM.Private.AssemblyParser
+import Data.LLVM.Private.Parser
 import Data.LLVM.Private.ParsingMonad
 import Data.LLVM.Private.TieKnot
 
@@ -20,7 +20,7 @@ import Data.LLVM.Private.TieKnot
 parseLLVMAsm :: Text -> Either String Module
 parseLLVMAsm t = case parseTree of
     Right llvmModule -> Right $ tieKnot llvmModule
-    Left err -> Left err
+    Left err -> Left (show err)
   where parseTree = runLLVMParser parser t
 
 -- | This is a wrapper for those who do not care about the reason for
