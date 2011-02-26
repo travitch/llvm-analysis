@@ -2,11 +2,14 @@ module Data.LLVM.Private.Parser.Primitive ( AssemblyParser
                                           , tokenAs
                                           , lexTokenAs
                                           , consumeToken
+                                          , consumeTokens
                                           , parseInteger
                                           , parseString
                                           , manyChain
+                                          , betweenTokens
                                           ) where
 
+import Control.Applicative hiding ((<|>), many)
 import Data.Text (Text)
 import Text.Parsec
 import Text.Parsec.Pos (newPos)
@@ -20,6 +23,9 @@ manyChain :: AssemblyParser a -> (a -> b -> b) -> b -> AssemblyParser b
 manyChain p f initVal = do
   vs <- many p
   return $ foldr f initVal vs
+
+betweenTokens :: [LexerToken] -> [LexerToken] -> AssemblyParser a -> AssemblyParser a
+betweenTokens open close p = consumeTokens open *> p <* consumeTokens close
 
 toSourcePos :: AlexPosn -> SourcePos
 toSourcePos (AlexPn _ line col) = newPos "" line col
@@ -44,6 +50,9 @@ consumeToken t = tokenAs matcher >> return ()
           if t == tok
           then Just t
           else Nothing
+
+consumeTokens :: [LexerToken] -> AssemblyParser ()
+consumeTokens = mapM_ consumeToken
 
 parseInteger :: AssemblyParser Integer
 parseInteger = tokenAs matcher

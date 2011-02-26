@@ -13,7 +13,7 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttribute
                                            , identifier
                                            , instructionMetadata
                                            , branchTarget
-                                           , inBounds
+                                           , inBoundsP
                                            , icmpCondition
                                            , fcmpCondition
                                            , volatileFlag
@@ -28,14 +28,12 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttribute
                                            ) where
 
 import Control.Applicative hiding ((<|>))
-import Data.Monoid
 import Data.Text (Text)
 import Text.Parsec
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.Lexer
 import Data.LLVM.Private.PlaceholderTypes
-import Data.LLVM.Private.PlaceholderBuilders
 import Data.LLVM.Private.Parser.Primitive
 
 
@@ -176,8 +174,8 @@ instructionMetadata = consumeToken TDbg >> metadataIdentifierP
 branchTarget :: AssemblyParser Constant
 branchTarget = ValueRef <$> localIdentifierP
 
-inBounds :: AssemblyParser Bool
-inBounds = tokenAs matcher
+inBoundsP :: AssemblyParser Bool
+inBoundsP = tokenAs matcher
   where matcher x =
           case x of
             TInbounds -> Just True
