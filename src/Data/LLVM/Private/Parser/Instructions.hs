@@ -68,7 +68,29 @@ namedInstP = do
             TAnd -> Just (binaryInstP TAnd AndInst)
             TOr -> Just (binaryInstP TOr OrInst)
             TXor -> Just (binaryInstP TXor XorInst)
+            TTrunc -> Just (conversionInstP TTrunc TruncInst)
+            TZext -> Just (conversionInstP TZext ZExtInst)
+            TSext -> Just (conversionInstP TSext SExtInst)
+            TFpTrunc -> Just (conversionInstP TFpTrunc FPTruncInst)
+            TFpExt -> Just (conversionInstP TFpExt FPExtInst)
+            TFpToUI -> Just (conversionInstP TFpToUI FPToUIInst)
+            TFpToSI -> Just (conversionInstP TFpToSI FPToSIInst)
+            TUIToFp -> Just (conversionInstP TUIToFp UIToFPInst)
+            TSIToFp -> Just (conversionInstP TSIToFp SIToFPInst)
+            TPtrToInt -> Just (conversionInstP TPtrToInt PtrToIntInst)
+            TIntToPtr -> Just (conversionInstP TIntToPtr IntToPtrInst)
+            TBitCast -> Just (conversionInstP TBitCast BitcastInst)
 
+conversionInstP :: LexerToken -> (Constant -> Type -> InstructionT) ->
+                   Identifier -> AssemblyParser Instruction
+conversionInstP tok cons name = do
+  consumeToken tok
+  v <- constantP
+  consumeToken TTo
+  t <- typeP
+  return $ namedInst name t $ cons v t
+
+-- | Parse the flagged binary instructions (add, sub, mul)
 binaryFlagInstP :: LexerToken ->
                    ([ArithFlag] -> Constant -> Constant -> InstructionT) ->
                    Identifier ->
@@ -82,6 +104,7 @@ binaryFlagInstP tok cons name = do
   rhs <- partialConstantP
   return $ namedInst name t $ cons flags (lhs t) (rhs t)
 
+-- | Parse the simple binary instructions (xor, and, etc)
 binaryInstP :: LexerToken -> (Constant -> Constant -> InstructionT) ->
                Identifier -> AssemblyParser Instruction
 binaryInstP tok cons name = do

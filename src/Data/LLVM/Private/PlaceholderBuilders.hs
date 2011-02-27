@@ -8,7 +8,7 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkAllocaInst
                                              , mkLoadInst
                                              -- , mkStoreInst
-                                             , mkConversionInst
+                                             -- , mkConversionInst
                                              , mkIcmpInst
                                              , mkFcmpInst
                                              , mkPhiNode
@@ -116,9 +116,9 @@ mkArithInst inst ident ty v1 v2 =
 -- Build a conversion instruction using the provided type constructor.
 -- Examples: TruncInst, ZextInst
 -- These all follow the same pattern: convert a value of t1 to t2.
-mkConversionInst :: (Monad m) => (Constant -> Type -> InstructionT) -> Identifier -> Constant -> Type -> m Instruction
-mkConversionInst inst ident val t =
-  return $ namedInst ident t $ inst val t
+-- mkConversionInst :: (Monad m) => (Constant -> Type -> InstructionT) -> Identifier -> Constant -> Type -> m Instruction
+-- mkConversionInst inst ident val t =
+--   return $ namedInst ident t $ inst val t
 
 mkIcmpInst :: (Monad m) => Identifier -> ICmpCondition -> Type -> PartialConstant -> PartialConstant -> m Instruction
 mkIcmpInst ident cond t v1 v2 =
