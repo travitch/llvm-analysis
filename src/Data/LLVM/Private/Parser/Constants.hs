@@ -103,6 +103,88 @@ complexConstant = do
             TIntToPtr -> Just (conversionConstantP IntToPtrInst TIntToPtr)
             TBitCast -> Just (conversionConstantP BitcastInst TBitCast)
             TGetElementPtr -> Just getElementPtrConstantP
+            TSelect -> Just selectConstantP
+            TIcmp -> Just (cmpConstantP icmpConditionP ICmpInst TIcmp)
+            TFcmp -> Just (cmpConstantP fcmpConditionP FCmpInst TFcmp)
+            TExtractElement -> Just extractElementConstantP
+            TInsertElement -> Just insertElementConstantP
+            TShuffleVector -> Just shuffleVectorConstantP
+            TExtractValue -> Just extractValueConstantP
+            TInsertValue -> Just insertValueConstantP
+            TAdd -> Just $ binaryConstantP TAdd (AddInst [])
+            TFadd -> Just $ binaryConstantP TFadd (AddInst [])
+            TSub -> Just $ binaryConstantP TSub (SubInst [])
+            TFsub -> Just $ binaryConstantP TFsub (SubInst [])
+            TMul -> Just $ binaryConstantP TMul (MulInst [])
+            TFmul -> Just $ binaryConstantP TFmul (MulInst [])
+            TUdiv -> Just $ binaryConstantP TUdiv DivInst
+            TSdiv -> Just $ binaryConstantP TSdiv DivInst
+            TFdiv -> Just $ binaryConstantP TFdiv DivInst
+            TUrem -> Just $ binaryConstantP TUrem RemInst
+            TSrem -> Just $ binaryConstantP TSrem RemInst
+            TFrem -> Just $ binaryConstantP TFrem RemInst
+            TShl -> Just $ binaryConstantP TShl ShlInst
+            TLshr -> Just $ binaryConstantP TLshr LshrInst
+            TAshr -> Just $ binaryConstantP TAshr AshrInst
+            TAnd -> Just $ binaryConstantP TAnd AndInst
+            TOr -> Just $ binaryConstantP TOr OrInst
+            TXor -> Just $ binaryConstantP TXor XorInst
+            _ -> Nothing
+
+binaryConstantP :: LexerToken -> (Constant -> Constant -> InstructionT) ->
+                   AssemblyParser ConstantT
+binaryConstantP t c = ConstantExpr <$> (c <$> c1 <*> c2)
+  where c1 = consumeTokens [t, TLParen] *> constantP
+        c2 = betweenTokens [TComma] [TRParen] constantP
+
+insertValueConstantP :: AssemblyParser ConstantT
+insertValueConstantP =
+  ConstantExpr <$> (InsertValueInst <$> val <*> elt <*> idxs)
+  where val = consumeTokens [TInsertValue, TLParen] *> constantP
+        elt = consumeToken TComma *> constantP
+        idxs = betweenTokens [TComma] [TRParen] idxListParser
+        idxListParser = sepBy1 parseInteger $ consumeToken TComma
+
+extractValueConstantP :: AssemblyParser ConstantT
+extractValueConstantP =
+  ConstantExpr <$> (ExtractValueInst <$> val <*> idxs)
+  where val = consumeTokens [TExtractValue, TLParen] *> constantP
+        idxs = betweenTokens [TComma] [TRParen] idxListParser
+        idxListParser = sepBy1 parseInteger $ consumeToken TComma
+
+shuffleVectorConstantP :: AssemblyParser ConstantT
+shuffleVectorConstantP =
+  ConstantExpr <$> (ShuffleVectorInst <$> vec1 <*> vec2 <*> mask)
+  where vec1 = consumeTokens [TShuffleVector, TLParen] *> constantP
+        vec2 = consumeToken TComma *> constantP
+        mask = betweenTokens [TComma] [TRParen] constantP
+
+insertElementConstantP :: AssemblyParser ConstantT
+insertElementConstantP =
+  ConstantExpr <$> (InsertElementInst <$> val <*> elt <*> idx)
+  where val = consumeTokens [TInsertElement, TLParen] *> constantP
+        elt = consumeToken TComma *> constantP
+        idx = betweenTokens [TComma] [TRParen] constantP
+
+extractElementConstantP :: AssemblyParser ConstantT
+extractElementConstantP =
+  ConstantExpr <$> (ExtractElementInst <$> val <*> idx)
+  where val = consumeTokens [TExtractElement, TLParen] *> constantP
+        idx = betweenTokens [TComma] [TRParen] constantP
+
+cmpConstantP :: AssemblyParser a -> (a -> Constant -> Constant -> InstructionT) ->
+                LexerToken -> AssemblyParser ConstantT
+cmpConstantP condP constructor tok =
+  ConstantExpr <$> (constructor <$> cond condP tok <*> v1 <*> v2)
+  where cond p t = consumeToken t *> p
+        v1 = consumeToken TLParen *> constantP
+        v2 = betweenTokens [TComma] [TRParen] constantP
+
+selectConstantP :: AssemblyParser ConstantT
+selectConstantP = ConstantExpr <$> (SelectInst <$> cond <*> v1 <*> v2)
+  where cond = consumeTokens [TSelect, TLParen] *> constantP
+        v1 = consumeToken TComma *> constantP
+        v2 = betweenTokens [TComma] [TRParen] constantP
 
 -- | Parse getelementptr [inbounds] ( <constant> , <indices> )
 getElementPtrConstantP :: AssemblyParser ConstantT

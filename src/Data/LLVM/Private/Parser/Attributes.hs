@@ -14,8 +14,8 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttribute
                                            , instructionMetadata
                                            , branchTarget
                                            , inBoundsP
-                                           , icmpCondition
-                                           , fcmpCondition
+                                           , icmpConditionP
+                                           , fcmpConditionP
                                            , volatileFlag
                                            , alignmentSpec
                                            , functionAlignment
@@ -181,8 +181,8 @@ inBoundsP = tokenAs matcher
             TInbounds -> Just True
             _ -> Just False
 
-icmpCondition :: AssemblyParser ICmpCondition
-icmpCondition = tokenAs matcher
+icmpConditionP :: AssemblyParser ICmpCondition
+icmpConditionP = tokenAs matcher
   where matcher x =
           case x of
             Teq -> Just ICmpEq
@@ -197,8 +197,8 @@ icmpCondition = tokenAs matcher
             Tsle -> Just ICmpSle
             _ -> Nothing
 
-fcmpCondition :: AssemblyParser FCmpCondition
-fcmpCondition = tokenAs matcher
+fcmpConditionP :: AssemblyParser FCmpCondition
+fcmpConditionP = tokenAs matcher
   where matcher x =
           case x of
             TFalseLit -> Just FCmpFalse
