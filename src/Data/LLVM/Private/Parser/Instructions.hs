@@ -40,15 +40,34 @@ instructionNoMDP = do
 
 namedInstP :: AssemblyParser Instruction
 namedInstP = do
+  -- First, slurp up the identifier and then discard the equals sign.
+  -- Pass the identifier on to the real parser.
   name <- localIdentifierP
   consumeToken TAssign
-  restParser <- lookAhead (dispatcher name)
-  anInst <- restParser
+  restParser <- lookAhead dispatcher
+  anInst <- restParser name
   return anInst
-  where dispatcher name = tokenAs (matcher name)
-        matcher name x =
+  where dispatcher = tokenAs matcher
+        matcher x =
           case x of
-            TAdd -> Just (binaryFlagInstP TAdd AddInst name)
+            TAdd -> Just (binaryFlagInstP TAdd AddInst)
+            TFadd -> Just (binaryFlagInstP TFadd AddInst)
+            TSub -> Just (binaryFlagInstP TSub SubInst)
+            TFsub -> Just (binaryFlagInstP TFsub SubInst)
+            TMul -> Just (binaryFlagInstP TMul MulInst)
+            TFmul -> Just (binaryFlagInstP TFmul MulInst)
+            TUdiv -> Just (binaryInstP TUdiv DivInst)
+            TSdiv -> Just (binaryInstP TSdiv DivInst)
+            TFdiv -> Just (binaryInstP TFdiv DivInst)
+            TUrem -> Just (binaryInstP TUrem RemInst)
+            TSrem -> Just (binaryInstP TSrem RemInst)
+            TFrem -> Just (binaryInstP TFrem RemInst)
+            TShl -> Just (binaryInstP TShl ShlInst)
+            TLshr -> Just (binaryInstP TLshr LshrInst)
+            TAshr -> Just (binaryInstP TAshr AshrInst)
+            TAnd -> Just (binaryInstP TAnd AndInst)
+            TOr -> Just (binaryInstP TOr OrInst)
+            TXor -> Just (binaryInstP TXor XorInst)
 
 binaryFlagInstP :: LexerToken ->
                    ([ArithFlag] -> Constant -> Constant -> InstructionT) ->
@@ -62,6 +81,16 @@ binaryFlagInstP tok cons name = do
   consumeToken TComma
   rhs <- partialConstantP
   return $ namedInst name t $ cons flags (lhs t) (rhs t)
+
+binaryInstP :: LexerToken -> (Constant -> Constant -> InstructionT) ->
+               Identifier -> AssemblyParser Instruction
+binaryInstP tok cons name = do
+  consumeToken tok
+  t <- typeP
+  lhs <- partialConstantP
+  consumeToken TComma
+  rhs <- partialConstantP
+  return $ namedInst name t $ cons (lhs t) (rhs t)
 
 storeInstP :: Bool -> AssemblyParser Instruction
 storeInstP volatile = do
