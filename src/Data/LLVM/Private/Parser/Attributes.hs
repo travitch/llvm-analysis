@@ -1,7 +1,7 @@
-module Data.LLVM.Private.Parser.Attributes ( paramAttribute
-                                           , functionAttribute
-                                           , visibilityStyle
-                                           , linkageType
+module Data.LLVM.Private.Parser.Attributes ( paramAttributeP
+                                           , functionAttributeP
+                                           , visibilityStyleP
+                                           , linkageTypeP
                                            , callingConvention
                                            , gcName
                                            , sectionName
@@ -17,14 +17,14 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttribute
                                            , icmpConditionP
                                            , fcmpConditionP
                                            , volatileFlag
-                                           , alignmentSpec
+                                           , alignmentSpecP
                                            , functionAlignment
                                            , addInst
                                            , subInst
                                            , mulInst
                                            , divInst
                                            , remInst
-                                           , arithFlag
+                                           , arithFlagP
                                            ) where
 
 import Control.Applicative hiding ((<|>))
@@ -37,8 +37,8 @@ import Data.LLVM.Private.PlaceholderTypes
 import Data.LLVM.Private.Parser.Primitive
 
 
-paramAttribute :: AssemblyParser ParamAttribute
-paramAttribute = tokenAs matcher
+paramAttributeP :: AssemblyParser ParamAttribute
+paramAttributeP = tokenAs matcher
   where matcher x =
           case x of
             TPAZeroExt -> Just PAZeroExt
@@ -51,8 +51,8 @@ paramAttribute = tokenAs matcher
             TPANest -> Just PANest
             _ -> Nothing
 
-functionAttribute :: AssemblyParser FunctionAttribute
-functionAttribute = tokenAs matcher
+functionAttributeP :: AssemblyParser FunctionAttribute
+functionAttributeP = tokenAs matcher
   where matcher x =
           case x of
             TFAAlignStack a -> Just $ FAAlignStack a
@@ -72,8 +72,8 @@ functionAttribute = tokenAs matcher
             TFASSPReq -> Just FASSPReq
             _ -> Nothing
 
-visibilityStyle :: AssemblyParser VisibilityStyle
-visibilityStyle = tokenAs matcher
+visibilityStyleP :: AssemblyParser VisibilityStyle
+visibilityStyleP = tokenAs matcher
   where matcher x =
           case x of
             TVisDefault -> Just VisibilityDefault
@@ -81,8 +81,8 @@ visibilityStyle = tokenAs matcher
             TVisProtected -> Just VisibilityProtected
             _ -> Just VisibilityDefault
 
-linkageType :: AssemblyParser LinkageType
-linkageType = tokenAs matcher
+linkageTypeP :: AssemblyParser LinkageType
+linkageTypeP = tokenAs matcher
   where matcher x =
           case x of
             TPrivate -> Just LTPrivate
@@ -227,8 +227,8 @@ volatileFlag = tokenAs matcher
             _ -> Just False
 
 -- | Parse ", align N" and return N.  Defaults to 0 if not specified.
-alignmentSpec :: AssemblyParser Integer
-alignmentSpec = option 0 (consumeToken TComma *> basicAlignmentSpec)
+alignmentSpecP :: AssemblyParser Integer
+alignmentSpecP = option 0 (consumeToken TComma *> basicAlignmentSpec)
 
 functionAlignment :: AssemblyParser Integer
 functionAlignment = basicAlignmentSpec
@@ -282,8 +282,8 @@ remInst = tokenAs matcher
             TFrem -> Just ()
             _ -> Nothing
 
-arithFlag :: AssemblyParser ArithFlag
-arithFlag = tokenAs matcher
+arithFlagP :: AssemblyParser ArithFlag
+arithFlagP = tokenAs matcher
   where matcher x =
           case x of
             TNSW -> Just AFNSW

@@ -1,11 +1,13 @@
-module Data.LLVM.Private.Parser.Constants ( constantP ) where
+module Data.LLVM.Private.Parser.Constants ( constantP
+                                          , partialConstantP
+                                          , metadataNodeContentsP
+                                          ) where
 
 import Control.Applicative hiding ((<|>))
 import Text.Parsec
 
 import Data.LLVM.Private.Lexer
 import Data.LLVM.Private.PlaceholderTypes
-import Data.LLVM.Private.PlaceholderBuilders
 import Data.LLVM.Private.Parser.Attributes
 import Data.LLVM.Private.Parser.Primitive
 import Data.LLVM.Private.Parser.Types
@@ -21,20 +23,10 @@ metadataConstantLit = (Nothing <$ tokenAs matcher) <|> (Just <$> constantP)
 
 -- | Parse a basic metadata node:  !{ <comma-separated-metadata-constants> }
 -- This is re-used in some other productions
-metadataNodeContents :: AssemblyParser [Maybe Constant]
-metadataNodeContents = prefx *> p <* postfx
+metadataNodeContentsP :: AssemblyParser [Maybe Constant]
+metadataNodeContentsP = prefx *> p <* postfx
   where prefx = consumeToken TBang *> consumeToken TLCurl
         p = sepBy metadataConstantLit (consumeToken TComma)
-        postfx = consumeToken TRCurl
-
-unnamedMetadataP :: AssemblyParser GlobalDeclaration
-unnamedMetadataP = mkMDNode <$> metadataIdentifierP <*> (infx *> metadataNodeContents)
-  where infx = consumeTokens [TAssign, TMetadataT]
-
-namedMetadataP :: AssemblyParser GlobalDeclaration
-namedMetadataP = mkNamedMetadata <$> metadataIdentifierP <*> (infx *> p <* postfx)
-  where infx = consumeTokens [TAssign, TBang, TLCurl]
-        p = sepBy1 metadataIdentifierP (consumeToken TComma)
         postfx = consumeToken TRCurl
 
 -- | To parse a full constant, we need to apply a partial constant to
@@ -44,6 +36,12 @@ constantP = do
   t <- typeP
   c <- partialConstantP
   return $ c t
+
+-- | Here, simpleConstant will either succeed by consuming 1 token or
+-- fail consuming none.  We can have it first in the alternation
+-- without a try.
+untypedConstant :: AssemblyParser ConstantT
+untypedConstant = simpleConstant <|> complexConstant
 
 -- | A partial constant is either an identifier or one of the actual
 -- constant types.
@@ -67,6 +65,8 @@ simpleConstant = tokenAs matcher
             TZeroInitializer -> Just ConstantAggregateZero
             _ -> Nothing
 
+-- | Parse all of the non-single-token constants.  This is actually
+-- a reasonably efficient predictive parser.
 complexConstant :: AssemblyParser ConstantT
 complexConstant = do
   -- lookAhead runs its parser without consuming the argument.  We
@@ -130,6 +130,8 @@ complexConstant = do
             TOr -> Just $ binaryConstantP TOr OrInst
             TXor -> Just $ binaryConstantP TXor XorInst
             _ -> Nothing
+
+-- Below here are the helper parsers for the complex constants.
 
 binaryConstantP :: LexerToken -> (Constant -> Constant -> InstructionT) ->
                    AssemblyParser ConstantT
@@ -208,7 +210,7 @@ inlineAsmP = InlineAsm <$> asm <*> constraints
         constraints = consumeToken TComma *> parseString
 
 metadataConstantP :: AssemblyParser ConstantT
-metadataConstantP = MDNode <$> metadataNodeContents
+metadataConstantP = MDNode <$> metadataNodeContentsP
 
 blockAddressP :: AssemblyParser ConstantT
 blockAddressP = BlockAddress <$> (prefx *> globalIdentifierP <* infx) <*> (localIdentifierP <* postfx)
@@ -234,10 +236,3 @@ structConstantP = ConstantStruct <$> between l r p
         l = consumeToken TLCurl
         r = consumeToken TRCurl
 
-
-
--- | Here, simpleConstant will either succeed by consuming 1 token or
--- fail consuming none.  We can have it first in the alternation
--- without a try.
-untypedConstant :: AssemblyParser ConstantT
-untypedConstant = simpleConstant <|> complexConstant

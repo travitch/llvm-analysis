@@ -2,18 +2,18 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkInsertElementInst
                                              , mkDataLayout
                                              , mkTriple
-                                             , mkRetInst
+                                             -- , mkRetInst
                                              , mkShuffleVectorInst
                                              , mkInsertValueInst
                                              , mkAllocaInst
                                              , mkLoadInst
-                                             , mkStoreInst
+                                             -- , mkStoreInst
                                              , mkConversionInst
                                              , mkIcmpInst
                                              , mkFcmpInst
                                              , mkPhiNode
                                              , mkSelectInst
-                                             , mkFlaggedArithInst
+                                             -- , mkFlaggedArithInst
                                              , mkArithInst
                                              , mkCallInst
                                              , mkInvokeInst
@@ -87,15 +87,27 @@ mkLoadInst ident volatile ty val align =
   namedInst ident ty' $ LoadInst volatile (val ty) align
   where (TypePointer ty') = ty
 
-mkStoreInst :: (Monad m) => Bool -> Type -> PartialConstant -> Type -> PartialConstant -> Integer -> m Instruction
-mkStoreInst volatile t1 val t2 dest align
-  | t2' == t1 = return $ voidInst $ StoreInst volatile (val t1) (dest t2) align
-  | otherwise = fail "Store type mismatch"
-  where (TypePointer t2') = t2
+-- mkStoreInst :: (Monad m) => Bool -> Type -> PartialConstant -> Type -> PartialConstant -> Integer -> m Instruction
+-- mkStoreInst :: Bool -> AssemblyParser Type -> AssemblyParser PartialConstant ->
+--                AssemblyParser Type -> AssemblyParser PartialConstant ->
+--                AssemblyParser Integer -> AssemblyParser Instruction
+-- mkStoreInst volatile t1P valP t2P destP alignP = do
+--   t1 <- t1P
+--   val <- valP
+--   t2 <- t2P
+--   dest <- destP
+--   align <- alignP
+--   let (TypePointer t2') = t2
+--   if t2' == t1
+--     then return $ voidInst $ StoreInst volatile (val t2) (dest t2) align
+--     else parserFail "Store type mismatch"
+  -- | t2' == t1 = return $ voidInst $ StoreInst volatile (val t1) (dest t2) align
+  -- | otherwise = parserFail "Store type mismatch"
+  -- where (TypePointer t2') = t2
 
-mkFlaggedArithInst :: (Monad m) => (a -> Constant -> Constant -> InstructionT) -> Identifier -> Type -> a -> PartialConstant -> PartialConstant -> m Instruction
-mkFlaggedArithInst inst ident ty flags v1 v2 =
-  return $ namedInst ident ty $ inst flags (v1 ty) (v2 ty)
+-- mkFlaggedArithInst :: (Monad m) => (a -> Constant -> Constant -> InstructionT) -> Identifier -> Type -> a -> PartialConstant -> PartialConstant -> m Instruction
+-- mkFlaggedArithInst inst ident ty flags v1 v2 =
+--   return $ namedInst ident ty $ inst flags (v1 ty) (v2 ty)
 
 mkArithInst :: (Monad m) => (Constant -> Constant -> InstructionT) -> Identifier -> Type -> PartialConstant -> PartialConstant -> m Instruction
 mkArithInst inst ident ty v1 v2 =
@@ -183,11 +195,16 @@ mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
           ValueRef _ -> func rtype
           _ -> error "Cannot invoke anything besides a named constant..."
 
-mkRetInst :: (Monad m) => Type -> Maybe PartialConstant -> m Instruction
-mkRetInst t pc = case (t, pc) of
-  (TypeVoid, Nothing) -> return $ voidInst $ RetInst Nothing
-  (_, Just pc') -> return $ voidInst $ RetInst (Just (pc' t))
-  _ -> fail "Non-void return without return value"
+-- mkRetInst :: (Monad m) => Type -> Maybe PartialConstant -> m Instruction
+-- mkRetInst :: ParsecT s u m Type -> ParsecT s u m (Maybe PartialConstant) ->
+--              ParsecT s u m Instruction
+-- mkRetInst tP pcP = do
+--   t <- tP
+--   pc <- pcP
+--   case (t, pc) of
+--     (TypeVoid, Nothing) -> return $ voidInst $ RetInst Nothing
+--     (_, Just pc') -> return $ voidInst $ RetInst (Just (pc' t))
+--     _ -> parserFail "Non-void return without return value"
 
 -- Ident, va_arg type, the va_list arg, the type being extracted
 mkVaArgInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> m Instruction
