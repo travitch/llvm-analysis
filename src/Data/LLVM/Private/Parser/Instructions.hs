@@ -80,6 +80,105 @@ namedInstP = do
             TPtrToInt -> Just (conversionInstP TPtrToInt PtrToIntInst)
             TIntToPtr -> Just (conversionInstP TIntToPtr IntToPtrInst)
             TBitCast -> Just (conversionInstP TBitCast BitcastInst)
+            TIcmp -> Just (cmpInstP TIcmp ICmpInst icmpConditionP)
+            TFcmp -> Just (cmpInstP TFcmp FCmpInst fcmpConditionP)
+            TExtractElement -> Just extractElementInstP
+            TInsertElement -> Just insertElementInstP
+            TShuffleVector -> Just shuffleVectorInstP
+            TExtractValue -> Just extractValueInstP
+            TInsertValue -> Just insertValueInstP
+            -- GEP
+            TAlloca -> Just allocaInstP
+
+-- Not right yet.  The tail is annoying.  It is easy (just tedious) to
+-- make it predictive.
+allocaInstP :: Identifier -> AssemblyParser Instruction
+allocaInstP name = do
+  consumeToken TAlloca
+  t <- typeP
+  (elems, align) <- allocaOptsP
+  return $ namedInst name (TypePointer t) $ AllocaInst t elems align
+  allocaOptsP = (,) <$> allocaNumElemsP <*> allocaAlignP
+  allocaOptsP = option (ConstValue $ ConstantInt 1) constantP
+
+insertValueInstP :: Identifier -> AssemblyParser Instruction
+insertValueInstP name = do
+  consumeToken TInsertValue
+  t1 <- typeP
+  val <- partialConstantP
+  consumeToken TComma
+  t2 <- typeP
+  elt <- partialConstantP
+  consumeToken TComma
+  idxs <- sepBy1 parseInteger (consumeToken TComma)
+  return $ namedInst name t1 $ InsertValueInst (val t1) (elt t2) idxs
+
+extractValueInstP :: Identifier -> AssemblyParser Instruction
+extractValueInstP name = do
+  consumeToken TExtractValue
+  t <- typeP
+  val <- partialConstantP
+  consumeToken TComma
+  idxs <- sepBy1 parseInteger (consumeToken TComma)
+  return UnresolvedInst { unresInstName = Just name
+                        , unresInstContent = ExtractValueInst (val t) idxs
+                        , unresInstMetadata = Nothing
+                        }
+
+shuffleVectorInstP :: Identifier -> AssemblyParser Instruction
+shuffleVectorInstP name = do
+  consumeToken TShuffleVector
+  t1 <- typeP
+  v1 <- partialConstantP
+  consumeToken TComma
+  t2 <- typeP
+  v2 <- partialConstantP
+  consumeToken TComma
+  t3 <- typeP
+  mask <- partialConstantP
+  if t1 /= t2
+    then parserFail "Input vector types for shufflevector do not match"
+    else case (t1, t3) of
+    (TypeVector _ t, TypeVector n _) ->
+      return $ namedInst name (TypeVector n t) $ ShuffleVectorInst (v1 t1) (v2 t2) (mask t3)
+    _ -> parserFail "Non-vector type for vec or mask in shufflevector"
+
+insertElementInstP :: Identifier -> AssemblyParser Instruction
+insertElementInstP name = do
+  consumeToken TInsertElement
+  t <- typeP
+  val <- partialConstantP
+  consumeToken TComma
+  elt <- constantP
+  consumeToken TComma
+  idx <- constantP
+  return $ namedInst name t $ InsertElementInst (val t) elt idx
+
+extractElementInstP :: Identifier -> AssemblyParser Instruction
+extractElementInstP name = do
+  consumeToken TExtractElement
+  t <- typeP
+  val <- partialConstantP
+  consumeToken TComma
+  idx <- constantP
+  case t of
+    TypeVector _ t' -> return $ namedInst name t' $ ExtractElementInst (val t) idx
+    _ -> parserFail "Non-vector type in extractelement"
+
+cmpInstP :: LexerToken -> (a -> Constant -> Constant -> InstructionT) ->
+            AssemblyParser a -> Identifier ->
+            AssemblyParser Instruction
+cmpInstP tok cons condP name = do
+  consumeToken tok
+  condition <- condP
+  t <- typeP
+  c1 <- partialConstantP
+  consumeToken TComma
+  c2 <- partialConstantP
+  let t' = case t of
+        TypeVector n _ -> TypeVector n (TypeInteger 1)
+        _ -> TypeInteger 1
+  return $ namedInst name t' $ cons condition (c1 t) (c2 t)
 
 conversionInstP :: LexerToken -> (Constant -> Type -> InstructionT) ->
                    Identifier -> AssemblyParser Instruction

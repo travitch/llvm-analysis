@@ -1,16 +1,16 @@
-module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
-                                             , mkInsertElementInst
-                                             , mkDataLayout
+module Data.LLVM.Private.PlaceholderBuilders ( -- mkExtractElementInst,
+  -- mkInsertElementInst
+   mkDataLayout
                                              , mkTriple
-                                             -- , mkRetInst
-                                             , mkShuffleVectorInst
-                                             , mkInsertValueInst
-                                             , mkAllocaInst
+                                               -- , mkRetInst
+                                               -- , mkShuffleVectorInst
+                                             -- , mkInsertValueInst
+                                             -- , mkAllocaInst
                                              , mkLoadInst
-                                             -- , mkStoreInst
+                                               -- , mkStoreInst
                                              -- , mkConversionInst
-                                             , mkIcmpInst
-                                             , mkFcmpInst
+                                             -- , mkIcmpInst
+                                             -- , mkFcmpInst
                                              , mkPhiNode
                                              , mkSelectInst
                                              -- , mkFlaggedArithInst
@@ -18,7 +18,7 @@ module Data.LLVM.Private.PlaceholderBuilders ( mkExtractElementInst
                                              , mkCallInst
                                              , mkInvokeInst
                                              , mkVaArgInst
-                                             , mkExtractValueInst
+                                             -- , mkExtractValueInst
                                              , mkGetElementPtrInst
                                              , mkExternalFuncDecl
                                              , mkGlobalDecl
@@ -35,15 +35,15 @@ import Data.Text (Text)
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.PlaceholderTypes
 
-mkExtractElementInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Constant -> m Instruction
-mkExtractElementInst name ty1 v1 v2 =
-  case ty1 of
-    TypeVector _ t -> return $ namedInst name t $ ExtractElementInst (v1 ty1) v2
-    _ -> fail "Non-vector type in extractelement"
+-- mkExtractElementInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Constant -> m Instruction
+-- mkExtractElementInst name ty1 v1 v2 =
+--   case ty1 of
+--     TypeVector _ t -> return $ namedInst name t $ ExtractElementInst (v1 ty1) v2
+--     _ -> fail "Non-vector type in extractelement"
 
-mkInsertElementInst :: Identifier -> Type -> PartialConstant -> Constant -> Constant -> Instruction
-mkInsertElementInst name tyr val sclr idx =
-  namedInst name tyr $ InsertElementInst (val tyr) sclr idx
+-- mkInsertElementInst :: Identifier -> Type -> PartialConstant -> Constant -> Constant -> Instruction
+-- mkInsertElementInst name tyr val sclr idx =
+--   namedInst name tyr $ InsertElementInst (val tyr) sclr idx
 
 -- FIXME: Parse the bytestring - have the code for this already in the
 -- old attoparsec-based parser
@@ -53,32 +53,32 @@ mkDataLayout s = defaultDataLayout
 mkTriple :: Text -> TargetTriple
 mkTriple = TargetTriple
 
-mkShuffleVectorInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Type -> PartialConstant -> m Instruction
-mkShuffleVectorInst name t1 val1 t2 val2 t3 mask
-  | t1 == t2 =
-    case (t1, t3) of
-      (TypeVector _ t, TypeVector n _) ->
-        return $ namedInst name (TypeVector n t) (ShuffleVectorInst (val1 t1) (val2 t2) (mask t3))
-      _ -> fail "Non-vector type for vec or mask in shufflevector"
+-- mkShuffleVectorInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Type -> PartialConstant -> m Instruction
+-- mkShuffleVectorInst name t1 val1 t2 val2 t3 mask
+--   | t1 == t2 =
+--     case (t1, t3) of
+--       (TypeVector _ t, TypeVector n _) ->
+--         return $ namedInst name (TypeVector n t) (ShuffleVectorInst (val1 t1) (val2 t2) (mask t3))
+--       _ -> fail "Non-vector type for vec or mask in shufflevector"
 
-  | otherwise = fail "Input vector types do not match"
+--   | otherwise = fail "Input vector types do not match"
 
 -- FIXME: Add checks to ensure the type of the inserted element is correct
 -- based on the index
-mkInsertValueInst :: Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> [Integer] -> Instruction
-mkInsertValueInst name t1 v1 t2 v2 idx =
-  namedInst name t1 $ InsertValueInst (v1 t1) (v2 t2) idx
+-- mkInsertValueInst :: Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> [Integer] -> Instruction
+-- mkInsertValueInst name t1 v1 t2 v2 idx =
+--   namedInst name t1 $ InsertValueInst (v1 t1) (v2 t2) idx
 
-mkExtractValueInst :: (Monad m) => Identifier -> Type -> PartialConstant -> [Integer] -> m Instruction
-mkExtractValueInst ident inType val indices =
-  return UnresolvedInst { unresInstName = Just ident
-                        , unresInstContent = ExtractValueInst (val inType) indices
-                        , unresInstMetadata = Nothing
-                        }
+-- mkExtractValueInst :: (Monad m) => Identifier -> Type -> PartialConstant -> [Integer] -> m Instruction
+-- mkExtractValueInst ident inType val indices =
+--   return UnresolvedInst { unresInstName = Just ident
+--                         , unresInstContent = ExtractValueInst (val inType) indices
+--                         , unresInstMetadata = Nothing
+--                         }
 
-mkAllocaInst :: Identifier -> Type -> Constant -> Integer -> Instruction
-mkAllocaInst name ty num align =
-  namedInst name (TypePointer ty) $ AllocaInst ty num align
+-- mkAllocaInst :: Identifier -> Type -> Constant -> Integer -> Instruction
+-- mkAllocaInst name ty num align =
+--   namedInst name (TypePointer ty) $ AllocaInst ty num align
 
 -- The type of a load is ty with a layer of pointer type unwrapped.
 -- The input *must* be a pointer type
@@ -120,24 +120,24 @@ mkArithInst inst ident ty v1 v2 =
 -- mkConversionInst inst ident val t =
 --   return $ namedInst ident t $ inst val t
 
-mkIcmpInst :: (Monad m) => Identifier -> ICmpCondition -> Type -> PartialConstant -> PartialConstant -> m Instruction
-mkIcmpInst ident cond t v1 v2 =
-  return $ namedInst ident t' $ ICmpInst cond (v1 t) (v2 t)
-  -- The result type is i1 for scalars, or a vector of i1 with one
-  -- entry per element in the input vectors
-  where t' = case t of
-          TypeVector n _ -> TypeVector n (TypeInteger 1)
-          _ -> TypeInteger 1
+-- mkIcmpInst :: (Monad m) => Identifier -> ICmpCondition -> Type -> PartialConstant -> PartialConstant -> m Instruction
+-- mkIcmpInst ident cond t v1 v2 =
+--   return $ namedInst ident t' $ ICmpInst cond (v1 t) (v2 t)
+--   -- The result type is i1 for scalars, or a vector of i1 with one
+--   -- entry per element in the input vectors
+--   where t' = case t of
+--           TypeVector n _ -> TypeVector n (TypeInteger 1)
+--           _ -> TypeInteger 1
 
 
-mkFcmpInst :: (Monad m) => Identifier -> FCmpCondition -> Type -> PartialConstant -> PartialConstant -> m Instruction
-mkFcmpInst ident cond t v1 v2 =
-  return $ namedInst ident t' $ FCmpInst cond (v1 t) (v2 t)
-  -- The result type is i1 for scalars, or a vector of i1 with one
-  -- entry per element in the input vectors
-  where t' = case t of
-          TypeVector n _ -> TypeVector n (TypeInteger 1)
-          _ -> TypeInteger 1
+-- mkFcmpInst :: (Monad m) => Identifier -> FCmpCondition -> Type -> PartialConstant -> PartialConstant -> m Instruction
+-- mkFcmpInst ident cond t v1 v2 =
+--   return $ namedInst ident t' $ FCmpInst cond (v1 t) (v2 t)
+--   -- The result type is i1 for scalars, or a vector of i1 with one
+--   -- entry per element in the input vectors
+--   where t' = case t of
+--           TypeVector n _ -> TypeVector n (TypeInteger 1)
+--           _ -> TypeInteger 1
 
 mkPhiNode :: (Monad m) => Identifier -> Type -> [(PartialConstant, Constant)] -> m Instruction
 mkPhiNode ident ty vals =
