@@ -96,6 +96,7 @@ data ParamAttribute = PAZeroExt
                     | PANoAlias
                     | PANoCapture
                     | PANest
+                    | PAAlign !Int
                     deriving (Eq, Ord)
 
 instance Show ParamAttribute where
@@ -107,6 +108,7 @@ instance Show ParamAttribute where
   show PANoAlias = "noalias"
   show PANoCapture = "nocapture"
   show PANest = "nest"
+  show (PAAlign i) = "align " ++ show i
 
 data FunctionAttribute = FAAlignStack Int
                        | FAAlwaysInline
@@ -260,17 +262,11 @@ instance Show FCmpCondition where
 
 data GlobalAnnotation = GAConstant
                       | GAGlobal
-                      -- | GACommon
-                      -- | GAPrivate
-                      -- | GAExternal
                         deriving (Eq, Ord)
 
 instance Show GlobalAnnotation where
   show GAConstant = "constant"
   show GAGlobal = "global"
-  --show GACommon = "common"
-  --show GAPrivate = "private"
-  --show GAExternal = "external"
 
 data ArithFlag = AFNSW | AFNUW
                deriving (Eq, Ord)

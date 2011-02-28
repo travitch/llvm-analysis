@@ -19,7 +19,7 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttributeP
                                            , fcmpConditionP
                                            , volatileFlag
                                            , alignmentSpecP
-                                           , functionAlignmentP
+                                           , alignmentP
                                            , addInst
                                            , subInst
                                            , mulInst
@@ -50,6 +50,7 @@ paramAttributeP = tokenAs matcher
             TPANoAlias -> Just PANoAlias
             TPANoCapture -> Just PANoCapture
             TPANest -> Just PANest
+            TAlign i -> Just (PAAlign i)
             _ -> Nothing
 
 functionAttributeP :: AssemblyParser FunctionAttribute
@@ -238,14 +239,14 @@ volatileFlag = tokenAs matcher
 alignmentSpecP :: AssemblyParser Integer
 alignmentSpecP = option 0 (consumeToken TComma *> basicAlignmentSpec)
 
-functionAlignmentP :: AssemblyParser Integer
-functionAlignmentP = option 0 basicAlignmentSpec
+alignmentP :: AssemblyParser Integer
+alignmentP = option 0 basicAlignmentSpec
 
 basicAlignmentSpec :: AssemblyParser Integer
-basicAlignmentSpec = consumeToken TAlign *> tokenAs matcher
+basicAlignmentSpec = tokenAs matcher
   where matcher x =
           case x of
-            TIntLit i -> Just i
+            TAlign i -> Just (fromIntegral i)
             _ -> Nothing
 
 addInst :: AssemblyParser ()

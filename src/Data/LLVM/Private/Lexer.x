@@ -159,7 +159,7 @@ tokens :-
   "type"       { simpleTok TType }
   "constant"   { simpleTok TConstant }
   "section"    { simpleTok TSection }
-  "align"      { simpleTok TAlign }
+  "align" $whitespace+ @decimal { mkAlign }
   "alignstack" { simpleTok TAlignStack }
   "sideeffect" { simpleTok TSideEffect }
   "alias"      { simpleTok TAlias }
@@ -262,16 +262,16 @@ tokens :-
 
 {
 data LexerToken = TIntLit Integer
-           | TFloatLit Double
-           | TStringLit Text
-           | TMetadataString Text
+           | TFloatLit !Double
+           | TStringLit !Text
+           | TMetadataString !Text
            | TTrueLit
            | TFalseLit
            | TNullLit
            | TUndefLit
            | TZeroInitializer
-           | TString Text
-           | TLabel Text
+           | TString !Text
+           | TLabel !Text
 
            -- Operator-like tokens
            | TComma
@@ -317,7 +317,7 @@ data LexerToken = TIntLit Integer
            | TCCFastCC
            | TCCColdCC
            | TCCGHC
-           | TCCN Int
+           | TCCN !Int
 
            -- Visibility Style
            | TVisDefault
@@ -335,7 +335,7 @@ data LexerToken = TIntLit Integer
            | TPANest
 
            -- Function Attributes
-           | TFAAlignStack Int
+           | TFAAlignStack !Int
            | TFAAlwaysInline
            | TFAHotPatch
            | TFAInlineHint
@@ -352,7 +352,7 @@ data LexerToken = TIntLit Integer
            | TFASSPReq
 
            -- Types
-           | TIntegralT Int -- bitsize
+           | TIntegralT !Int -- bitsize
            | TFloatT
            | TDoubleT
            | TX86_FP80T
@@ -362,15 +362,15 @@ data LexerToken = TIntLit Integer
            | TVoidT
            | TMetadataT
            | TOpaqueT
-           | TUprefT Int
+           | TUprefT !Int
            | TLabelT
 
            -- Keywords
            | TType
-           | TAddrspace Int
+           | TAddrspace !Int
            | TConstant
            | TSection
-           | TAlign
+           | TAlign !Int
            | TAlignStack
            | TSideEffect
            | TAlias
@@ -518,6 +518,9 @@ mkNumberedCC pos s = (pos, TCCN $ readText $ T.drop 3 s)
 -- Extract part between parens (TFAAlignStack Int)
 mkAlignStack pos s = (pos, TFAAlignStack $ readText s')
   where s' = T.drop 11 $ T.init s
+
+mkAlign pos s = (pos, TAlign $ readText s')
+  where s' = T.dropWhile (\x -> x == ' ' || x == '\t') $ T.drop 5 s
 
 -- Types
 mkTypeUpref pos s = (pos, TUprefT $ readText $ T.tail s)

@@ -54,7 +54,7 @@ functionDefinitionP = do
   (funcArgs, isva) <- funcArgListP
   fattrs <- many functionAttributeP
   sec <- sectionNameP
-  falign <- functionAlignmentP
+  falign <- alignmentP
   gcname <- optionMaybe gcNameP
   body <- functionBodyP
   return FunctionDefinition { funcLinkage = lt
@@ -107,7 +107,7 @@ globalDeclP = do
   -- here than in an LR parser since we don't have to worry about the
   -- reduce/reduce conflicts.
   section <- optionMaybe $ try (consumeTokens [TComma, TSection] *> parseString)
-  align <- option 0 (consumeTokens [TComma, TAlign] *> parseInteger)
+  align <- option 0 (consumeToken TComma *> alignmentP)
   let i = case initializer of
         Just i' -> Just $ i' t
         Nothing -> Nothing
