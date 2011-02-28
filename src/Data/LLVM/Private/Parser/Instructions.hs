@@ -418,7 +418,7 @@ brInstP = do
 
 switchInstP :: AssemblyParser Instruction
 switchInstP =
-  voidInst <$> (SwitchInst <$> constantP <*> defLabP <*> branches)
+  voidInst <$> (SwitchInst <$> (consumeToken TSwitch *> constantP) <*> defLabP <*> branches)
   where defLabP = commaLabelP
         branches = betweenTokens [TLSquare] [TRSquare] (many switchBranchP)
         switchBranchP = (,) <$> constantP <*> commaLabelP
