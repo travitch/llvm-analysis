@@ -105,8 +105,9 @@ namedInstP = do
             TSelect -> Just selectInstP
             TVaArg -> Just vaArgInstP
             TCall -> Just (namedCallInstP False)
+            TTail -> Just (namedCallInstP True)
             TInvoke -> Just namedInvokeInstP
-            _ -> Just (const $ parserFail "Expected an instruction that produces a named value")
+            _ -> Just (const $ parserFail ("Expected an instruction that produces a named value; got " ++ show x))
 
 namedInvokeInstP :: Identifier -> AssemblyParser Instruction
 namedInvokeInstP name = invokeInstP (Just name)
@@ -411,7 +412,7 @@ brInstP = do
             TLabelT -> Just unconditionalBranchInstP
             _ -> Just conditionalBranchInstP
         unconditionalBranchInstP =
-          voidInst <$> (UnconditionalBranchInst <$> localLabelP)
+          voidInst <$> (UnconditionalBranchInst <$> (consumeToken TLabelT *> localLabelP))
         conditionalBranchInstP =
           voidInst <$> (BranchInst <$> constantP <*> commaLabelP <*> commaLabelP)
 
