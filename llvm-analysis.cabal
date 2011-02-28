@@ -71,7 +71,6 @@ library
                    Data.LLVM.Private.Parser.Primitive,
                    Data.LLVM.Private.Parser.Types,
                    Data.LLVM.Private.ParsingMonad,
-                   Data.LLVM.Private.PlaceholderBuilders,
                    Data.LLVM.Private.PlaceholderTypeExtractors,
                    Data.LLVM.Private.PlaceholderTypes,
                    Data.LLVM.Private.Printers,
@@ -84,7 +83,7 @@ library
                    Data.LLVM.Private.Translators.Types
 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
-  build-tools: alex >= 2 && < 3, happy > 1.18.0
+  build-tools: alex >= 2 && < 3
   extensions: OverloadedStrings
   ghc-options: -Wall -fno-warn-lazy-unlifted-bindings
 
