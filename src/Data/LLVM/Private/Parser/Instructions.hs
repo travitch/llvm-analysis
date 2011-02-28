@@ -29,9 +29,9 @@ instructionNoMDP = do
             TBr -> Just brInstP
             TSwitch -> Just switchInstP
             TIndirectBr -> Just indirectBrInstP
-            -- TInvoke -> Just bareInvokeInstP
-            -- TCall -> Just bareCallInstP
-            -- TTail -> Just tailCallInstP -- variant of call
+            TInvoke -> Just (invokeInstP Nothing)
+            TCall -> Just (callInstP False Nothing)
+            TTail -> Just (callInstP True Nothing)
             TUnwind -> Just unwindInstP
             TUnreachable -> Just unreachableInstP
             TStore -> Just (storeInstP False)
@@ -87,19 +87,155 @@ namedInstP = do
             TShuffleVector -> Just shuffleVectorInstP
             TExtractValue -> Just extractValueInstP
             TInsertValue -> Just insertValueInstP
-            -- GEP
+            TGetElementPtr -> Just getElementPtrInstP
             TAlloca -> Just allocaInstP
+            TLoad -> Just (loadInstP False)
+            TVolatile -> Just (loadInstP True)
+            TPhi -> Just phiNodeP
+            TSelect -> Just selectInstP
+            TVaArg -> Just vaArgInstP
+            TCall -> Just (namedCallInstP False)
+            TInvoke -> Just namedInvokeInstP
 
--- Not right yet.  The tail is annoying.  It is easy (just tedious) to
--- make it predictive.
+namedInvokeInstP :: Identifier -> AssemblyParser Instruction
+namedInvokeInstP name = invokeInstP (Just name)
+
+invokeInstP :: Maybe Identifier -> AssemblyParser Instruction
+invokeInstP name = do
+  consumeToken TInvoke
+  cc <- callingConventionP
+  paramAttrs <- many paramAttributeP
+  rtype <- typeP
+  calledFunc <- partialConstantP
+  consumeToken TLParen
+  params <- sepBy callArgP (consumeToken TComma)
+  consumeToken TRParen
+  fattrs <- many functionAttributeP
+  consumeToken TTo
+  normalLabel <- constantP
+  consumeToken TUnwind
+  exceptLabel <- constantP
+  let i = InvokeInst { invokeConvention = cc
+                     , invokeParamAttrs = paramAttrs
+                     , invokeRetType = rtype
+                     , invokeFunction = realFunc
+                     , invokeArguments = params
+                     , invokeAttrs = fattrs
+                     , invokeNormalLabel = normalLabel
+                     , invokeUnwindLabel = exceptLabel
+                     , invokeHasSRet = any (==PASRet) $ concatMap snd params
+                     }
+      realFunc = case calledFunc rtype of
+        ValueRef _ -> calledFunc rtype
+        _ -> error "Cannot invoke anything besides named constants"
+  return $ maybeNamedInst name rtype i
+
+namedCallInstP :: Bool -> Identifier -> AssemblyParser Instruction
+namedCallInstP isTail name = callInstP isTail (Just name)
+
+callInstP :: Bool -> Maybe Identifier -> AssemblyParser Instruction
+callInstP isTail name = do
+  when isTail (consumeToken TTail)
+  consumeToken TCall
+  cc <- callingConventionP
+  paramAttrs <- many paramAttributeP
+  rtype <- typeP
+  fullType <- optionMaybe typeP
+  calledFunc <- partialConstantP
+  consumeToken TLParen
+  params <- sepBy callArgP (consumeToken TComma)
+  consumeToken TRParen
+  fattrs <- many functionAttributeP
+  let i = CallInst { callIsTail = isTail
+                   , callConvention = cc
+                   , callParamAttrs = paramAttrs
+                   , callRetType = rtype
+                   , callFunction = realFunc
+                   , callArguments = params
+                   , callAttrs = fattrs
+                   , callHasSRet = any (==PASRet) $ concatMap snd params
+                   }
+      realFunc = case (calledFunc rtype, fullType) of
+        (ValueRef _, _) -> calledFunc rtype
+        (_, Just t) -> calledFunc t
+        _ -> error "Should not have a constant function without a full function type"
+  return $ maybeNamedInst name rtype i
+
+callArgP :: AssemblyParser (Constant, [ParamAttribute])
+callArgP = do
+  t <- typeP
+  ps <- many paramAttributeP
+  pc <- partialConstantP
+  return (pc t, ps)
+
+vaArgInstP :: Identifier -> AssemblyParser Instruction
+vaArgInstP name = do
+  consumeToken TVaArg
+  t <- typeP
+  val <- partialConstantP
+  consumeToken TComma
+  asType <- typeP
+  return $ namedInst name asType $ VaArgInst (val t) asType
+
+selectInstP :: Identifier -> AssemblyParser Instruction
+selectInstP name = do
+  consumeToken TSelect
+  selTy <- typeP
+  cond <- partialConstantP
+  consumeToken TComma
+  ty1 <- typeP
+  val1 <- partialConstantP
+  consumeToken TComma
+  ty2 <- typeP
+  val2 <- partialConstantP
+  if ty1 /= ty2
+    then parserFail "Vectors in select instruction must be of the same type"
+    else return $ namedInst name ty1 $ SelectInst (cond selTy) (val1 ty1) (val2 ty2)
+
+phiNodeP :: Identifier -> AssemblyParser Instruction
+phiNodeP name = do
+  consumeToken TPhi
+  t <- typeP
+  pairs <- sepBy1 phiPairP (consumeToken TComma)
+  return $ namedInst name t $ PhiNode $ map (applyType t) pairs
+  where phiPairP = betweenTokens [TLSquare] [TRSquare] ((,) <$> lp <*> rp)
+        lp = partialConstantP <* consumeToken TComma
+        rp = localLabelP
+        applyType ty (pc, n) = (pc ty, n)
+
+getElementPtrInstP :: Identifier -> AssemblyParser Instruction
+getElementPtrInstP name = do
+  consumeToken TGetElementPtr
+  inBounds <- inBoundsP
+  t <- typeP
+  base <- partialConstantP
+  consumeToken TComma
+  idxs <- sepBy1 constantP (consumeToken TComma)
+  return UnresolvedInst { unresInstName = Just name
+                        , unresInstContent = GetElementPtrInst inBounds (base t) idxs
+                        , unresInstMetadata = Nothing
+                        }
+
+loadInstP :: Bool -> Identifier -> AssemblyParser Instruction
+loadInstP volatile name = do
+  when volatile (consumeToken TVolatile)
+  consumeToken TLoad
+  t <- typeP
+  loc <- partialConstantP
+  align <- alignmentSpecP
+  let (TypePointer t') = t
+  return $ namedInst name t' $ LoadInst volatile (loc t) align
+
+-- Not exactly optimal since there is a backtracking try, but not
+-- catastrophic either.  Can be fixed later.
 allocaInstP :: Identifier -> AssemblyParser Instruction
 allocaInstP name = do
   consumeToken TAlloca
   t <- typeP
-  (elems, align) <- allocaOptsP
+  elems <- option (ConstValue (ConstantInt 1) (TypeInteger 32)) (try elemCountP)
+  align <- alignmentSpecP
   return $ namedInst name (TypePointer t) $ AllocaInst t elems align
-  allocaOptsP = (,) <$> allocaNumElemsP <*> allocaAlignP
-  allocaOptsP = option (ConstValue $ ConstantInt 1) constantP
+  where elemCountP = consumeToken TComma *> constantP
 
 insertValueInstP :: Identifier -> AssemblyParser Instruction
 insertValueInstP name = do

@@ -5,21 +5,21 @@ module Data.LLVM.Private.PlaceholderBuilders ( -- mkExtractElementInst,
                                                -- , mkRetInst
                                                -- , mkShuffleVectorInst
                                              -- , mkInsertValueInst
-                                             -- , mkAllocaInst
-                                             , mkLoadInst
+                                               -- , mkAllocaInst
+                                             -- , mkLoadInst
                                                -- , mkStoreInst
                                              -- , mkConversionInst
                                              -- , mkIcmpInst
-                                             -- , mkFcmpInst
-                                             , mkPhiNode
-                                             , mkSelectInst
-                                             -- , mkFlaggedArithInst
-                                             , mkArithInst
-                                             , mkCallInst
-                                             , mkInvokeInst
-                                             , mkVaArgInst
+                                               -- , mkFcmpInst
+                                             -- , mkPhiNode
+                                             -- , mkSelectInst
+                                               -- , mkFlaggedArithInst
+                                             -- , mkArithInst
+                                             -- , mkCallInst
+                                             -- , mkInvokeInst
+                                             -- , mkVaArgInst
                                              -- , mkExtractValueInst
-                                             , mkGetElementPtrInst
+                                             -- , mkGetElementPtrInst
                                              , mkExternalFuncDecl
                                              , mkGlobalDecl
                                              , mkBasicBlock
@@ -82,10 +82,10 @@ mkTriple = TargetTriple
 
 -- The type of a load is ty with a layer of pointer type unwrapped.
 -- The input *must* be a pointer type
-mkLoadInst :: Identifier -> Bool -> Type -> PartialConstant -> Integer -> Instruction
-mkLoadInst ident volatile ty val align =
-  namedInst ident ty' $ LoadInst volatile (val ty) align
-  where (TypePointer ty') = ty
+-- mkLoadInst :: Identifier -> Bool -> Type -> PartialConstant -> Integer -> Instruction
+-- mkLoadInst ident volatile ty val align =
+--   namedInst ident ty' $ LoadInst volatile (val ty) align
+--   where (TypePointer ty') = ty
 
 -- mkStoreInst :: (Monad m) => Bool -> Type -> PartialConstant -> Type -> PartialConstant -> Integer -> m Instruction
 -- mkStoreInst :: Bool -> AssemblyParser Type -> AssemblyParser PartialConstant ->
@@ -109,9 +109,9 @@ mkLoadInst ident volatile ty val align =
 -- mkFlaggedArithInst inst ident ty flags v1 v2 =
 --   return $ namedInst ident ty $ inst flags (v1 ty) (v2 ty)
 
-mkArithInst :: (Monad m) => (Constant -> Constant -> InstructionT) -> Identifier -> Type -> PartialConstant -> PartialConstant -> m Instruction
-mkArithInst inst ident ty v1 v2 =
-  return $ namedInst ident ty $ inst (v1 ty) (v2 ty)
+-- mkArithInst :: (Monad m) => (Constant -> Constant -> InstructionT) -> Identifier -> Type -> PartialConstant -> PartialConstant -> m Instruction
+-- mkArithInst inst ident ty v1 v2 =
+--   return $ namedInst ident ty $ inst (v1 ty) (v2 ty)
 
 -- Build a conversion instruction using the provided type constructor.
 -- Examples: TruncInst, ZextInst
@@ -139,61 +139,61 @@ mkArithInst inst ident ty v1 v2 =
 --           TypeVector n _ -> TypeVector n (TypeInteger 1)
 --           _ -> TypeInteger 1
 
-mkPhiNode :: (Monad m) => Identifier -> Type -> [(PartialConstant, Constant)] -> m Instruction
-mkPhiNode ident ty vals =
-  return $ namedInst ident ty $ PhiNode (map applicator vals)
-  where applicator (pc, name) = (pc ty, name)
+-- mkPhiNode :: (Monad m) => Identifier -> Type -> [(PartialConstant, Constant)] -> m Instruction
+-- mkPhiNode ident ty vals =
+--   return $ namedInst ident ty $ PhiNode (map applicator vals)
+--   where applicator (pc, name) = (pc ty, name)
 
 -- this doesn't encode the semantics very well (though they are
 -- represented).  If selty is a vector i1, then the selection is
 -- performed element-wise in the vectors.  That said, this behavior
 -- isn't implemented in LLVM yet so it is a moot point, for now.
-mkSelectInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Type -> PartialConstant -> m Instruction
-mkSelectInst ident selty sel t1 v1 t2 v2 =
-  if t1 /= t2
-    then fail "Vectors must be of the same type"
-    else mk'
-  where mk' = return $ namedInst ident t1 $ SelectInst (sel selty) (v1 t1) (v2 t2)
+-- mkSelectInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Type -> PartialConstant -> m Instruction
+-- mkSelectInst ident selty sel t1 v1 t2 v2 =
+--   if t1 /= t2
+--     then fail "Vectors must be of the same type"
+--     else mk'
+--   where mk' = return $ namedInst ident t1 $ SelectInst (sel selty) (v1 t1) (v2 t2)
 
 -- The bool with each parameter indicates that the constant is either
 -- an sret parameter or not.
-mkCallInst :: (Monad m) => Maybe Identifier -> Bool -> CallingConvention ->
-              [ParamAttribute] -> Type -> Maybe Type -> PartialConstant ->
-              [(Constant, [ParamAttribute])] -> [FunctionAttribute] -> m Instruction
-mkCallInst mident isTail cc pattrs rtype mftype func params fAttrs =
-  return $ maybeNamedInst mident rtype i
-  where i = CallInst { callIsTail = isTail
-                     , callConvention = cc
-                     , callParamAttrs = pattrs
-                     , callRetType = rtype
-                     , callFunction = realFunc
-                     , callArguments = params
-                     , callAttrs = fAttrs
-                     , callHasSRet = any (==PASRet) $ concatMap snd params
-                     }
-        realFunc = case (func rtype, mftype) of
-          (ValueRef _, _) -> func rtype
-          (_, Just t) -> func t
-          _ -> error "Should not have a constant function without full functype"
+-- mkCallInst :: (Monad m) => Maybe Identifier -> Bool -> CallingConvention ->
+--               [ParamAttribute] -> Type -> Maybe Type -> PartialConstant ->
+--               [(Constant, [ParamAttribute])] -> [FunctionAttribute] -> m Instruction
+-- mkCallInst mident isTail cc pattrs rtype mftype func params fAttrs =
+--   return $ maybeNamedInst mident rtype i
+--   where i = CallInst { callIsTail = isTail
+--                      , callConvention = cc
+--                      , callParamAttrs = pattrs
+--                      , callRetType = rtype
+--                      , callFunction = realFunc
+--                      , callArguments = params
+--                      , callAttrs = fAttrs
+--                      , callHasSRet = any (==PASRet) $ concatMap snd params
+--                      }
+--         realFunc = case (func rtype, mftype) of
+--           (ValueRef _, _) -> func rtype
+--           (_, Just t) -> func t
+--           _ -> error "Should not have a constant function without full functype"
 
-mkInvokeInst :: (Monad m) => Maybe Identifier -> CallingConvention ->
-                [ParamAttribute] -> Type -> PartialConstant -> [(Constant, [ParamAttribute])] ->
-                [FunctionAttribute] -> Constant -> Constant -> m Instruction
-mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
-  return $ maybeNamedInst mident rtype i
-  where i = InvokeInst { invokeConvention = cc
-                       , invokeParamAttrs = pattrs
-                       , invokeRetType = rtype
-                       , invokeFunction = realFunc
-                       , invokeArguments = params
-                       , invokeAttrs = fattrs
-                       , invokeNormalLabel = normal
-                       , invokeUnwindLabel = unwind
-                       , invokeHasSRet = any (==PASRet) $ concatMap snd params
-                       }
-        realFunc = case func rtype of
-          ValueRef _ -> func rtype
-          _ -> error "Cannot invoke anything besides a named constant..."
+-- mkInvokeInst :: (Monad m) => Maybe Identifier -> CallingConvention ->
+--                 [ParamAttribute] -> Type -> PartialConstant -> [(Constant, [ParamAttribute])] ->
+--                 [FunctionAttribute] -> Constant -> Constant -> m Instruction
+-- mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
+--   return $ maybeNamedInst mident rtype i
+--   where i = InvokeInst { invokeConvention = cc
+--                        , invokeParamAttrs = pattrs
+--                        , invokeRetType = rtype
+--                        , invokeFunction = realFunc
+--                        , invokeArguments = params
+--                        , invokeAttrs = fattrs
+--                        , invokeNormalLabel = normal
+--                        , invokeUnwindLabel = unwind
+--                        , invokeHasSRet = any (==PASRet) $ concatMap snd params
+--                        }
+--         realFunc = case func rtype of
+--           ValueRef _ -> func rtype
+--           _ -> error "Cannot invoke anything besides a named constant..."
 
 -- mkRetInst :: (Monad m) => Type -> Maybe PartialConstant -> m Instruction
 -- mkRetInst :: ParsecT s u m Type -> ParsecT s u m (Maybe PartialConstant) ->
@@ -207,16 +207,16 @@ mkInvokeInst mident cc pattrs rtype func params fattrs normal unwind =
 --     _ -> parserFail "Non-void return without return value"
 
 -- Ident, va_arg type, the va_list arg, the type being extracted
-mkVaArgInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> m Instruction
-mkVaArgInst ident ty1 val ty2 =
-  return $ namedInst ident ty2 $ VaArgInst (val ty1) ty2
+-- mkVaArgInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> m Instruction
+-- mkVaArgInst ident ty1 val ty2 =
+--   return $ namedInst ident ty2 $ VaArgInst (val ty1) ty2
 
-mkGetElementPtrInst :: (Monad m) => Identifier -> Bool -> Type -> PartialConstant -> [Constant] -> m Instruction
-mkGetElementPtrInst ident inBounds ty val indices =
-  return UnresolvedInst { unresInstName = Just ident
-                        , unresInstContent = GetElementPtrInst inBounds (val ty) indices
-                        , unresInstMetadata = Nothing
-                        }
+-- mkGetElementPtrInst :: (Monad m) => Identifier -> Bool -> Type -> PartialConstant -> [Constant] -> m Instruction
+-- mkGetElementPtrInst ident inBounds ty val indices =
+--   return UnresolvedInst { unresInstName = Just ident
+--                         , unresInstContent = GetElementPtrInst inBounds (val ty) indices
+--                         , unresInstMetadata = Nothing
+--                         }
 
 -- External function decls are weird - the full type is only required
 -- if the function is vararg or returns a function pointer.

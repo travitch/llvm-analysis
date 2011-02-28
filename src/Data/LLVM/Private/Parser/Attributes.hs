@@ -2,7 +2,7 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttributeP
                                            , functionAttributeP
                                            , visibilityStyleP
                                            , linkageTypeP
-                                           , callingConvention
+                                           , callingConventionP
                                            , gcName
                                            , sectionName
                                            , addrSpace
@@ -103,8 +103,8 @@ linkageTypeP = tokenAs matcher
             _ -> Just LTExtern
 
 
-callingConvention :: AssemblyParser CallingConvention
-callingConvention = tokenAs matcher
+callingConventionP :: AssemblyParser CallingConvention
+callingConventionP = tokenAs matcher
   where matcher x =
           case x of
             TCCN n -> Just (CCN n)
