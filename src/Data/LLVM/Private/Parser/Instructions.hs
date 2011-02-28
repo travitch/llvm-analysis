@@ -13,9 +13,17 @@ import Data.LLVM.Private.Parser.Constants
 import Data.LLVM.Private.Parser.Primitive
 import Data.LLVM.Private.Parser.Types
 
+-- | Parses an instruction with the optional metadata annotation
 instructionP :: AssemblyParser Instruction
-instructionP = instructionNoMDP
+instructionP = makeMDInst <$> instructionNoMDP <*> optionMaybe instMetadataP
+  where makeMDInst i md = case i of
+          Instruction {} -> i { instMetadata = md }
+          UnresolvedInst {} -> i { unresInstMetadata = md }
 
+instMetadataP :: AssemblyParser Identifier
+instMetadataP = consumeToken TDbg *> metadataIdentifierP
+
+-- | Parses a basic instruction
 instructionNoMDP :: AssemblyParser Instruction
 instructionNoMDP = do
   realParser <- lookAhead dispatcher
