@@ -152,7 +152,12 @@ callInstP isTail name = do
   cc <- callingConventionP
   paramAttrs <- many paramAttributeP
   rtype <- typeP
-  fullType <- optionMaybe typeP
+  -- This doesn't really seem to come up... if this truly might be here, it
+  -- causes some ambiguity with regard to local names.  A local name could be
+  -- a named type or a function value.  Lookahead would be required to resolve
+  -- this
+  --fullType <- optionMaybe typeP
+  let fullType = Nothing
   calledFunc <- partialConstantP
   consumeToken TLParen
   params <- sepBy callArgP (consumeToken TComma)
