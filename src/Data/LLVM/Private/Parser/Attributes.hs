@@ -183,11 +183,11 @@ branchTarget :: AssemblyParser Constant
 branchTarget = ValueRef <$> localIdentifierP
 
 inBoundsP :: AssemblyParser Bool
-inBoundsP = tokenAs matcher
+inBoundsP = option False $ tokenAs matcher
   where matcher x =
           case x of
             TInbounds -> Just True
-            _ -> Just False
+            _ -> Nothing
 
 icmpConditionP :: AssemblyParser ICmpCondition
 icmpConditionP = tokenAs matcher
