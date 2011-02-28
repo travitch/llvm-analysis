@@ -104,6 +104,7 @@ namedInstP = do
             TVaArg -> Just vaArgInstP
             TCall -> Just (namedCallInstP False)
             TInvoke -> Just namedInvokeInstP
+            _ -> Just (const $ parserFail "Expected an instruction that produces a named value")
 
 namedInvokeInstP :: Identifier -> AssemblyParser Instruction
 namedInvokeInstP name = invokeInstP (Just name)

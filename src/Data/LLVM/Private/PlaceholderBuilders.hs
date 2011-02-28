@@ -1,7 +1,7 @@
 module Data.LLVM.Private.PlaceholderBuilders ( -- mkExtractElementInst,
   -- mkInsertElementInst
-   mkDataLayout
-                                             , mkTriple
+  -- mkDataLayout
+--                                             , mkTriple
                                                -- , mkRetInst
                                                -- , mkShuffleVectorInst
                                              -- , mkInsertValueInst
@@ -20,14 +20,14 @@ module Data.LLVM.Private.PlaceholderBuilders ( -- mkExtractElementInst,
                                              -- , mkVaArgInst
                                              -- , mkExtractValueInst
                                              -- , mkGetElementPtrInst
-                                             , mkExternalFuncDecl
-                                             , mkGlobalDecl
-                                             , mkBasicBlock
-                                             , mkFunctionDef
-                                             , mkMDNode
-                                             , mkNamedMetadata
-                                             , mkMDInst
-                                             , mkGlobalAlias
+    --                                         , mkExternalFuncDecl
+                                             -- , mkGlobalDecl
+                                               -- , mkBasicBlock
+                                             -- , mkFunctionDef
+                                             -- , mkMDNode
+                                             -- , mkNamedMetadata
+                                             -- , mkMDInst
+                                             -- , mkGlobalAlias
                                              ) where
 
 import Data.Text (Text)
@@ -47,11 +47,11 @@ import Data.LLVM.Private.PlaceholderTypes
 
 -- FIXME: Parse the bytestring - have the code for this already in the
 -- old attoparsec-based parser
-mkDataLayout :: a -> DataLayout
-mkDataLayout s = defaultDataLayout
+-- mkDataLayout :: a -> DataLayout
+-- mkDataLayout s = defaultDataLayout
 
-mkTriple :: Text -> TargetTriple
-mkTriple = TargetTriple
+-- mkTriple :: Text -> TargetTriple
+-- mkTriple = TargetTriple
 
 -- mkShuffleVectorInst :: (Monad m) => Identifier -> Type -> PartialConstant -> Type -> PartialConstant -> Type -> PartialConstant -> m Instruction
 -- mkShuffleVectorInst name t1 val1 t2 val2 t3 mask
@@ -221,29 +221,29 @@ mkTriple = TargetTriple
 -- External function decls are weird - the full type is only required
 -- if the function is vararg or returns a function pointer.
 -- Otherwise, only the return type is explicit in the first argument.
-mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) ->
-                      [FunctionAttribute] -> GlobalDeclaration
-mkExternalFuncDecl retType ident (argTypes, isVararg) attrs =
-  ExternalFuncDecl t ident attrs
-  where t = case retType of
-          TypeFunction _ _ _ -> retType
-          _ -> TypeFunction retType argTypes isVararg
+-- mkExternalFuncDecl :: Type -> Identifier -> ([Type], Bool) ->
+--                       [FunctionAttribute] -> GlobalDeclaration
+-- mkExternalFuncDecl retType ident (argTypes, isVararg) attrs =
+--   ExternalFuncDecl t ident attrs
+--   where t = case retType of
+--           TypeFunction _ _ _ -> retType
+--           _ -> TypeFunction retType argTypes isVararg
 
-mkGlobalDecl :: Identifier -> Int -> LinkageType -> GlobalAnnotation -> Type ->
-                Maybe PartialConstant -> Integer -> Maybe Text ->
-                GlobalDeclaration
-mkGlobalDecl ident addrSpace linkage annot initType initializer align section =
-  GlobalDeclaration ident addrSpace linkage annot t i align section
-  where t = TypePointer initType
-        i = case initializer of
-          Just i' -> Just $ i' initType
-          Nothing -> Nothing
+-- mkGlobalDecl :: Identifier -> Int -> LinkageType -> GlobalAnnotation -> Type ->
+--                 Maybe PartialConstant -> Integer -> Maybe Text ->
+--                 GlobalDeclaration
+-- mkGlobalDecl ident addrSpace linkage annot initType initializer align section =
+--   GlobalDeclaration ident addrSpace linkage annot t i align section
+--   where t = TypePointer initType
+--         i = case initializer of
+--           Just i' -> Just $ i' initType
+--           Nothing -> Nothing
 
-mkBasicBlock :: Maybe Text -> [Instruction] -> BasicBlock
-mkBasicBlock t = BasicBlock identifier
-  where identifier = case t of
-          Nothing -> Nothing
-          Just name -> Just $ makeLocalIdentifier name
+-- mkBasicBlock :: Maybe Text -> [Instruction] -> BasicBlock
+-- mkBasicBlock t = BasicBlock identifier
+--   where identifier = case t of
+--           Nothing -> Nothing
+--           Just name -> Just $ makeLocalIdentifier name
 
 mkFunctionDef :: LinkageType -> VisibilityStyle -> CallingConvention ->
                  [ParamAttribute] -> Type -> Identifier ->
@@ -266,20 +266,20 @@ mkFunctionDef linkage vis cc retAttr retTy name (args, isVararg) fAttrs section 
                      , funcIsVararg = isVararg
                      }
 
-mkMDNode :: Identifier -> [Maybe Constant] -> GlobalDeclaration
-mkMDNode = UnnamedMetadata
+-- mkMDNode :: Identifier -> [Maybe Constant] -> GlobalDeclaration
+-- mkMDNode = UnnamedMetadata
 
-mkNamedMetadata :: Identifier -> [Identifier] -> GlobalDeclaration
-mkNamedMetadata name names = NamedMetadata name vals
-  where vals = map ValueRef names
+-- mkNamedMetadata :: Identifier -> [Identifier] -> GlobalDeclaration
+-- mkNamedMetadata name names = NamedMetadata name vals
+--   where vals = map ValueRef names
 
-mkMDInst :: Instruction -> Maybe Identifier -> Instruction
-mkMDInst i md = case i of
-  Instruction {} -> i { instMetadata = md }
-  UnresolvedInst {} -> i { unresInstMetadata = md }
+-- mkmdinst :: Instruction -> Maybe Identifier -> Instruction
+-- mkMDInst i md = case i of
+--   Instruction {} -> i { instMetadata = md }
+--   UnresolvedInst {} -> i { unresInstMetadata = md }
 
-mkGlobalAlias :: Identifier -> LinkageType -> VisibilityStyle -> Type ->
-                 PartialConstant -> GlobalDeclaration
-mkGlobalAlias name linkage vis t aliasee =
-  GlobalAlias name linkage vis t (aliasee t)
+-- mkGlobalAlias :: Identifier -> LinkageType -> VisibilityStyle -> Type ->
+--                  PartialConstant -> GlobalDeclaration
+-- mkGlobalAlias name linkage vis t aliasee =
+--   GlobalAlias name linkage vis t (aliasee t)
 

@@ -3,14 +3,15 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttributeP
                                            , visibilityStyleP
                                            , linkageTypeP
                                            , callingConventionP
-                                           , gcName
-                                           , sectionName
-                                           , addrSpace
-                                           , globalAnnotation
+                                           , gcNameP
+                                           , sectionNameP
+                                           , addrSpaceP
+                                           , globalAnnotationP
                                            , globalIdentifierP
                                            , localIdentifierP
                                            , metadataIdentifierP
-                                           , identifier
+                                           , labelP
+                                           , identifierP
                                            , instructionMetadata
                                            , branchTarget
                                            , inBoundsP
@@ -18,7 +19,7 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttributeP
                                            , fcmpConditionP
                                            , volatileFlag
                                            , alignmentSpecP
-                                           , functionAlignment
+                                           , functionAlignmentP
                                            , addInst
                                            , subInst
                                            , mulInst
@@ -114,22 +115,22 @@ callingConventionP = tokenAs matcher
             TCCGHC -> Just CCGHC
             _ -> Just CCC
 
-gcName :: AssemblyParser GCName
-gcName = consumeToken TGC >> (GCName <$> parseString)
+gcNameP :: AssemblyParser GCName
+gcNameP = consumeToken TGC >> (GCName <$> parseString)
 
-sectionName :: AssemblyParser (Maybe Text)
-sectionName = option Nothing p
+sectionNameP :: AssemblyParser (Maybe Text)
+sectionNameP = option Nothing p
   where p = Just <$> parseString
 
-addrSpace :: AssemblyParser Int
-addrSpace = option 0 (tokenAs matcher)
+addrSpaceP :: AssemblyParser Int
+addrSpaceP = option 0 (tokenAs matcher)
   where matcher x =
           case x of
             TAddrspace n -> Just n
             _ -> Nothing
 
-globalAnnotation :: AssemblyParser GlobalAnnotation
-globalAnnotation = tokenAs matcher
+globalAnnotationP :: AssemblyParser GlobalAnnotation
+globalAnnotationP = tokenAs matcher
   where matcher x =
           case x of
             TConstant -> Just GAConstant
@@ -157,10 +158,17 @@ metadataIdentifierP = tokenAs matcher
             TMetadataName i -> Just (makeMetaIdentifier i)
             _ -> Nothing
 
+labelP :: AssemblyParser Text
+labelP = tokenAs matcher
+  where matcher x =
+          case x of
+            TLabel l -> Just l
+            _ -> Nothing
+
 -- | Combined form which can match any identifier with just one
 -- pattern match (no choice combinator required)
-identifier :: AssemblyParser Identifier
-identifier = tokenAs matcher
+identifierP :: AssemblyParser Identifier
+identifierP = tokenAs matcher
   where matcher x =
           case x of
             TGlobalIdent i -> Just (makeGlobalIdentifier i)
@@ -230,8 +238,8 @@ volatileFlag = tokenAs matcher
 alignmentSpecP :: AssemblyParser Integer
 alignmentSpecP = option 0 (consumeToken TComma *> basicAlignmentSpec)
 
-functionAlignment :: AssemblyParser Integer
-functionAlignment = basicAlignmentSpec
+functionAlignmentP :: AssemblyParser Integer
+functionAlignmentP = basicAlignmentSpec
 
 basicAlignmentSpec :: AssemblyParser Integer
 basicAlignmentSpec = consumeToken TAlign *> tokenAs matcher

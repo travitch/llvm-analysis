@@ -46,7 +46,7 @@ untypedConstant = simpleConstant <|> complexConstant
 -- | A partial constant is either an identifier or one of the actual
 -- constant types.
 partialConstantP :: AssemblyParser PartialConstant
-partialConstantP = (valueRef <$> identifier) <|> (ConstValue <$> untypedConstant)
+partialConstantP = (valueRef <$> identifierP) <|> (ConstValue <$> untypedConstant)
 
 -- | Match any single-token constants.  These are split out just for more efficient
 -- handling
