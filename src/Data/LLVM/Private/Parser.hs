@@ -29,8 +29,8 @@ globalEntityP = do
             TLocalIdent _ -> Just typeDeclarationP
             TDeclare -> Just externalDeclP
             TDefine -> Just functionDefinitionP
-            TGlobalIdent _ -> Just $ choice [globalDeclP, globalAliasP]
-            TMetadataName _ -> Just $ choice [namedMetadataP, unnamedMetadataP]
+            TGlobalIdent _ -> Just $ choice [try globalDeclP, globalAliasP]
+            TMetadataName _ -> Just $ choice [try namedMetadataP, unnamedMetadataP]
             _ -> Just (parserFail "Expected a global entity")
 
 

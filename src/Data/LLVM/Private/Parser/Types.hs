@@ -14,10 +14,10 @@ typeP = do
   -- types upon which the others are built. We include the basic
   -- aggregates here since they can be unambiguously parsed.
   baseType <- choice [ baseParser
-                     , arrayTypeP TypeArray [TLSquare] [TRSquare]
-                     , arrayTypeP TypeVector [TLAngle] [TRAngle]
-                     , aggregateTypeP TypeStruct [TLCurl] [TRCurl]
-                     , aggregateTypeP TypePackedStruct [TLAngle, TLCurl] [TRCurl, TRAngle]
+                     , try $ arrayTypeP TypeArray [TLSquare] [TRSquare]
+                     , try $ arrayTypeP TypeVector [TLAngle] [TRAngle]
+                     , try $ aggregateTypeP TypeStruct [TLCurl] [TRCurl]
+                     , try $ aggregateTypeP TypePackedStruct [TLAngle, TLCurl] [TRCurl, TRAngle]
                      ]
   -- Since this is a top-down parser, we can't use left recursion to
   -- pick up pointer modifiers or function types, so we have to do it
@@ -32,24 +32,22 @@ typeP = do
 
 baseParser :: AssemblyParser Type
 baseParser = tokenAs matcher
-
-matcher :: LexerToken -> Maybe Type
-matcher x =
-  case x of
-    TIntegralT i -> Just (TypeInteger i)
-    TFloatT -> Just TypeFloat
-    TDoubleT -> Just TypeDouble
-    TX86_FP80T -> Just TypeX86FP80
-    TFP128T -> Just TypeFP128
-    TPPC_FP128T -> Just TypePPCFP128
-    TX86mmxT -> Just TypeX86MMX
-    TVoidT -> Just TypeVoid
-    TMetadataT -> Just TypeMetadata
-    TOpaqueT -> Just TypeOpaque
-    TUprefT i -> Just (TypeUpref i)
-    TLabelT -> Just TypeLabel
-    TLocalIdent i -> Just (TypeNamed $ makeLocalIdentifier i)
-    _ -> Nothing
+  where matcher x =
+          case x of
+            TIntegralT i -> Just (TypeInteger i)
+            TFloatT -> Just TypeFloat
+            TDoubleT -> Just TypeDouble
+            TX86_FP80T -> Just TypeX86FP80
+            TFP128T -> Just TypeFP128
+            TPPC_FP128T -> Just TypePPCFP128
+            TX86mmxT -> Just TypeX86MMX
+            TVoidT -> Just TypeVoid
+            TMetadataT -> Just TypeMetadata
+            TOpaqueT -> Just TypeOpaque
+            TUprefT i -> Just (TypeUpref i)
+            TLabelT -> Just TypeLabel
+            TLocalIdent i -> Just (TypeNamed $ makeLocalIdentifier i)
+            _ -> Nothing
 
 -- Parse a list of comma-separated types bracketed by
 -- the l and r parsers.
