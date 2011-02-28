@@ -30,6 +30,8 @@ instructionNoMDP = do
   anInst <- realParser
   return anInst
   where dispatcher = tokenAs matcher
+        -- ^ This is a "parser" that consumes no input and produces
+        -- another parser suitable for parsing this instruction.
         matcher x =
           case x of
             TLocalIdent _ -> Just namedInstP
@@ -44,7 +46,7 @@ instructionNoMDP = do
             TUnreachable -> Just unreachableInstP
             TStore -> Just (storeInstP False)
             TVolatile -> Just (storeInstP True)
-            _ -> Just (parserFail "Expected an Instruction")
+            _ -> Nothing
 
 namedInstP :: AssemblyParser Instruction
 namedInstP = do

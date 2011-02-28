@@ -74,16 +74,16 @@ functionAttributeP = tokenAs matcher
             _ -> Nothing
 
 visibilityStyleP :: AssemblyParser VisibilityStyle
-visibilityStyleP = tokenAs matcher
+visibilityStyleP = option VisibilityDefault $ tokenAs matcher
   where matcher x =
           case x of
             TVisDefault -> Just VisibilityDefault
             TVisHidden -> Just VisibilityHidden
             TVisProtected -> Just VisibilityProtected
-            _ -> Just VisibilityDefault
+            _ -> Nothing
 
 linkageTypeP :: AssemblyParser LinkageType
-linkageTypeP = tokenAs matcher
+linkageTypeP = option LTExtern $ tokenAs matcher
   where matcher x =
           case x of
             TPrivate -> Just LTPrivate
@@ -101,11 +101,12 @@ linkageTypeP = tokenAs matcher
             TWeakODR -> Just LTWeakODR
             TDLLImport -> Just LTDLLImport
             TDLLExport -> Just LTDLLExport
-            _ -> Just LTExtern
+            TExternal -> Just LTExtern
+            _ -> Nothing
 
 
 callingConventionP :: AssemblyParser CallingConvention
-callingConventionP = tokenAs matcher
+callingConventionP = option CCC $ tokenAs matcher
   where matcher x =
           case x of
             TCCN n -> Just (CCN n)
@@ -113,14 +114,13 @@ callingConventionP = tokenAs matcher
             TCCFastCC -> Just CCFastCC
             TCCColdCC -> Just CCColdCC
             TCCGHC -> Just CCGHC
-            _ -> Just CCC
+            _ -> Nothing
 
 gcNameP :: AssemblyParser GCName
 gcNameP = consumeToken TGC >> (GCName <$> parseString)
 
 sectionNameP :: AssemblyParser (Maybe Text)
-sectionNameP = option Nothing p
-  where p = Just <$> parseString
+sectionNameP = optionMaybe parseString
 
 addrSpaceP :: AssemblyParser Int
 addrSpaceP = option 0 (tokenAs matcher)
@@ -239,7 +239,7 @@ alignmentSpecP :: AssemblyParser Integer
 alignmentSpecP = option 0 (consumeToken TComma *> basicAlignmentSpec)
 
 functionAlignmentP :: AssemblyParser Integer
-functionAlignmentP = basicAlignmentSpec
+functionAlignmentP = option 0 basicAlignmentSpec
 
 basicAlignmentSpec :: AssemblyParser Integer
 basicAlignmentSpec = consumeToken TAlign *> tokenAs matcher

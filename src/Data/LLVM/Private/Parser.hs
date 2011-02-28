@@ -12,6 +12,10 @@ import Data.LLVM.Private.Parser.Instructions
 import Data.LLVM.Private.Parser.Primitive
 import Data.LLVM.Private.Parser.Types
 
+
+parser :: AssemblyParser Module
+parser = Module <$> dataLayoutP <*> targetTripleP <*> many globalEntityP
+
 -- | Dispatch top-level parses as efficiently as possible.  Several
 -- cases can be uniquely identified by their first token, but four
 -- cannot.  These four are divided into two groups.  The most likely
@@ -181,8 +185,8 @@ basicBlockP = mk <$> labelP <*> many instructionP
 
 functionBodyP :: AssemblyParser [BasicBlock]
 functionBodyP = do
-  realParser <- lookAhead dispatcher
   consumeToken TLCurl
+  realParser <- lookAhead dispatcher
   bbs <- realParser
   consumeToken TRCurl
   return bbs
@@ -198,5 +202,3 @@ functionBodyP = do
             -- of instructions with no label and then just wrap it
             -- into a singleton list.
 
-parser :: AssemblyParser Module
-parser = Module <$> dataLayoutP <*> targetTripleP <*> many globalEntityP
