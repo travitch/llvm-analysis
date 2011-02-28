@@ -1,6 +1,6 @@
 module Data.LLVM.Private.Parser.Types ( typeP ) where
 
-import Control.Applicative hiding ((<|>))
+import Control.Applicative hiding ((<|>), many)
 import Text.Parsec
 
 import Data.LLVM.Private.AttributeTypes
@@ -25,10 +25,16 @@ typeP = do
   -- annotations (since this could be the return type of a function
   -- type).
   pointerType <- manyChain (consumeToken TStar) pointerAccum baseType
-  typeArgList <- optionMaybe funcArgFragment
-  case typeArgList of
-    Nothing -> return pointerType
-    Just (argTypes, isVa) -> return $ TypeFunction pointerType argTypes isVa
+  -- This picks up argument lists followed by pointer markers (since
+  -- functions can return function pointers).  This basically just
+  -- folds over the argument lists from left to right building up
+  -- types as it goes.
+  ftype <- manyChain funcArgFragment arglistAccum pointerType
+  return ftype
+
+arglistAccum :: ([Type], Bool, [()]) -> Type -> Type
+arglistAccum (ts, va, ptrs) seed =
+  foldr pointerAccum (TypeFunction seed ts va) ptrs
 
 baseParser :: AssemblyParser Type
 baseParser = tokenAs matcher
@@ -65,7 +71,9 @@ arrayTypeP c l r = c <$> prefx <*> postfx
 pointerAccum :: a -> Type -> Type
 pointerAccum _ t = TypePointer t
 
-funcArgFragment :: AssemblyParser ([Type], Bool)
+-- | Parse a type list (with parens) and report the number of trailing
+-- * tokens (if this is a function pointer)
+funcArgFragment :: AssemblyParser ([Type], Bool, [()])
 funcArgFragment = try $ do
   consumeToken TLParen
   -- Comma separated types.  Use sepEndBy instead of sepBy to consume
@@ -75,4 +83,7 @@ funcArgFragment = try $ do
   -- Now, we could have a ", ..." for a valist signature
   isVa <- option False $ True <$ consumeToken TDotDotDot
   consumeToken TRParen
-  return (funcArgTypes, isVa)
+  -- Record the number of * tokens so we can wrap our function pointer
+  -- type with a pointer type.
+  starToks <- many (consumeToken TStar)
+  return (funcArgTypes, isVa, starToks)

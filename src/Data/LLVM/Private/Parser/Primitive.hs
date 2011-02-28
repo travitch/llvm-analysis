@@ -18,7 +18,8 @@ import Data.LLVM.Private.Lexer
 
 type AssemblyParser = Parsec [Token] ()
 
-
+-- | Parse a list of `p`, producing a result after each step by applying
+-- f to the result and the current seed.
 manyChain :: AssemblyParser a -> (a -> b -> b) -> b -> AssemblyParser b
 manyChain p f initVal = do
   vs <- many p
