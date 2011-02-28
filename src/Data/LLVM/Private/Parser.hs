@@ -71,12 +71,11 @@ functionDefinitionP = do
 funcArgListP :: AssemblyParser ([FormalParameter], Bool)
 funcArgListP = do
   consumeToken TLParen
-  namedArgs <- sepBy arg (consumeToken TComma)
-  isVa <- option False vaTailP
+  namedArgs <- sepEndBy arg (consumeToken TComma)
+  isVa <- option False $ True <$ consumeToken TDotDotDot
   consumeToken TRParen
   return (namedArgs, isVa)
-  where vaTailP = True <$ consumeTokens [TComma, TDotDotDot]
-        arg = FormalParameter <$> typeP <*> many paramAttributeP <*> localIdentifierP
+  where arg = FormalParameter <$> typeP <*> many paramAttributeP <*> localIdentifierP
 
 globalAliasP :: AssemblyParser GlobalDeclaration
 globalAliasP = do
@@ -136,11 +135,10 @@ externalDeclP = do
 -- FIXME: Ignoring parameter attributes here for now...
 funcTypeArgListP :: AssemblyParser ([Type], Bool)
 funcTypeArgListP = do
-  ts <- sepBy1 tArgP (consumeToken TComma)
-  isVa <- option False vaTailP
+  ts <- sepEndBy tArgP (consumeToken TComma)
+  isVa <- option False $ True <$ consumeToken TDotDotDot
   return (ts, isVa)
   where tArgP = typeP <* many paramAttributeP
-        vaTailP = True <$ consumeTokens [TComma, TDotDotDot]
 
 typeDeclarationP :: AssemblyParser GlobalDeclaration
 typeDeclarationP = NamedType <$> localIdentifierP <*> (syntaxP *> typeP)

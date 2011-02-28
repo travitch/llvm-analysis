@@ -85,7 +85,7 @@ library
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   build-tools: alex >= 2 && < 3
   extensions: OverloadedStrings
-  ghc-options: -Wall -fno-warn-lazy-unlifted-bindings
+  ghc-options: -Wall
 
 executable parser-tests
   --if flag(buildTests)

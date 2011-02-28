@@ -25,7 +25,7 @@ typeP = do
   -- annotations (since this could be the return type of a function
   -- type).
   pointerType <- manyChain (consumeToken TStar) pointerAccum baseType
-  typeArgList <- funcArgFragment <|> (parserReturn Nothing)
+  typeArgList <- optionMaybe funcArgFragment
   case typeArgList of
     Nothing -> return pointerType
     Just (argTypes, isVa) -> return $ TypeFunction pointerType argTypes isVa
@@ -65,11 +65,14 @@ arrayTypeP c l r = c <$> prefx <*> postfx
 pointerAccum :: a -> Type -> Type
 pointerAccum _ t = TypePointer t
 
-funcArgFragment :: AssemblyParser (Maybe ([Type], Bool))
+funcArgFragment :: AssemblyParser ([Type], Bool)
 funcArgFragment = try $ do
   consumeToken TLParen
-  -- Comma separated types
-  funcArgTypes <- sepBy typeP (consumeToken TComma)
-  -- Now, we could have a ", ..." FIXME: check
+  -- Comma separated types.  Use sepEndBy instead of sepBy to consume
+  -- the comma separating the main list from the va-marker, if there
+  -- is one.
+  funcArgTypes <- sepEndBy typeP (consumeToken TComma)
+  -- Now, we could have a ", ..." for a valist signature
+  isVa <- option False $ True <$ consumeToken TDotDotDot
   consumeToken TRParen
-  return $ Just (funcArgTypes, False)
+  return (funcArgTypes, isVa)
