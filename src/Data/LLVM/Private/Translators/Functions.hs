@@ -235,7 +235,8 @@ traceTypeIndicesEV t indices@(idx:rest) = case t of
   TypePackedStruct ts -> traceTypeIndicesEV (ts !! fromIntegral idx) rest
   TypeNamed _ realType -> traceTypeIndicesEV realType indices
   _ -> error ("Invalid type for ExtractValue: " ++ show t)
-traceTypeIndicesEV t [] = t
+-- All values in LLVM refer to pointers
+traceTypeIndicesEV t [] = TypePointer t
 
 traceTypeIndicesGEP :: Type -> [Value] -> Type
 traceTypeIndicesGEP t indices@(idx:rest) = case t of
@@ -247,7 +248,11 @@ traceTypeIndicesGEP t indices@(idx:rest) = case t of
   -- haven't checked it yet)
   TypeNamed _ realType -> traceTypeIndicesGEP realType indices
   _ -> error ("Invalid type for GetElementPtr: " ++ show t)
-traceTypeIndicesGEP t [] = t
+-- All values in LLVM refer to pointers.  As we walk through the
+-- structure in the GEP instruction, these are real values, but the
+-- final type of the value will be a pointer to whatever the indices
+-- indicate.
+traceTypeIndicesGEP t [] = TypePointer t
 
 getConstIntVal :: Value -> Integer
 getConstIntVal Value { valueContent = ConstantInt i } = i
