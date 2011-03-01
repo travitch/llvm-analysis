@@ -17,19 +17,3 @@ runLLVMParser p t = res
 -- maybeRunLLVMParser :: ([Token] -> ParsingMonad a) -> Text -> Maybe a
 maybeRunLLVMParser p t =
   either (const Nothing) Just (runLLVMParser p t)
-  -- case res of
-  -- Ok result -> Just result
-  -- Failed _ -> Nothing
-  -- where tokens = lexer t
-  --       res = p tokens
-
--- data ParsingMonad a = Ok a
---                     | Failed String
---                     deriving (Show)
-
--- instance Monad ParsingMonad where
---   return = Ok
---   fail = Failed
---   m >>= k = case m of
---     Ok a -> k a
---     Failed e -> Failed e

@@ -1,21 +1,30 @@
 module Data.LLVM.Private.KnotHelpers ( SymbolTable
                                      , IdStream
+                                     , extract
                                      , initialStream
-                                     , splitStream
+                                     , split
+                                     , split2
+                                     , split3
+                                     , split4
                                      ) where
 
+import Control.Comonad
 import Data.HamtMap (HamtMap)
-
+import Data.Stream.Supply hiding (split)
 import Data.LLVM.Types
+import System.IO.Unsafe
 
 
 type SymbolTable = HamtMap Identifier Value
 
-type IdStream = [Integer]
+type IdStream = Supply Integer
 
-splitStream :: IdStream -> (IdStream, IdStream)
-splitStream (x:xs) = (x:bs, as)
-  where (as, bs) = splitStream xs
-
+-- The documentation recommends forcing the compiler to not inline
+-- calls involving unsafePerformIO.  It shouldn't be an issue for this
+-- use, but it also doesn't hurt.
+{-# NOINLINE initialStream #-}
 initialStream :: IdStream
-initialStream = [ 0 .. ]
+initialStream = unsafePerformIO newNumSupply
+
+split :: Supply a -> Supply a
+split = leftSupply

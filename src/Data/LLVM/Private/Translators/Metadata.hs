@@ -65,7 +65,7 @@ translateMetadata trConst allMetadata md valmd name reflist =
 
         -- FIXME: this needs to have real identifiers generated
         translateConstant :: O.Constant -> (Metadata, Maybe Identifier)
-        translateConstant elt = (MetadataValueConstant (trConst elt [0..]), Nothing)
+        translateConstant elt = (MetadataValueConstant (trConst elt initialStream), Nothing)
 
         mkMetadataOrSrcLoc :: [Maybe O.Constant] -> (Metadata, Maybe Identifier)
         mkMetadataOrSrcLoc vals@[Just tag, a, b, Nothing] =
@@ -109,7 +109,7 @@ translateMetadata trConst allMetadata md valmd name reflist =
           -- when the dwarf package supports them
 
           -- 259 -> mkCompositeType metaRef DW_TAG_vector_type components
-          _ -> error ("Unknown metadata node tag" ++ show (tag' - llvmDebugVersion))
+          _ -> error ("Unknown metadata node tag (" ++ show (tag' - llvmDebugVersion) ++ ") / " ++ show tag')
           where tag' = getInt tag
 
 halfPair :: a -> (a, Maybe b)

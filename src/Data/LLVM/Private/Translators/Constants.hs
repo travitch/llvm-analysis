@@ -20,7 +20,7 @@ mkCVal uid ty c = Value { valueName = Nothing
 translateConstant :: (O.Type -> Type) -> Map Identifier Value ->
                      Map Identifier Value -> O.Constant -> IdStream ->
                      Value
-translateConstant typeMapper globalDecls localDecls v (thisId:restIds) =
+translateConstant typeMapper globalDecls localDecls v initstream =
   case v of
     O.ConstValue c ty -> trConstVal ty c
     O.ValueRef ident ->
@@ -32,10 +32,11 @@ translateConstant typeMapper globalDecls localDecls v (thisId:restIds) =
   where trConst = translateConstant typeMapper globalDecls localDecls
         transMap idstream vals =
           snd $ mapAccumR f idstream vals
-          where f s val = let (thisStream, otherStream) = splitStream s
+          where f s val = let (thisStream, otherStream) = split2 s
                               c = trConst val thisStream
                           in (otherStream, c)
-
+        thisId = extract initstream
+        restIds = split initstream
         trConstVal ty c = x
           where t = typeMapper ty
                 x = case c of

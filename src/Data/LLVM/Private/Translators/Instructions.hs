@@ -11,18 +11,18 @@ translateInstruction :: (O.Type -> Type) -> (O.Constant -> IdStream -> Value) ->
 translateInstruction typeMapper trConst oldContent idStream = newContent
   where transMap aStream vals =
           snd $ mapAccumR f aStream vals
-          where f s v = let (thisStream, otherStream) = splitStream s
+          where f s v = let (thisStream, otherStream) = split2 s
                             c = trConst v thisStream
                         in (otherStream, c)
 
         trFlaggedBinop cons flags lhs rhs s =
-          let (lstream, rstream) = splitStream s
+          let (lstream, rstream) = split2 s
               l = trConst lhs lstream
               r = trConst rhs rstream
           in cons flags l r
 
         trBinop cons lhs rhs s =
-          let (lstream, rstream) = splitStream s
+          let (lstream, rstream) = split2 s
               l = trConst lhs lstream
               r = trConst rhs rstream
           in cons l r
@@ -40,8 +40,7 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
             let t' = trConst target idStream
             in UnconditionalBranchInst t'
           O.BranchInst cond tTarget fTarget ->
-            let (condstream, bstream) = splitStream idStream
-                (tstream, fstream) = splitStream bstream
+            let (condstream, tstream, fstream) = split3 idStream
                 c' = trConst cond condstream
                 t' = trConst tTarget tstream
                 f' = trConst fTarget fstream
@@ -50,9 +49,7 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
                           , branchFalseTarget = f'
                           }
           O.SwitchInst val defTarget cases ->
-            let (valStream, ostream1) = splitStream idStream
-                (defStream, ostream2) = splitStream ostream1
-                (caseStream, targetStream) = splitStream ostream2
+            let (valStream, defStream, caseStream, targetStream) = split4 idStream
                 (vs, dests) = unzip cases
                 v' = trConst val valStream
                 dt' = trConst defTarget defStream
@@ -63,7 +60,7 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
                           , switchCases = zip vs' dests'
                           }
           O.IndirectBranchInst val dests ->
-            let (valStream, destStream) = splitStream idStream
+            let (valStream, destStream) = split2 idStream
                 v' = trConst val valStream
                 ds' = transMap destStream dests
             in IndirectBranchInst { indirectBranchAddress = v'
@@ -83,15 +80,14 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
           O.OrInst lhs rhs -> trBinop OrInst lhs rhs idStream
           O.XorInst lhs rhs -> trBinop XorInst lhs rhs idStream
           O.ExtractElementInst vec idx ->
-            let (vStream, iStream) = splitStream idStream
+            let (vStream, iStream) = split2 idStream
                 v' = trConst vec vStream
                 i' = trConst idx iStream
             in ExtractElementInst { extractElementVector = v'
                                   , extractElementIndex = i'
                                   }
           O.InsertElementInst vec elt idx ->
-            let (vStream, ostream) = splitStream idStream
-                (eStream, iStream) = splitStream ostream
+            let (vStream, eStream, iStream) = split3 idStream
                 v' = trConst vec vStream
                 e' = trConst elt eStream
                 i' = trConst idx iStream
@@ -100,8 +96,7 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
                                  , insertElementIndex = i'
                                  }
           O.ShuffleVectorInst vec1 vec2 mask ->
-            let (v1Stream, ostream) = splitStream idStream
-                (v2Stream, maskStream) = splitStream ostream
+            let (v1Stream, v2Stream, maskStream) = split3 idStream
                 v1 = trConst vec1 v1Stream
                 v2 = trConst vec2 v2Stream
                 m = trConst mask maskStream
@@ -115,7 +110,7 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
                                 , extractValueIndices = indices
                                 }
           O.InsertValueInst agg val indices ->
-            let (aStream, vStream) = splitStream idStream
+            let (aStream, vStream) = split2 idStream
                 a = trConst agg aStream
                 v = trConst val vStream
             in InsertValueInst { insertValueAggregate = a
@@ -129,7 +124,7 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
             let v = trConst dest idStream
             in LoadInst volatile v align
           O.StoreInst volatile value dest align ->
-            let (vStream, dStream) = splitStream idStream
+            let (vStream, dStream) = split2 idStream
                 v = trConst value vStream
                 d' = trConst dest dStream
             in StoreInst volatile v d' align
@@ -146,30 +141,29 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
           O.IntToPtrInst val ty -> trCast IntToPtrInst val ty idStream
           O.BitcastInst val ty -> trCast BitcastInst val ty idStream
           O.ICmpInst cond val1 val2 ->
-            let (s1, s2) = splitStream idStream
+            let (s1, s2) = split2 idStream
                 v1 = trConst val1 s1
                 v2 = trConst val2 s2
             in ICmpInst cond v1 v2
           O.FCmpInst cond val1 val2 ->
-            let (s1, s2) = splitStream idStream
+            let (s1, s2) = split2 idStream
                 v1 = trConst val1 s1
                 v2 = trConst val2 s2
             in FCmpInst cond v1 v2
           O.PhiNode vals ->
             let (consts, lbls) = unzip vals
-                (s1, s2) = splitStream idStream
+                (s1, s2) = split2 idStream
                 cs' = transMap s1 consts
                 lbls' = transMap s2 lbls
             in PhiNode $ zip cs' lbls'
           O.SelectInst cond val1 val2 ->
-            let (cStream, ostream) = splitStream idStream
-                (s1, s2) = splitStream ostream
+            let (cStream, s1, s2) = split3 idStream
                 c' = trConst cond cStream
                 v1' = trConst val1 s1
                 v2' = trConst val2 s2
             in SelectInst c' v1' v2'
           O.GetElementPtrInst inBounds val indices ->
-            let (s1, s2) = splitStream idStream
+            let (s1, s2) = split2 idStream
                 v' = trConst val s1
                 idxs = transMap s2 indices
             in GetElementPtrInst { getElementPtrInBounds = inBounds
@@ -185,7 +179,7 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
                      , O.callAttrs = cAttrs
                      , O.callHasSRet = hasSRet
                      } ->
-            let (s1, s2) = splitStream idStream
+            let (s1, s2) = split2 idStream
                 f = trConst func s1
                 (consts, attrs) = unzip args
                 as = transMap s2 consts
@@ -209,9 +203,7 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
                        , O.invokeHasSRet = hasSRet
                        } ->
             let (consts, attrs) = unzip args
-                (fStream, r1) = splitStream idStream
-                (aStream, r2) = splitStream r1
-                (ns, us) = splitStream r2
+                (fStream, aStream, ns, us) = split4 idStream
                 f = trConst func fStream
                 as = transMap aStream consts
                 nl = trConst normLabl ns

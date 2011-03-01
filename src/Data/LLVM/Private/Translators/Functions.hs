@@ -26,7 +26,7 @@ translateFunctionDefinition :: (O.Type -> Type) ->
                                IdStream ->
                                O.GlobalDeclaration ->
                                (SymbolTable, Value)
-translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) decl =
+translateFunctionDefinition typeMapper trConst globalMetadata idstream decl =
   (localVals, v)
   where v = Value { valueType = ftype
                   , valueName = Just functionIdentifier
@@ -48,6 +48,8 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
                              }
                   , valueUniqueId = thisId
                   }
+        thisId = extract idstream
+        restIds = split idstream
 
         -- Trivial metadata lookup function
         getMetadata i = M.lookup i globalMetadata
@@ -62,11 +64,12 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
         -- stream.  We don't need to split the stream since parameter
         -- creation doesn't involve recursive translation.  The rest
         -- of the IDs are for the translation of the function body.
-        (paramIds, bodyIds) = splitAt (length placeholderParams) restIds
+        -- (paramIds, bodyIds) = splitAt (length placeholderParams) restIds
+        (paramIds, bodyIds) = split2 restIds
         -- Map from parameter names to their translated values
-        parameterVals =
-          map translateParameter (zip paramIds placeholderParams)
-        translateParameter (uid, O.FormalParameter ty attrs paramIdent) =
+        (_, parameterVals) = mapAccumR translateParameter paramIds placeholderParams
+        translateParameter pidsrc (O.FormalParameter ty attrs paramIdent) =
+          (split pidsrc,
            Value { valueType = typeMapper ty
                  , valueName = Just paramIdent
                  -- Note: Parameter metadata is mapped in an odd way -
@@ -76,7 +79,8 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
                  , valueMetadata = M.lookup paramIdent localMetadata
                  , valueContent = Argument attrs
                  , valueUniqueId = uid
-                 }
+                 })
+          where uid = extract pidsrc
         -- This is the initial list of local values available to the function
         -- Parameters must have names
         paramMap = M.fromList $ zip (map xtract parameterVals) parameterVals
@@ -101,22 +105,22 @@ translateFunctionDefinition typeMapper trConst globalMetadata (thisId:restIds) d
         -- of the function.
         translateBody = mapAccumR translateBlock (bodyIds, paramMap)
 
-        translateBlock (blockId:blockRestIds, locals) (O.BasicBlock blockName placeholderInsts) =
+        translateBlock (blockIdSrc, locals) (O.BasicBlock blockName placeholderInsts) =
           ((restStream, updatedMap), bb)
           where bb = Value { valueType = TypeLabel
                            , valueName = blockName
                            , valueMetadata = Nothing -- can BBs have metadata?
                            , valueContent = BasicBlock insts
-                           , valueUniqueId = blockId
+                           , valueUniqueId = extract blockIdSrc
                            }
-                (blockStream, restStream) = splitStream blockRestIds
+                (blockStream, restStream) = split2 blockIdSrc
                 ((_,blocksWithLocals), insts) = translateInsts locals blockStream placeholderInsts
                 updatedMap = case blockName of
                   Nothing -> blocksWithLocals
                   Just aBlockName -> M.insert aBlockName bb blocksWithLocals
 
-        translateInsts locals idstream =
-          mapAccumR trInst (idstream, locals)
+        translateInsts locals inststream =
+          mapAccumR trInst (inststream, locals)
         trInst = transInst typeMapper trConst getMetadata
         -- Returns a new body and a map of identifiers (vals) to
         -- metadata identifiers
@@ -163,11 +167,12 @@ transInst :: (O.Type -> Type) ->
              (IdStream, Map Identifier Value) ->
              O.Instruction ->
              ((IdStream, Map Identifier Value), Value)
-transInst typeMapper trConst getMetadata (thisId:idStream, dict) i =
+transInst typeMapper trConst getMetadata (idStream, dict) i =
   case instName of
     Nothing -> ((restStream, dict), newValue)
     Just valName -> ((restStream, M.insert valName newValue dict), newValue)
   where newValue = repackInst i content
+        thisId = extract idStream
         oldContent = case i of
           O.Instruction { O.instContent = oc } -> oc
           O.UnresolvedInst { O.unresInstContent = oc } -> oc
@@ -176,7 +181,7 @@ transInst typeMapper trConst getMetadata (thisId:idStream, dict) i =
           O.UnresolvedInst { O.unresInstName = iname } -> iname
         content = translateInstruction typeMapper trConst oldContent instStream
 
-        (instStream, restStream) = splitStream idStream
+        (instStream, restStream) = split2 idStream
 
         -- This helper converts the non-content fields of an instruction to
         -- the equivalent fields in a Value.  It performs the necessary
