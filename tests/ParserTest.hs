@@ -66,6 +66,7 @@ typeTests = [ ("typeBool", assertEqual, "parse i1", TypeInteger 1, typeParser "i
             , ("typeFuncAbs", assertEqual, "parse i32(i32)", TypeFunction (TypeInteger 32) [TypeInteger 32] False, typeParser "i32(i32)")
             , ("typePrintf", assertEqual, "parse i32(i8*,...)", TypeFunction (TypeInteger 32) [TypePointer (TypeInteger 8)] True, typeParser "i32(i8*,...)")
             , ("typeFuncFunc", assertEqual, "parse i32(i32)(i32)", TypeFunction (TypeFunction (TypeInteger 32) [TypeInteger 32] False) [TypeInteger 32] False, typeParser "i32(i32)(i32)")
+            , ("typeFuncFunc2", assertEqual, "parse i32(i32)(double)", TypeFunction (TypeFunction (TypeInteger 32) [TypeInteger 32] False) [TypeDouble] False, typeParser "i32(i32)(double)")
             , ("typeFuncPtr", assertEqual, "parse i32(i32)*", TypePointer (TypeFunction (TypeInteger 32) [TypeInteger 32] False), typeParser "i32(i32)*")
             , ("typeStruct1", assertEqual, "parse {i32}", TypeStruct [TypeInteger 32], typeParser "{i32}")
             , ("typeStruct2", assertEqual, "parse {i32, double}", TypeStruct [TypeInteger 32, TypeDouble], typeParser "{i32, double}")
