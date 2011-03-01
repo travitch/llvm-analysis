@@ -6,9 +6,9 @@ module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
                                           , valueIsFunction
                                           ) where
 
+import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.Dwarf
 import Data.Hashable
-import Data.Text (Text)
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.DwarfHelpers
@@ -52,22 +52,22 @@ data Metadata =
                        , metaLexicalBlockDepth :: Integer
                        }
   | MetaDWCompileUnit { metaCompileUnitLanguage :: DW_LANG
-                      , metaCompileUnitSourceFile :: Text
-                      , metaCompileUnitCompileDir :: Text
-                      , metaCompileUnitProducer :: Text
+                      , metaCompileUnitSourceFile :: ByteString
+                      , metaCompileUnitCompileDir :: ByteString
+                      , metaCompileUnitProducer :: ByteString
                       , metaCompileUnitIsMain :: Bool
                       , metaCompileUnitIsOpt :: Bool
-                      , metaCompileUnitFlags :: Text
+                      , metaCompileUnitFlags :: ByteString
                       , metaCompileUnitVersion :: Integer
                       }
-  | MetaDWFile { metaFileSourceFile :: Text
-               , metaFileSourceDir :: Text
+  | MetaDWFile { metaFileSourceFile :: ByteString
+               , metaFileSourceDir :: ByteString
                , metaFileCompileUnit :: Metadata
                }
   | MetaDWVariable { metaGlobalVarContext :: Metadata
-                   , metaGlobalVarName :: Text
-                   , metaGlobalVarDisplayName :: Text
-                   , metaGlobalVarLinkageName :: Text
+                   , metaGlobalVarName :: ByteString
+                   , metaGlobalVarDisplayName :: ByteString
+                   , metaGlobalVarLinkageName :: ByteString
                    , metaGlobalVarFile :: Metadata
                    , metaGlobalVarLine :: Integer
                    , metaGlobalVarType :: Metadata
@@ -75,9 +75,9 @@ data Metadata =
                    , metaGlobalVarNotExtern :: Bool
                    }
   | MetaDWSubprogram { metaSubprogramContext :: Metadata
-                     , metaSubprogramName :: Text
-                     , metaSubprogramDisplayName :: Text
-                     , metaSubprogramLinkageName :: Text
+                     , metaSubprogramName :: ByteString
+                     , metaSubprogramDisplayName :: ByteString
+                     , metaSubprogramLinkageName :: ByteString
                      , metaSubprogramFile :: Metadata
                      , metaSubprogramLine :: Integer
                      , metaSubprogramType :: Metadata
@@ -90,7 +90,7 @@ data Metadata =
                      , metaSubprogramOptimized :: Bool
                      }
   | MetaDWBaseType { metaBaseTypeContext :: Metadata
-                   , metaBaseTypeName :: Text
+                   , metaBaseTypeName :: ByteString
                    , metaBaseTypeFile :: Maybe Metadata
                    , metaBaseTypeLine :: Integer
                    , metaBaseTypeSize :: Integer
@@ -101,7 +101,7 @@ data Metadata =
                    }
   | MetaDWDerivedType { metaDerivedTypeTag :: DW_TAG
                       , metaDerivedTypeContext :: Metadata
-                      , metaDerivedTypeName :: Text
+                      , metaDerivedTypeName :: ByteString
                       , metaDerivedTypeFile :: Maybe Metadata
                       , metaDerivedTypeLine :: Integer
                       , metaDerivedTypeSize :: Integer
@@ -111,7 +111,7 @@ data Metadata =
                       }
   | MetaDWCompositeType { metaCompositeTypeTag :: DW_TAG
                         , metaCompositeTypeContext :: Metadata
-                        , metaCompositeTypeName :: Text
+                        , metaCompositeTypeName :: ByteString
                         , metaCompositeTypeFile :: Maybe Metadata
                         , metaCompositeTypeLine :: Integer
                         , metaCompositeTypeSize :: Integer
@@ -125,12 +125,12 @@ data Metadata =
   | MetaDWSubrange { metaSubrangeLow :: Integer
                    , metaSubrangeHigh :: Integer
                    }
-  | MetaDWEnumerator { metaEnumeratorName :: Text
+  | MetaDWEnumerator { metaEnumeratorName :: ByteString
                      , metaEnumeratorValue :: Integer
                      }
   | MetaDWLocal { metaLocalTag :: DW_VAR_TAG
                 , metaLocalContext :: Metadata
-                , metaLocalName :: Text
+                , metaLocalName :: ByteString
                 , metaLocalFile :: Metadata
                 , metaLocalLine :: Integer
                 , metaLocalType :: Metadata
@@ -172,7 +172,7 @@ data ValueT = Function { functionType :: Type
                        , functionRetAttrs :: [ParamAttribute]
                        , functionAttrs :: [FunctionAttribute]
                        , functionName :: Identifier
-                       , functionSection :: Maybe Text
+                       , functionSection :: Maybe ByteString
                        , functionAlign :: Integer
                        , functionGCName :: Maybe GCName
                        , functionIsVararg :: Bool
@@ -182,7 +182,7 @@ data ValueT = Function { functionType :: Type
                                 , globalVariableAnnotation :: GlobalAnnotation
                                 , globalVariableInitializer :: Maybe Value
                                 , globalVariableAlignment :: Integer
-                                , globalVariableSection :: Maybe Text
+                                , globalVariableSection :: Maybe ByteString
                                 }
             | GlobalAlias { globalAliasLinkage :: LinkageType
                           , globalAliasVisibility :: VisibilityStyle
@@ -287,12 +287,12 @@ data ValueT = Function { functionType :: Type
             | ConstantArray [Value]
             | ConstantFP Double
             | ConstantInt Integer
-            | ConstantString Text
+            | ConstantString ByteString
             | ConstantPointerNull
             | ConstantStruct [Value]
             | ConstantVector [Value]
             | ConstantValue ValueT
-            | InlineAsm Text Text
+            | InlineAsm ByteString ByteString
             | MetadataValue Metadata
             deriving (Ord, Eq)
 

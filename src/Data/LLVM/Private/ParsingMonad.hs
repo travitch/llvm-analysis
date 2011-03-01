@@ -3,7 +3,6 @@ module Data.LLVM.Private.ParsingMonad ( -- ParsingMonad(..)
   , runLLVMParser
   ) where
 
-import Data.Text (Text)
 import Data.LLVM.Private.Lexer
 import Data.LLVM.Private.Parser
 

@@ -17,11 +17,11 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , module Data.LLVM.Private.Identifiers
                                         ) where
 
-import Data.Text (Text, unpack)
+import Data.ByteString.Lazy.Char8 (ByteString, unpack)
 
 import Data.LLVM.Private.Identifiers
 
-data Assembly = Assembly Text
+data Assembly = Assembly ByteString
                 deriving (Eq, Ord)
 
 instance Show Assembly where
@@ -156,7 +156,7 @@ instance Show Endian where
 data AlignSpec = AlignSpec Int Int
                  deriving (Show, Eq, Ord)
 
-data TargetTriple = TargetTriple Text
+data TargetTriple = TargetTriple ByteString
                     deriving (Eq)
 
 instance Show TargetTriple where
@@ -195,7 +195,7 @@ defaultDataLayout = DataLayout { endianness = EBig
                                , nativeWidths = [] -- Set.empty
                                }
 
-data GCName = GCName Text deriving (Eq, Ord)
+data GCName = GCName ByteString deriving (Eq, Ord)
 
 instance Show GCName where
   show (GCName t) = "gc \"" ++ unpack t ++ "\""

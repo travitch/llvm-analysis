@@ -5,8 +5,8 @@ module Data.LLVM ( parseLLVMAsm
                  , parseLLVMBitcodeFile
                  ) where
 
-import Data.Text (Text)
-import qualified Data.Text.IO as T
+import Data.ByteString.Lazy.Char8 (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as B
 import System.Process
 
 import Data.LLVM.Types
@@ -17,7 +17,7 @@ import Data.LLVM.Private.TieKnot
 -- | Parse a Text string containing an LLVM Assembly file into the
 -- Haskell form of the IR.  This will either return an LLVM Module
 -- or a String describing the reason for a parser failure.
-parseLLVMAsm :: Text -> Either String Module
+parseLLVMAsm :: ByteString -> Either String Module
 parseLLVMAsm t = case parseTree of
     Right llvmModule -> Right $ tieKnot llvmModule
     Left err -> Left (show err)
@@ -25,7 +25,7 @@ parseLLVMAsm t = case parseTree of
 
 -- | This is a wrapper for those who do not care about the reason for
 -- a parse error.  This will probably be removed at some point.
-maybeParseLLVMAsm :: Text -> Maybe Module
+maybeParseLLVMAsm :: ByteString -> Maybe Module
 maybeParseLLVMAsm t = do
   parseTree <- maybeRunLLVMParser parser t
   return $ tieKnot parseTree
@@ -37,7 +37,7 @@ maybeParseLLVMAsm t = do
 -- with at least -gvn and -mem2reg.
 parseLLVMAsmFile :: FilePath -> IO (Either String Module)
 parseLLVMAsmFile llfile = do
-  content <- T.readFile llfile
+  content <- B.readFile llfile
   return $ parseLLVMAsm content
 
 -- | Parse an LLVM Bitcode file into the Haskell form of the IR.  This
@@ -49,7 +49,7 @@ parseLLVMBitcodeFile :: FilePath -> IO (Either String Module)
 parseLLVMBitcodeFile bcfile = do
   let llvmOpts = [ "-mem2reg", "-gvn", "-S", bcfile ]
   (_, Just hOut, _, _) <- createProcess (proc "opt" llvmOpts) { std_out = CreatePipe }
-  content <- T.hGetContents hOut
+  content <- B.hGetContents hOut
   return $ parseLLVMAsm content
 
 

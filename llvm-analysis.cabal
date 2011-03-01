@@ -49,10 +49,10 @@ library
   -- Main-is: Main.hs
 
   -- Packages needed in order to build this package.
-  build-depends: text, base > 3 && < 5, array, data-binary-ieee754,
+  build-depends: base > 3 && < 5, array, data-binary-ieee754,
                  hamtmap, dwarf, fgl, graphviz, process, hashable,
                  parsec >= 3.1 && < 3.2, streams >= 0.6 && < 0.7,
-                 comonad
+                 comonad, bytestring
   hs-source-dirs: src
 
   -- Modules not exported by this package.
@@ -101,7 +101,7 @@ executable parser-tests
 
 executable parser-driver
   --if flag(buildTests)
-  build-depends: llvm-analysis, haskell98, text, base > 3 && < 5, hamtmap
+  build-depends: llvm-analysis, haskell98, base > 3 && < 5, hamtmap
   --else
   --  buildable: False
 

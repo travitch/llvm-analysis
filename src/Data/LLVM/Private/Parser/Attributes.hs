@@ -29,7 +29,7 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttributeP
                                            ) where
 
 import Control.Applicative hiding ((<|>))
-import Data.Text (Text)
+import Data.ByteString.Lazy.Char8 (ByteString)
 import Text.Parsec
 
 import Data.LLVM.Private.AttributeTypes
@@ -120,7 +120,7 @@ callingConventionP = option CCC $ tokenAs matcher
 gcNameP :: AssemblyParser GCName
 gcNameP = consumeToken TGC >> (GCName <$> parseString)
 
-sectionNameP :: AssemblyParser (Maybe Text)
+sectionNameP :: AssemblyParser (Maybe ByteString)
 sectionNameP = optionMaybe parseString
 
 addrSpaceP :: AssemblyParser Int
@@ -159,7 +159,7 @@ metadataIdentifierP = tokenAs matcher
             TMetadataName i -> Just (makeMetaIdentifier i)
             _ -> Nothing
 
-labelP :: AssemblyParser Text
+labelP :: AssemblyParser ByteString
 labelP = tokenAs matcher
   where matcher x =
           case x of

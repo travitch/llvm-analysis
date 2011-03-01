@@ -12,7 +12,7 @@ module Data.LLVM.Private.Parser.Primitive ( AssemblyParser
 
 import Control.Applicative hiding ((<|>), many)
 import Data.List (foldl')
-import Data.Text (Text)
+import Data.ByteString.Lazy.Char8 (ByteString)
 import Text.Parsec
 import Text.Parsec.Pos (newPos)
 
@@ -67,7 +67,7 @@ parseInteger = tokenAs matcher
             TIntLit i -> Just i
             _ -> Nothing
 
-parseString :: AssemblyParser Text
+parseString :: AssemblyParser ByteString
 parseString = tokenAs matcher
   where matcher x =
           case x of

@@ -2,7 +2,7 @@ module Data.LLVM.Private.TieKnot ( tieKnot ) where
 
 import Data.List (foldl')
 import qualified Data.HamtMap as M
-import Data.Text (Text)
+import Data.ByteString.Lazy.Char8 (ByteString)
 
 import Data.LLVM.Private.KnotHelpers
 import Data.LLVM.Private.Translators.Constants
@@ -139,7 +139,7 @@ transGlobalVar :: (O.Type -> Type) ->
                   (Identifier -> Maybe Metadata) ->
                   IdStream -> Identifier -> Int -> LinkageType ->
                   GlobalAnnotation -> O.Type -> Maybe O.Constant -> Integer ->
-                  Maybe Text ->
+                  Maybe ByteString ->
                   Value
 transGlobalVar typeMapper trConst getGlobalMD idstream name addrspace linkage annot ty initializer align section =
   val

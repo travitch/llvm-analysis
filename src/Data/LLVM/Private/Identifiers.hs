@@ -6,17 +6,16 @@ module Data.LLVM.Private.Identifiers ( Identifier(..)
                                      ) where
 
 import Data.Hashable
-import Data.Text (Text, unpack)
-import Data.Text.Encoding (encodeUtf8)
+import Data.ByteString.Lazy.Char8 (ByteString, unpack)
 
-data Identifier = LocalIdentifier { localIdentifier :: Text
-                                  , localHash :: Int
+data Identifier = LocalIdentifier { localIdentifier :: ByteString
+                                  , localHash :: !Int
                                   }
-                | GlobalIdentifier { globalIdentifier :: Text
-                                   , globalHash :: Int
+                | GlobalIdentifier { globalIdentifier :: ByteString
+                                   , globalHash :: !Int
                                    }
-                | MetaIdentifier { metaIdentifier :: Text
-                                 , metaHash :: Int
+                | MetaIdentifier { metaIdentifier :: ByteString
+                                 , metaHash :: !Int
                                  }
                   deriving (Eq, Ord)
 
@@ -30,25 +29,22 @@ instance Hashable Identifier where
   hash GlobalIdentifier { globalHash = h } = h
   hash MetaIdentifier { metaHash = h } = h
 
-hsh :: Text -> Int
-hsh = hash . encodeUtf8
-
-makeLocalIdentifier :: Text -> Identifier
+makeLocalIdentifier :: ByteString -> Identifier
 makeLocalIdentifier t =
   LocalIdentifier { localIdentifier = t
-                  , localHash = hsh t
+                  , localHash = hash t
                   }
 
-makeGlobalIdentifier :: Text -> Identifier
+makeGlobalIdentifier :: ByteString -> Identifier
 makeGlobalIdentifier t =
   GlobalIdentifier { globalIdentifier = t
-                   , globalHash = hsh t
+                   , globalHash = hash t
                    }
 
-makeMetaIdentifier :: Text -> Identifier
+makeMetaIdentifier :: ByteString -> Identifier
 makeMetaIdentifier t =
   MetaIdentifier { metaIdentifier = t
-                 , metaHash = hsh t
+                 , metaHash = hash t
                  }
 
 identifierAsString :: Identifier -> String
