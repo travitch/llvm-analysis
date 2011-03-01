@@ -85,7 +85,8 @@ library
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   build-tools: alex >= 2 && < 3
   extensions: OverloadedStrings
-  ghc-options: -Wall
+  ghc-options: -Wall -O
+  ghc-prof-options: -auto-all
 
 executable parser-tests
   --if flag(buildTests)
@@ -103,7 +104,8 @@ executable parser-driver
   --else
   --  buildable: False
 
-  ghc-options: -Wall
+  ghc-options: -Wall -O
+  ghc-prof-options: -auto-all
   main-is: TestDriver.hs
   hs-source-dirs: tests
   extensions: OverloadedStrings
