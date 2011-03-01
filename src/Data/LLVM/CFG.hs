@@ -99,6 +99,8 @@ makeCFG func = mkGraph (concat cfgNodes) (concat $ concat cfgEdges)
                                      , indirectBranchTargets = targets
                                      } ->
                     map (indirectEdge thisNodeId addr) targets
+                  -- No edges from the unreachable instruction, either
+                  UnreachableInst -> []
                   _ -> error ("Last instruction in a block should be a jump: " ++ show v)
         buildGraphInst (nodeAcc, edgeAcc) (v@Value { valueContent = c }, Just successor) =
           (thisNode : nodeAcc, theseEdges : edgeAcc)
