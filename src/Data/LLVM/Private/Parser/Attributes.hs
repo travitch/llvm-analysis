@@ -237,7 +237,7 @@ volatileFlag = tokenAs matcher
 
 -- | Parse ", align N" and return N.  Defaults to 0 if not specified.
 alignmentSpecP :: AssemblyParser Integer
-alignmentSpecP = option 0 (consumeToken TComma *> basicAlignmentSpec)
+alignmentSpecP = option 0 (commaP *> basicAlignmentSpec)
 
 alignmentP :: AssemblyParser Integer
 alignmentP = option 0 basicAlignmentSpec

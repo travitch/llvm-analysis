@@ -33,8 +33,8 @@ globalEntityP = do
             TLocalIdent _ -> Just typeDeclarationP
             TDeclare -> Just externalDeclP
             TDefine -> Just functionDefinitionP
-            TGlobalIdent _ -> Just $ choice [try globalDeclP, globalAliasP]
-            TMetadataName _ -> Just $ choice [try namedMetadataP, unnamedMetadataP]
+            TGlobalIdent _ -> Just $! choice [try globalDeclP, globalAliasP]
+            TMetadataName _ -> Just $! choice [try namedMetadataP, unnamedMetadataP]
             _ -> Just (parserFail "Expected a global entity")
 
 
@@ -75,8 +75,8 @@ functionDefinitionP = do
 funcArgListP :: AssemblyParser ([FormalParameter], Bool)
 funcArgListP = do
   consumeToken TLParen
-  namedArgs <- sepEndBy arg (consumeToken TComma)
-  isVa <- option False $ True <$ consumeToken TDotDotDot
+  namedArgs <- sepEndBy arg commaP
+  isVa <- option False $! True <$ consumeToken TDotDotDot
   consumeToken TRParen
   return $! (namedArgs, isVa)
   where arg = FormalParameter <$> typeP <*> many paramAttributeP <*> localIdentifierP
@@ -106,8 +106,8 @@ globalDeclP = do
   -- Now we have optional sections and alignments; this is also easier
   -- here than in an LR parser since we don't have to worry about the
   -- reduce/reduce conflicts.
-  section <- optionMaybe $ try (consumeTokens [TComma, TSection] *> parseString)
-  align <- option 0 (consumeToken TComma *> alignmentP)
+  section <- optionMaybe $! try $! consumeTokens [TComma, TSection] *> parseString
+  align <- option 0 (commaP *> alignmentP)
   let i = case initializer of
         Just i' -> Just $ i' t
         Nothing -> Nothing
@@ -123,7 +123,7 @@ externalDeclP = do
   paramAttrs <- many paramAttributeP
   t <- typeP
   name <- globalIdentifierP
-  funcParts <- optionMaybe (try funcPartsP)
+  funcParts <- optionMaybe $! try funcPartsP
   case funcParts of
     Nothing -> return $! ExternalValueDecl t name
     Just (args, fattrs) -> return $! mk t name args fattrs
@@ -139,7 +139,7 @@ externalDeclP = do
 -- FIXME: Ignoring parameter attributes here for now...
 funcTypeArgListP :: AssemblyParser ([Type], Bool)
 funcTypeArgListP = do
-  ts <- sepEndBy tArgP (consumeToken TComma)
+  ts <- sepEndBy tArgP commaP
   isVa <- option False $ True <$ consumeToken TDotDotDot
   return $! (ts, isVa)
   where tArgP = typeP <* many paramAttributeP
@@ -174,7 +174,7 @@ unnamedMetadataP = UnnamedMetadata <$> metadataIdentifierP <*> (infx *> metadata
 namedMetadataP :: AssemblyParser GlobalDeclaration
 namedMetadataP = mk <$> metadataIdentifierP <*> (infx *> p <* postfx)
   where infx = consumeTokens [TAssign, TBang, TLCurl]
-        p = sepBy1 metadataIdentifierP (consumeToken TComma)
+        p = sepBy1 metadataIdentifierP commaP
         postfx = consumeToken TRCurl
         mk name names = let vals = map ValueRef names
                         in NamedMetadata name vals

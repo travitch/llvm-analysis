@@ -120,7 +120,7 @@ invokeInstP name = do
   rtype <- typeP
   calledFunc <- partialConstantP
   consumeToken TLParen
-  params <- sepBy callArgP (consumeToken TComma)
+  params <- sepBy callArgP commaP
   consumeToken TRParen
   fattrs <- many functionAttributeP
   consumeToken TTo
@@ -163,7 +163,7 @@ callInstP isTail name = do
   -- May need to do something here later
   calledFunc <- partialConstantP
   consumeToken TLParen
-  params <- sepBy callArgP (consumeToken TComma)
+  params <- sepBy callArgP commaP
   consumeToken TRParen
   fattrs <- many functionAttributeP
   let i = CallInst { callIsTail = isTail
@@ -189,7 +189,7 @@ vaArgInstP name = do
   consumeToken TVaArg
   t <- typeP
   val <- partialConstantP
-  consumeToken TComma
+  commaP
   asType <- typeP
   return $! namedInst name asType $! VaArgInst (val t) asType
 
@@ -198,10 +198,10 @@ selectInstP name = do
   consumeToken TSelect
   selTy <- typeP
   cond <- partialConstantP
-  consumeToken TComma
+  commaP
   ty1 <- typeP
   val1 <- partialConstantP
-  consumeToken TComma
+  commaP
   ty2 <- typeP
   val2 <- partialConstantP
   if ty1 /= ty2
@@ -212,10 +212,10 @@ phiNodeP :: Identifier -> AssemblyParser Instruction
 phiNodeP name = do
   consumeToken TPhi
   t <- typeP
-  pairs <- sepBy1 phiPairP (consumeToken TComma)
+  pairs <- sepBy1 phiPairP commaP
   return $! namedInst name t $! PhiNode $ map (applyType t) pairs
   where phiPairP = betweenTokens [TLSquare] [TRSquare] ((,) <$> lp <*> rp)
-        lp = partialConstantP <* consumeToken TComma
+        lp = partialConstantP <* commaP
         rp = localLabelP
         applyType ty (pc, n) = (pc ty, n)
 
@@ -225,8 +225,8 @@ getElementPtrInstP name = do
   inBounds <- inBoundsP
   t <- typeP
   base <- partialConstantP
-  consumeToken TComma
-  idxs <- sepBy1 constantP (consumeToken TComma)
+  commaP
+  idxs <- sepBy1 constantP commaP
   return $! UnresolvedInst { unresInstName = Just name
                            , unresInstContent = GetElementPtrInst inBounds (base t) idxs
                            , unresInstMetadata = Nothing
@@ -251,18 +251,18 @@ allocaInstP name = do
   elems <- option (ConstValue (ConstantInt 1) (TypeInteger 32)) (try elemCountP)
   align <- alignmentSpecP
   return $! namedInst name (TypePointer t) $! AllocaInst t elems align
-  where elemCountP = consumeToken TComma *> constantP
+  where elemCountP = commaP *> constantP
 
 insertValueInstP :: Identifier -> AssemblyParser Instruction
 insertValueInstP name = do
   consumeToken TInsertValue
   t1 <- typeP
   val <- partialConstantP
-  consumeToken TComma
+  commaP
   t2 <- typeP
   elt <- partialConstantP
-  consumeToken TComma
-  idxs <- sepBy1 parseInteger (consumeToken TComma)
+  commaP
+  idxs <- sepBy1 parseInteger commaP
   return $! namedInst name t1 $! InsertValueInst (val t1) (elt t2) idxs
 
 extractValueInstP :: Identifier -> AssemblyParser Instruction
@@ -270,8 +270,8 @@ extractValueInstP name = do
   consumeToken TExtractValue
   t <- typeP
   val <- partialConstantP
-  consumeToken TComma
-  idxs <- sepBy1 parseInteger (consumeToken TComma)
+  commaP
+  idxs <- sepBy1 parseInteger commaP
   return $! UnresolvedInst { unresInstName = Just name
                            , unresInstContent = ExtractValueInst (val t) idxs
                            , unresInstMetadata = Nothing
@@ -282,10 +282,10 @@ shuffleVectorInstP name = do
   consumeToken TShuffleVector
   t1 <- typeP
   v1 <- partialConstantP
-  consumeToken TComma
+  commaP
   t2 <- typeP
   v2 <- partialConstantP
-  consumeToken TComma
+  commaP
   t3 <- typeP
   mask <- partialConstantP
   if t1 /= t2
@@ -300,9 +300,9 @@ insertElementInstP name = do
   consumeToken TInsertElement
   t <- typeP
   val <- partialConstantP
-  consumeToken TComma
+  commaP
   elt <- constantP
-  consumeToken TComma
+  commaP
   idx <- constantP
   return $! namedInst name t $! InsertElementInst (val t) elt idx
 
@@ -311,7 +311,7 @@ extractElementInstP name = do
   consumeToken TExtractElement
   t <- typeP
   val <- partialConstantP
-  consumeToken TComma
+  commaP
   idx <- constantP
   case t of
     TypeVector _ t' -> return $! namedInst name t' $! ExtractElementInst (val t) idx
@@ -325,7 +325,7 @@ cmpInstP tok cons condP name = do
   condition <- condP
   t <- typeP
   c1 <- partialConstantP
-  consumeToken TComma
+  commaP
   c2 <- partialConstantP
   let t' = case t of
         TypeVector n _ -> TypeVector n (TypeInteger 1)
@@ -351,7 +351,7 @@ binaryFlagInstP tok cons name = do
   flags <- many arithFlagP
   t <- typeP
   lhs <- partialConstantP
-  consumeToken TComma
+  commaP
   rhs <- partialConstantP
   return $! namedInst name t $! cons flags (lhs t) (rhs t)
 
@@ -362,7 +362,7 @@ binaryInstP tok cons name = do
   consumeToken tok
   t <- typeP
   lhs <- partialConstantP
-  consumeToken TComma
+  commaP
   rhs <- partialConstantP
   return $! namedInst name t $! cons (lhs t) (rhs t)
 
@@ -372,7 +372,7 @@ storeInstP volatile = do
   consumeToken TStore
   t1 <- typeP
   val <- partialConstantP
-  consumeToken TComma
+  commaP
   t2 <- typeP
   dest <- partialConstantP
   align <- alignmentSpecP
@@ -430,7 +430,7 @@ switchInstP =
 indirectBrInstP :: AssemblyParser Instruction
 indirectBrInstP =
   voidInst <$> (IndirectBranchInst <$> constantP <*> targetsP)
-  where targetsP = consumeTokens [TComma, TLSquare] *> sepBy labelValP (consumeToken TComma) <* consumeToken TRSquare
+  where targetsP = consumeTokens [TComma, TLSquare] *> sepBy labelValP commaP <* consumeToken TRSquare
         labelValP = mkLabelConst <$> (consumeToken TLabelT *> partialConstantP)
         mkLabelConst x = x TypeLabel
 

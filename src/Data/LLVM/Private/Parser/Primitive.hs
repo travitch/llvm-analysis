@@ -1,5 +1,6 @@
 module Data.LLVM.Private.Parser.Primitive ( AssemblyParser
                                           , tokenAs
+                                          , commaP
                                           , lexTokenAs
                                           , consumeToken
                                           , consumeTokens
@@ -18,6 +19,9 @@ import Text.Parsec.Pos (newPos)
 import Data.LLVM.Private.Lexer
 
 type AssemblyParser = Parsec [Token] ()
+
+commaP :: AssemblyParser ()
+commaP = consumeToken TComma
 
 -- | Parse a list of `p`, producing a result after each step by applying
 -- f to the result and the current seed.

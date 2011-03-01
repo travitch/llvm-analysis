@@ -26,7 +26,7 @@ metadataConstantLit = (Nothing <$ tokenAs matcher) <|> (Just <$> constantP)
 metadataNodeContentsP :: AssemblyParser [Maybe Constant]
 metadataNodeContentsP = prefx *> p <* postfx
   where prefx = consumeToken TBang *> consumeToken TLCurl
-        p = sepBy metadataConstantLit (consumeToken TComma)
+        p = sepBy metadataConstantLit commaP
         postfx = consumeToken TRCurl
 
 -- | To parse a full constant, we need to apply a partial constant to
@@ -143,29 +143,29 @@ insertValueConstantP :: AssemblyParser ConstantT
 insertValueConstantP =
   ConstantExpr <$> (InsertValueInst <$> val <*> elt <*> idxs)
   where val = consumeTokens [TInsertValue, TLParen] *> constantP
-        elt = consumeToken TComma *> constantP
+        elt = commaP *> constantP
         idxs = betweenTokens [TComma] [TRParen] idxListParser
-        idxListParser = sepBy1 parseInteger $ consumeToken TComma
+        idxListParser = sepBy1 parseInteger commaP
 
 extractValueConstantP :: AssemblyParser ConstantT
 extractValueConstantP =
   ConstantExpr <$> (ExtractValueInst <$> val <*> idxs)
   where val = consumeTokens [TExtractValue, TLParen] *> constantP
         idxs = betweenTokens [TComma] [TRParen] idxListParser
-        idxListParser = sepBy1 parseInteger $ consumeToken TComma
+        idxListParser = sepBy1 parseInteger commaP
 
 shuffleVectorConstantP :: AssemblyParser ConstantT
 shuffleVectorConstantP =
   ConstantExpr <$> (ShuffleVectorInst <$> vec1 <*> vec2 <*> mask)
   where vec1 = consumeTokens [TShuffleVector, TLParen] *> constantP
-        vec2 = consumeToken TComma *> constantP
+        vec2 = commaP *> constantP
         mask = betweenTokens [TComma] [TRParen] constantP
 
 insertElementConstantP :: AssemblyParser ConstantT
 insertElementConstantP =
   ConstantExpr <$> (InsertElementInst <$> val <*> elt <*> idx)
   where val = consumeTokens [TInsertElement, TLParen] *> constantP
-        elt = consumeToken TComma *> constantP
+        elt = commaP *> constantP
         idx = betweenTokens [TComma] [TRParen] constantP
 
 extractElementConstantP :: AssemblyParser ConstantT
@@ -185,7 +185,7 @@ cmpConstantP condP constructor tok =
 selectConstantP :: AssemblyParser ConstantT
 selectConstantP = ConstantExpr <$> (SelectInst <$> cond <*> v1 <*> v2)
   where cond = consumeTokens [TSelect, TLParen] *> constantP
-        v1 = consumeToken TComma *> constantP
+        v1 = commaP *> constantP
         v2 = betweenTokens [TComma] [TRParen] constantP
 
 -- | Parse getelementptr [inbounds] ( <constant> , <indices> )
@@ -193,7 +193,7 @@ getElementPtrConstantP :: AssemblyParser ConstantT
 getElementPtrConstantP = ConstantExpr <$> (GetElementPtrInst <$> ib <*> ptr <*> is)
   where ib = consumeToken TGetElementPtr *> inBoundsP
         ptr = consumeToken TLParen *> constantP
-        is = betweenTokens [TComma] [TRParen] $ sepBy constantP (consumeToken TComma)
+        is = betweenTokens [TComma] [TRParen] $ sepBy constantP commaP
 
 -- | A general constructor for all of the constant conversion
 -- operations: <instruction> ( <constant> to <type> )
@@ -207,32 +207,31 @@ conversionConstantP constructor tk =
 inlineAsmP :: AssemblyParser ConstantT
 inlineAsmP = InlineAsm <$> asm <*> constraints
   where asm = consumeToken TAsm *> parseString
-        constraints = consumeToken TComma *> parseString
+        constraints = commaP *> parseString
 
 metadataConstantP :: AssemblyParser ConstantT
 metadataConstantP = MDNode <$> metadataNodeContentsP
 
 blockAddressP :: AssemblyParser ConstantT
-blockAddressP = BlockAddress <$> (prefx *> globalIdentifierP <* infx) <*> (localIdentifierP <* postfx)
+blockAddressP = BlockAddress <$> (prefx *> globalIdentifierP <* commaP) <*> (localIdentifierP <* postfx)
   where prefx = consumeToken TBlockAddress *> consumeToken TLParen
-        infx = consumeToken TComma
         postfx = consumeToken TRParen
 
 vectorConstantP :: AssemblyParser ConstantT
 vectorConstantP = ConstantVector <$> between l r p
-  where p = sepBy constantP (consumeToken TComma)
+  where p = sepBy constantP commaP
         l = consumeToken TLSquare
         r = consumeToken TRSquare
 
 arrayConstantP :: AssemblyParser ConstantT
 arrayConstantP = ConstantArray <$> between l r p
-  where p = sepBy constantP (consumeToken TComma)
+  where p = sepBy constantP commaP
         l = consumeToken TLSquare
         r = consumeToken TRSquare
 
 structConstantP :: AssemblyParser ConstantT
 structConstantP = ConstantStruct <$> between l r p
-  where p = sepBy constantP (consumeToken TComma)
+  where p = sepBy constantP commaP
         l = consumeToken TLCurl
         r = consumeToken TRCurl
 
