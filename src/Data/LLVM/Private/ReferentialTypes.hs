@@ -119,7 +119,7 @@ data Metadata =
                         , metaCompositeTypeOffset :: Integer
                         , metaCompositeTypeFlags :: Integer
                         , metaCompositeTypeParent :: Maybe Metadata
-                        , metaCompositeTypeMembers :: Metadata
+                        , metaCompositeTypeMembers :: Maybe Metadata
                         , metaCompositeTypeRuntime :: Integer
                         }
   | MetaDWSubrange { metaSubrangeLow :: Integer

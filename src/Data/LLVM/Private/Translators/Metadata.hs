@@ -159,7 +159,7 @@ mkGlobalVar :: (O.Constant -> Metadata) ->
 mkGlobalVar metaRef [ _, Just context, Just name, Just displayName
                     , Just linkageName, Just file, Just line
                     , Just typ, Just isStatic, Just notExtern
-                    , Just (O.ValueRef ident) ] =
+                    , mident ] =
   (MetaDWVariable { metaGlobalVarContext = metaRef context
                    , metaGlobalVarName = getMDString name
                    , metaGlobalVarDisplayName = getMDString displayName
@@ -169,7 +169,10 @@ mkGlobalVar metaRef [ _, Just context, Just name, Just displayName
                    , metaGlobalVarType = metaRef typ
                    , metaGlobalVarStatic = getBool isStatic
                    , metaGlobalVarNotExtern = getBool notExtern
-                   }, Just ident)
+                   }, maybeIdent mident)
+  where maybeIdent (Just (O.ValueRef ident)) = Just ident
+        maybeIdent Nothing = Nothing
+        maybeIdent c = error ("Invalid global variable descriptor: " ++ show c)
 
 mkGlobalVar _ c = error ("Invalid global variable descriptor: " ++ show c)
 
@@ -194,7 +197,7 @@ mkCompositeType :: (O.Constant -> Metadata) -> DW_TAG ->
                    (Metadata, Maybe Identifier)
 mkCompositeType metaRef tag [ Just context, Just name, file, Just line
                             , Just size, Just align, Just offset, Just flags
-                            , parent, Just members, Just langs, _ ] = halfPair $
+                            , parent, members, Just langs, _ ] = halfPair $
   MetaDWCompositeType { metaCompositeTypeTag = tag
                         , metaCompositeTypeContext = metaRef context
                         , metaCompositeTypeName = getMDString name
@@ -205,7 +208,7 @@ mkCompositeType metaRef tag [ Just context, Just name, file, Just line
                         , metaCompositeTypeOffset = getInt offset
                         , metaCompositeTypeFlags = getInt flags
                         , metaCompositeTypeParent = metaRef' parent
-                        , metaCompositeTypeMembers = metaRef members
+                        , metaCompositeTypeMembers = metaRef' members
                         , metaCompositeTypeRuntime = getInt langs
                         }
   where metaRef' = maybe Nothing (Just . metaRef)
