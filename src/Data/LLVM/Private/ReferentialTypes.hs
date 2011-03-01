@@ -19,7 +19,7 @@ deriving instance Ord DW_ATE
 deriving instance Ord DW_TAG
 deriving instance Ord DW_VAR_TAG
 
-data Type = TypeInteger Int -- bits
+data Type = TypeInteger !Int -- bits
           | TypeFloat
           | TypeDouble
           | TypeFP128
@@ -29,14 +29,14 @@ data Type = TypeInteger Int -- bits
           | TypeVoid
           | TypeLabel
           | TypeMetadata
-          | TypeArray Integer Type
-          | TypeVector Integer Type
-          | TypeFunction Type [Type] Bool -- Return type, arg types, vararg
+          | TypeArray !Integer !Type
+          | TypeVector !Integer !Type
+          | TypeFunction !Type [Type] !Bool -- Return type, arg types, vararg
           | TypeOpaque
-          | TypePointer Type -- (Maybe Int) -- Address Space
+          | TypePointer !Type -- (Maybe Int) -- Address Space
           | TypeStruct [Type]
           | TypePackedStruct [Type]
-          | TypeNamed String Type
+          | TypeNamed !String !Type
           deriving (Ord, Eq)
 
 data Metadata =

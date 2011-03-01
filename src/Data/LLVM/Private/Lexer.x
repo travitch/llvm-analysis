@@ -1,6 +1,11 @@
 {
 {-# LANGUAGE RankNTypes, OverloadedStrings #-}
-module Data.LLVM.Private.Lexer ( lexer, LexerToken(..), Token, AlexPosn(..) ) where
+module Data.LLVM.Private.Lexer ( lexer
+                               , LexerToken(..)
+                               , Token
+                               , AlexPosn(..)
+                               , tokenPos
+                               , tokenT ) where
 
 import Data.Binary.IEEE754
 import Data.Char (digitToInt)
@@ -476,14 +481,20 @@ data LexerToken = TIntLit Integer
            | Tuno
          deriving (Show, Eq)
 
-type Token = (AlexPosn, LexerToken)
+data Token = Token !AlexPosn !LexerToken
+
+tokenPos :: Token -> AlexPosn
+tokenPos (Token p _) = p
+
+tokenT :: Token -> LexerToken
+tokenT (Token _ t) = t
 
 simpleTok :: LexerToken -> AlexPosn -> Text -> Token
-simpleTok t pos _ = (pos, t)
+simpleTok t pos _ = Token pos t
 
 stringTok :: (Text -> LexerToken) -> (Text -> Text) ->
              AlexPosn -> Text -> Token
-stringTok t fltr pos s = (pos, t (fltr s))
+stringTok t fltr pos s = Token pos (t (fltr s))
 
 -- Helpers for constructing identifiers
 mkGlobalIdent = stringTok TGlobalIdent stripSigil
@@ -501,10 +512,10 @@ mkAnonLabel = stringTok TLabel (T.takeWhile isDigit . T.drop 10)
   where isDigit c = c >= '0' && c <= '9'
 
 -- Helpers for the simple literals
-mkIntLit pos s = (pos, TIntLit $ fromIntegral $ readTextInt s)
-mkFloatLit pos s = (pos, TFloatLit $ readText s)
+mkIntLit pos s = Token pos (TIntLit $ fromIntegral $ readTextInt s)
+mkFloatLit pos s = Token pos (TFloatLit $ readText s)
 -- Drop the first pfxLen characters (0x)
-mkHexFloatLit pfxLen pos s = (pos, TFloatLit $ wordToDouble $ readText s')
+mkHexFloatLit pfxLen pos s = Token pos (TFloatLit $ wordToDouble $ readText s')
   where s' = "0x" `mappend` (T.drop pfxLen s)
 -- Strip off the leading c and then unquote
 mkStringConstant = stringTok TStringLit (unquote . T.tail)
@@ -520,20 +531,20 @@ readTextInt t = fst $ T.foldr f (0, 0) t
                        | otherwise = error "Not a number"
 
 -- Discard "cc "
-mkNumberedCC pos s = (pos, TCCN $ readTextInt $ T.drop 3 s)
+mkNumberedCC pos s = Token pos (TCCN $ readTextInt $ T.drop 3 s)
 
 -- Extract part between parens (TFAAlignStack Int)
-mkAlignStack pos s = (pos, TFAAlignStack $ readText s')
+mkAlignStack pos s = Token pos (TFAAlignStack $ readText s')
   where s' = T.drop 11 $ T.init s
 
-mkAlign pos s = (pos, TAlign $ readTextInt s')
+mkAlign pos s = Token pos (TAlign $ readTextInt s')
   where s' = T.dropWhile (\x -> x == ' ' || x == '\t') $ T.drop 5 s
 
 -- Types
-mkTypeUpref pos s = (pos, TUprefT $ readTextInt $ T.tail s)
-mkIntegralType pos s = (pos, TIntegralT $ readTextInt $ T.tail s)
+mkTypeUpref pos s = Token pos (TUprefT $ readTextInt $ T.tail s)
+mkIntegralType pos s = Token pos (TIntegralT $ readTextInt $ T.tail s)
 
-mkAddrSpace pos s = (pos, TAddrspace $ readText s')
+mkAddrSpace pos s = Token pos (TAddrspace $ readText s')
   where s' = T.drop 10 $ T.init s
 
 -- Exported interface

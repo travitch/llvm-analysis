@@ -33,9 +33,9 @@ toSourcePos (AlexPn _ line col) = newPos "" line col
 
 tokenAs :: (LexerToken -> Maybe a) -> AssemblyParser a
 tokenAs test = token showToken posToken posTest
-  where showToken = show . snd
-        posToken = toSourcePos . fst
-        posTest = test . snd
+  where showToken = show . tokenT
+        posToken = toSourcePos . tokenPos
+        posTest = test . tokenT
 
 -- | Parse the given 0-argument token and return the associated final value
 lexTokenAs :: (LexerToken, a) -> AssemblyParser a
