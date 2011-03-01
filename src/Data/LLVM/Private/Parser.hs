@@ -25,7 +25,7 @@ globalEntityP :: AssemblyParser GlobalDeclaration
 globalEntityP = do
   realParser <- lookAhead dispatcher
   gd <- realParser
-  return gd
+  return $! gd
   where dispatcher = tokenAs matcher
         matcher x =
           case x of
@@ -57,20 +57,20 @@ functionDefinitionP = do
   falign <- alignmentP
   gcname <- optionMaybe gcNameP
   body <- functionBodyP
-  return FunctionDefinition { funcLinkage = lt
-                            , funcVisibility = vis
-                            , funcCC = cc
-                            , funcRetAttrs = pattrs
-                            , funcRetType = t
-                            , funcName = name
-                            , funcParams = funcArgs
-                            , funcAttrs = fattrs
-                            , funcSection = sec
-                            , funcAlign = falign
-                            , funcGCName = gcname
-                            , funcBody = body
-                            , funcIsVararg = isva
-                            }
+  return $! FunctionDefinition { funcLinkage = lt
+                               , funcVisibility = vis
+                               , funcCC = cc
+                               , funcRetAttrs = pattrs
+                               , funcRetType = t
+                               , funcName = name
+                               , funcParams = funcArgs
+                               , funcAttrs = fattrs
+                               , funcSection = sec
+                               , funcAlign = falign
+                               , funcGCName = gcname
+                               , funcBody = body
+                               , funcIsVararg = isva
+                               }
 
 funcArgListP :: AssemblyParser ([FormalParameter], Bool)
 funcArgListP = do
@@ -78,7 +78,7 @@ funcArgListP = do
   namedArgs <- sepEndBy arg (consumeToken TComma)
   isVa <- option False $ True <$ consumeToken TDotDotDot
   consumeToken TRParen
-  return (namedArgs, isVa)
+  return $! (namedArgs, isVa)
   where arg = FormalParameter <$> typeP <*> many paramAttributeP <*> localIdentifierP
 
 globalAliasP :: AssemblyParser GlobalDeclaration
@@ -89,7 +89,7 @@ globalAliasP = do
   vis <- visibilityStyleP
   t <- typeP
   target <- partialConstantP
-  return $ GlobalAlias name lt vis t (target t)
+  return $! GlobalAlias name lt vis t (target t)
 
 globalDeclP :: AssemblyParser GlobalDeclaration
 globalDeclP = do
@@ -112,7 +112,7 @@ globalDeclP = do
         Just i' -> Just $ i' t
         Nothing -> Nothing
       pType = TypePointer t
-  return $ GlobalDeclaration name addrSpace lt ga pType i align section
+  return $! GlobalDeclaration name addrSpace lt ga pType i align section
   where globalInitP = try (partialConstantP <* notFollowedBy (consumeToken TAssign))
 
 externalDeclP :: AssemblyParser GlobalDeclaration
@@ -125,8 +125,8 @@ externalDeclP = do
   name <- globalIdentifierP
   funcParts <- optionMaybe (try funcPartsP)
   case funcParts of
-    Nothing -> return $ ExternalValueDecl t name
-    Just (args, fattrs) -> return $ mk t name args fattrs
+    Nothing -> return $! ExternalValueDecl t name
+    Just (args, fattrs) -> return $! mk t name args fattrs
   where funcPartsP = (,) <$> p1 <*> p2
         p1 = betweenTokens [TLParen] [TRParen] funcTypeArgListP
         p2 = many functionAttributeP
@@ -141,7 +141,7 @@ funcTypeArgListP :: AssemblyParser ([Type], Bool)
 funcTypeArgListP = do
   ts <- sepEndBy tArgP (consumeToken TComma)
   isVa <- option False $ True <$ consumeToken TDotDotDot
-  return (ts, isVa)
+  return $! (ts, isVa)
   where tArgP = typeP <* many paramAttributeP
 
 typeDeclarationP :: AssemblyParser GlobalDeclaration
@@ -189,7 +189,7 @@ functionBodyP = do
   realParser <- lookAhead dispatcher
   bbs <- realParser
   consumeToken TRCurl
-  return bbs
+  return $! bbs
   where dispatcher = tokenAs matcher
         matcher x =
           case x of

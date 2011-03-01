@@ -31,7 +31,7 @@ typeP = do
   -- folds over the argument lists from left to right building up
   -- types as it goes.
   ftype <- manyChain funcArgFragment arglistAccum pointerType
-  return ftype
+  return $! ftype
 
 arglistAccum :: Type -> ([Type], Bool, [()]) -> Type
 arglistAccum seed (ts, va, ptrs) =
@@ -87,4 +87,4 @@ funcArgFragment = try $ do
   -- Record the number of * tokens so we can wrap our function pointer
   -- type with a pointer type.
   starToks <- many (consumeToken TStar)
-  return (funcArgTypes, isVa, starToks)
+  return $! (funcArgTypes, isVa, starToks)

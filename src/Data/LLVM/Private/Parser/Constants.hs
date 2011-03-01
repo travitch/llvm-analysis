@@ -35,7 +35,7 @@ constantP :: AssemblyParser Constant
 constantP = do
   t <- typeP
   c <- partialConstantP
-  return $ c t
+  return $! c t
 
 -- | Here, simpleConstant will either succeed by consuming 1 token or
 -- fail consuming none.  We can have it first in the alternation
@@ -80,7 +80,7 @@ complexConstant = do
   -- This is essentially predictive parsing.
   realParser <- lookAhead dispatcher
   aConstant <- realParser
-  return aConstant
+  return $! aConstant
   where dispatcher = tokenAs matcher
         matcher x =
           case x of

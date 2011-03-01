@@ -28,7 +28,7 @@ instructionNoMDP :: AssemblyParser Instruction
 instructionNoMDP = do
   realParser <- lookAhead dispatcher
   anInst <- realParser
-  return anInst
+  return $! anInst
   where dispatcher = tokenAs matcher
         -- ^ This is a "parser" that consumes no input and produces
         -- another parser suitable for parsing this instruction.
@@ -56,7 +56,7 @@ namedInstP = do
   consumeToken TAssign
   restParser <- lookAhead dispatcher
   anInst <- restParser name
-  return anInst
+  return $! anInst
   where dispatcher = tokenAs matcher
         matcher x =
           case x of
@@ -140,7 +140,7 @@ invokeInstP name = do
       realFunc = case calledFunc rtype of
         ValueRef _ -> calledFunc rtype
         _ -> error "Cannot invoke anything besides named constants"
-  return $ maybeNamedInst name rtype i
+  return $! maybeNamedInst name rtype i
 
 namedCallInstP :: Bool -> Identifier -> AssemblyParser Instruction
 namedCallInstP isTail name = callInstP isTail (Just name)
@@ -175,14 +175,14 @@ callInstP isTail name = do
                    , callAttrs = fattrs
                    , callHasSRet = any (==PASRet) $ concatMap snd params
                    }
-  return $ maybeNamedInst name rtype i
+  return $! maybeNamedInst name rtype i
 
 callArgP :: AssemblyParser (Constant, [ParamAttribute])
 callArgP = do
   t <- typeP
   ps <- many paramAttributeP
   pc <- partialConstantP
-  return (pc t, ps)
+  return $! (pc t, ps)
 
 vaArgInstP :: Identifier -> AssemblyParser Instruction
 vaArgInstP name = do
@@ -191,7 +191,7 @@ vaArgInstP name = do
   val <- partialConstantP
   consumeToken TComma
   asType <- typeP
-  return $ namedInst name asType $ VaArgInst (val t) asType
+  return $! namedInst name asType $! VaArgInst (val t) asType
 
 selectInstP :: Identifier -> AssemblyParser Instruction
 selectInstP name = do
@@ -206,14 +206,14 @@ selectInstP name = do
   val2 <- partialConstantP
   if ty1 /= ty2
     then parserFail "Vectors in select instruction must be of the same type"
-    else return $ namedInst name ty1 $ SelectInst (cond selTy) (val1 ty1) (val2 ty2)
+    else return $! namedInst name ty1 $! SelectInst (cond selTy) (val1 ty1) (val2 ty2)
 
 phiNodeP :: Identifier -> AssemblyParser Instruction
 phiNodeP name = do
   consumeToken TPhi
   t <- typeP
   pairs <- sepBy1 phiPairP (consumeToken TComma)
-  return $ namedInst name t $ PhiNode $ map (applyType t) pairs
+  return $! namedInst name t $! PhiNode $ map (applyType t) pairs
   where phiPairP = betweenTokens [TLSquare] [TRSquare] ((,) <$> lp <*> rp)
         lp = partialConstantP <* consumeToken TComma
         rp = localLabelP
@@ -227,10 +227,10 @@ getElementPtrInstP name = do
   base <- partialConstantP
   consumeToken TComma
   idxs <- sepBy1 constantP (consumeToken TComma)
-  return UnresolvedInst { unresInstName = Just name
-                        , unresInstContent = GetElementPtrInst inBounds (base t) idxs
-                        , unresInstMetadata = Nothing
-                        }
+  return $! UnresolvedInst { unresInstName = Just name
+                           , unresInstContent = GetElementPtrInst inBounds (base t) idxs
+                           , unresInstMetadata = Nothing
+                           }
 
 loadInstP :: Bool -> Identifier -> AssemblyParser Instruction
 loadInstP volatile name = do
@@ -240,7 +240,7 @@ loadInstP volatile name = do
   loc <- partialConstantP
   align <- alignmentSpecP
   let (TypePointer t') = t
-  return $ namedInst name t' $ LoadInst volatile (loc t) align
+  return $! namedInst name t' $! LoadInst volatile (loc t) align
 
 -- Not exactly optimal since there is a backtracking try, but not
 -- catastrophic either.  Can be fixed later.
@@ -250,7 +250,7 @@ allocaInstP name = do
   t <- typeP
   elems <- option (ConstValue (ConstantInt 1) (TypeInteger 32)) (try elemCountP)
   align <- alignmentSpecP
-  return $ namedInst name (TypePointer t) $ AllocaInst t elems align
+  return $! namedInst name (TypePointer t) $! AllocaInst t elems align
   where elemCountP = consumeToken TComma *> constantP
 
 insertValueInstP :: Identifier -> AssemblyParser Instruction
@@ -263,7 +263,7 @@ insertValueInstP name = do
   elt <- partialConstantP
   consumeToken TComma
   idxs <- sepBy1 parseInteger (consumeToken TComma)
-  return $ namedInst name t1 $ InsertValueInst (val t1) (elt t2) idxs
+  return $! namedInst name t1 $! InsertValueInst (val t1) (elt t2) idxs
 
 extractValueInstP :: Identifier -> AssemblyParser Instruction
 extractValueInstP name = do
@@ -272,10 +272,10 @@ extractValueInstP name = do
   val <- partialConstantP
   consumeToken TComma
   idxs <- sepBy1 parseInteger (consumeToken TComma)
-  return UnresolvedInst { unresInstName = Just name
-                        , unresInstContent = ExtractValueInst (val t) idxs
-                        , unresInstMetadata = Nothing
-                        }
+  return $! UnresolvedInst { unresInstName = Just name
+                           , unresInstContent = ExtractValueInst (val t) idxs
+                           , unresInstMetadata = Nothing
+                           }
 
 shuffleVectorInstP :: Identifier -> AssemblyParser Instruction
 shuffleVectorInstP name = do
@@ -292,7 +292,7 @@ shuffleVectorInstP name = do
     then parserFail "Input vector types for shufflevector do not match"
     else case (t1, t3) of
     (TypeVector _ t, TypeVector n _) ->
-      return $ namedInst name (TypeVector n t) $ ShuffleVectorInst (v1 t1) (v2 t2) (mask t3)
+      return $! namedInst name (TypeVector n t) $! ShuffleVectorInst (v1 t1) (v2 t2) (mask t3)
     _ -> parserFail "Non-vector type for vec or mask in shufflevector"
 
 insertElementInstP :: Identifier -> AssemblyParser Instruction
@@ -304,7 +304,7 @@ insertElementInstP name = do
   elt <- constantP
   consumeToken TComma
   idx <- constantP
-  return $ namedInst name t $ InsertElementInst (val t) elt idx
+  return $! namedInst name t $! InsertElementInst (val t) elt idx
 
 extractElementInstP :: Identifier -> AssemblyParser Instruction
 extractElementInstP name = do
@@ -314,7 +314,7 @@ extractElementInstP name = do
   consumeToken TComma
   idx <- constantP
   case t of
-    TypeVector _ t' -> return $ namedInst name t' $ ExtractElementInst (val t) idx
+    TypeVector _ t' -> return $! namedInst name t' $! ExtractElementInst (val t) idx
     _ -> parserFail "Non-vector type in extractelement"
 
 cmpInstP :: LexerToken -> (a -> Constant -> Constant -> InstructionT) ->
@@ -330,7 +330,7 @@ cmpInstP tok cons condP name = do
   let t' = case t of
         TypeVector n _ -> TypeVector n (TypeInteger 1)
         _ -> TypeInteger 1
-  return $ namedInst name t' $ cons condition (c1 t) (c2 t)
+  return $! namedInst name t' $! cons condition (c1 t) (c2 t)
 
 conversionInstP :: LexerToken -> (Constant -> Type -> InstructionT) ->
                    Identifier -> AssemblyParser Instruction
@@ -339,7 +339,7 @@ conversionInstP tok cons name = do
   v <- constantP
   consumeToken TTo
   t <- typeP
-  return $ namedInst name t $ cons v t
+  return $! namedInst name t $! cons v t
 
 -- | Parse the flagged binary instructions (add, sub, mul)
 binaryFlagInstP :: LexerToken ->
@@ -353,7 +353,7 @@ binaryFlagInstP tok cons name = do
   lhs <- partialConstantP
   consumeToken TComma
   rhs <- partialConstantP
-  return $ namedInst name t $ cons flags (lhs t) (rhs t)
+  return $! namedInst name t $! cons flags (lhs t) (rhs t)
 
 -- | Parse the simple binary instructions (xor, and, etc)
 binaryInstP :: LexerToken -> (Constant -> Constant -> InstructionT) ->
@@ -364,7 +364,7 @@ binaryInstP tok cons name = do
   lhs <- partialConstantP
   consumeToken TComma
   rhs <- partialConstantP
-  return $ namedInst name t $ cons (lhs t) (rhs t)
+  return $! namedInst name t $! cons (lhs t) (rhs t)
 
 storeInstP :: Bool -> AssemblyParser Instruction
 storeInstP volatile = do
@@ -378,7 +378,7 @@ storeInstP volatile = do
   align <- alignmentSpecP
   let (TypePointer t2') = t2
   if t2' == t1
-    then return $ voidInst $ StoreInst volatile (val t1) (dest t2) align
+    then return $! voidInst $! StoreInst volatile (val t1) (dest t2) align
     else parserFail "Store type mismatch"
 
 retInstP :: AssemblyParser Instruction
@@ -387,8 +387,8 @@ retInstP = do
   t <- typeP
   pc <- optionMaybe partialConstantP
   case (t, pc) of
-    (TypeVoid, Nothing) -> return $ voidInst $ RetInst Nothing
-    (_, Just pc') -> return $ voidInst $ RetInst $ Just (pc' t)
+    (TypeVoid, Nothing) -> return $! voidInst $! RetInst Nothing
+    (_, Just pc') -> return $! voidInst $! RetInst $! Just (pc' t)
     _ -> parserFail "Non-void return without return value"
 
 -- | Parse just a function-local label, but wrap it in a ValueRef
@@ -409,7 +409,7 @@ brInstP = do
   consumeToken TBr
   realParser <- lookAhead dispatcher
   anInst <- realParser
-  return anInst
+  return $! anInst
   where dispatcher = tokenAs matcher
         matcher x =
           case x of
