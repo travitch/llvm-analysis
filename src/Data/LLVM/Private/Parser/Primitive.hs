@@ -10,6 +10,7 @@ module Data.LLVM.Private.Parser.Primitive ( AssemblyParser
                                           ) where
 
 import Control.Applicative hiding ((<|>), many)
+import Data.List (foldl')
 import Data.Text (Text)
 import Text.Parsec
 import Text.Parsec.Pos (newPos)
@@ -20,10 +21,10 @@ type AssemblyParser = Parsec [Token] ()
 
 -- | Parse a list of `p`, producing a result after each step by applying
 -- f to the result and the current seed.
-manyChain :: AssemblyParser a -> (a -> b -> b) -> b -> AssemblyParser b
+manyChain :: AssemblyParser a -> (b -> a -> b) -> b -> AssemblyParser b
 manyChain p f initVal = do
   vs <- many p
-  return $ foldr f initVal vs
+  return $! foldl' f initVal vs
 
 betweenTokens :: [LexerToken] -> [LexerToken] -> AssemblyParser a -> AssemblyParser a
 betweenTokens open close p = consumeTokens open *> p <* consumeTokens close

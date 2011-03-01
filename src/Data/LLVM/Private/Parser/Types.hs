@@ -1,6 +1,7 @@
 module Data.LLVM.Private.Parser.Types ( typeP ) where
 
 import Control.Applicative hiding ((<|>), many)
+import Data.List (foldl')
 import Text.Parsec
 
 import Data.LLVM.Private.AttributeTypes
@@ -32,9 +33,9 @@ typeP = do
   ftype <- manyChain funcArgFragment arglistAccum pointerType
   return ftype
 
-arglistAccum :: ([Type], Bool, [()]) -> Type -> Type
-arglistAccum (ts, va, ptrs) seed =
-  foldr pointerAccum (TypeFunction seed ts va) ptrs
+arglistAccum :: Type -> ([Type], Bool, [()]) -> Type
+arglistAccum seed (ts, va, ptrs) =
+  foldl' pointerAccum (TypeFunction seed ts va) ptrs
 
 baseParser :: AssemblyParser Type
 baseParser = tokenAs matcher
@@ -68,8 +69,8 @@ arrayTypeP c l r = c <$> prefx <*> postfx
   where prefx = consumeTokens l *> parseInteger
         postfx = consumeToken TAggLen *> typeP <* consumeTokens r
 
-pointerAccum :: a -> Type -> Type
-pointerAccum _ t = TypePointer t
+pointerAccum :: Type -> a -> Type
+pointerAccum t _ = TypePointer t
 
 -- | Parse a type list (with parens) and report the number of trailing
 -- * tokens (if this is a function pointer)
