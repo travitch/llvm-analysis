@@ -156,8 +156,11 @@ callInstP isTail name = do
   -- causes some ambiguity with regard to local names.  A local name could be
   -- a named type or a function value.  Lookahead would be required to resolve
   -- this
-  --fullType <- optionMaybe typeP
-  let fullType = Nothing
+  --
+  -- Note: It seems like the type is just the return type in most
+  -- cases.  For some vararg funcs or functions that return function
+  -- pointers, this might be something else (the full function type).
+  -- May need to do something here later
   calledFunc <- partialConstantP
   consumeToken TLParen
   params <- sepBy callArgP (consumeToken TComma)
@@ -172,10 +175,6 @@ callInstP isTail name = do
                    , callAttrs = fattrs
                    , callHasSRet = any (==PASRet) $ concatMap snd params
                    }
-      -- realFunc = case (calledFunc rtype, fullType) of
-      --   (ValueRef _, _) -> calledFunc rtype
-      --   (_, Just t) -> calledFunc t
-      --   _ -> error "Should not have a constant function without a full function type"
   return $ maybeNamedInst name rtype i
 
 callArgP :: AssemblyParser (Constant, [ParamAttribute])
