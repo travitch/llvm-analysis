@@ -1,5 +1,6 @@
 module Data.LLVM.Private.TieKnot ( tieKnot ) where
 
+import Data.List (foldl')
 import qualified Data.HamtMap as M
 import Data.Text (Text)
 
@@ -33,9 +34,9 @@ tieKnot (O.Module layout triple decls) =
         globalValues = completeGraph typeMapper decls
         funcs = filter valueIsFunction globalValues
 
-htUnion t1 t2 = foldr addElt t1 l
+htUnion t1 t2 = foldl' addElt t1 l
   where l = M.toList t2
-        addElt (k, v) t = M.insert k v t
+        addElt t (k, v) = M.insert k v t
 
 -- FIXME: Could do something with the named metadata.  There seem to
 -- be two entries that don't really give much information: the lists
@@ -143,8 +144,8 @@ transGlobalVar typeMapper trConst getGlobalMD (thisId:restIds) name addrspace li
                                  }
 
 extractModuleAssembly :: [O.GlobalDeclaration] -> [Assembly]
-extractModuleAssembly decls = reverse $ foldr xtract [] decls
-  where xtract decl acc = case decl of
+extractModuleAssembly decls = foldl' xtract [] decls
+  where xtract acc decl = case decl of
           O.ModuleAssembly asm -> asm : acc
           _ -> acc
 
