@@ -3,6 +3,7 @@
 module Data.LLVM.Private.Lexer ( lexer, LexerToken(..), Token, AlexPosn(..) ) where
 
 import Data.Binary.IEEE754
+import Data.Char (digitToInt)
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -500,7 +501,7 @@ mkAnonLabel = stringTok TLabel (T.takeWhile isDigit . T.drop 10)
   where isDigit c = c >= '0' && c <= '9'
 
 -- Helpers for the simple literals
-mkIntLit pos s = (pos, TIntLit $ readText s)
+mkIntLit pos s = (pos, TIntLit $ fromIntegral $ readTextInt s)
 mkFloatLit pos s = (pos, TFloatLit $ readText s)
 -- Drop the first pfxLen characters (0x)
 mkHexFloatLit pfxLen pos s = (pos, TFloatLit $ wordToDouble $ readText s')
@@ -512,19 +513,25 @@ mkMetadataString = stringTok TMetadataString (unquote . T.tail)
 readText :: (Read a) => Text -> a
 readText = read . T.unpack
 
+readTextInt :: Text -> Int
+readTextInt t = fst $ T.foldr f (0, 0) t
+  where f '-' (acc, _) = (-acc, -1)
+        f c (acc, idx) | idx /= -1 = (acc + (digitToInt c) * (10 ^ idx), idx+1)
+                       | otherwise = error "Not a number"
+
 -- Discard "cc "
-mkNumberedCC pos s = (pos, TCCN $ readText $ T.drop 3 s)
+mkNumberedCC pos s = (pos, TCCN $ readTextInt $ T.drop 3 s)
 
 -- Extract part between parens (TFAAlignStack Int)
 mkAlignStack pos s = (pos, TFAAlignStack $ readText s')
   where s' = T.drop 11 $ T.init s
 
-mkAlign pos s = (pos, TAlign $ readText s')
+mkAlign pos s = (pos, TAlign $ readTextInt s')
   where s' = T.dropWhile (\x -> x == ' ' || x == '\t') $ T.drop 5 s
 
 -- Types
-mkTypeUpref pos s = (pos, TUprefT $ readText $ T.tail s)
-mkIntegralType pos s = (pos, TIntegralT $ readText $ T.tail s)
+mkTypeUpref pos s = (pos, TUprefT $ readTextInt $ T.tail s)
+mkIntegralType pos s = (pos, TIntegralT $ readTextInt $ T.tail s)
 
 mkAddrSpace pos s = (pos, TAddrspace $ readText s')
   where s' = T.drop 10 $ T.init s
