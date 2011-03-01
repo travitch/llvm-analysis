@@ -137,6 +137,7 @@ data Metadata =
                 }
   | MetadataList [Metadata]
   | MetadataValueConstant Value
+  | MetadataUnknown
   deriving (Ord, Eq)
 
 -- valueName is mostly informational at this point.  All references
