@@ -167,15 +167,15 @@ callInstP isTail name = do
                    , callConvention = cc
                    , callParamAttrs = paramAttrs
                    , callRetType = rtype
-                   , callFunction = realFunc
+                   , callFunction = calledFunc rtype
                    , callArguments = params
                    , callAttrs = fattrs
                    , callHasSRet = any (==PASRet) $ concatMap snd params
                    }
-      realFunc = case (calledFunc rtype, fullType) of
-        (ValueRef _, _) -> calledFunc rtype
-        (_, Just t) -> calledFunc t
-        _ -> error "Should not have a constant function without a full function type"
+      -- realFunc = case (calledFunc rtype, fullType) of
+      --   (ValueRef _, _) -> calledFunc rtype
+      --   (_, Just t) -> calledFunc t
+      --   _ -> error "Should not have a constant function without a full function type"
   return $ maybeNamedInst name rtype i
 
 callArgP :: AssemblyParser (Constant, [ParamAttribute])
