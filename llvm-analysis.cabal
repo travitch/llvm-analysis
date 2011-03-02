@@ -105,7 +105,7 @@ executable parser-driver
   --else
   --  buildable: False
 
-  ghc-options: -Wall -O
+  ghc-options: -Wall -O -rtsopts
   ghc-prof-options: -auto-all
   main-is: TestDriver.hs
   hs-source-dirs: tests
