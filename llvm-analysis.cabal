@@ -8,6 +8,7 @@ maintainer: travitch@cs.wisc.edu
 category: Development
 build-type: Simple
 cabal-version: >=1.10
+stability: experimental
 
 -- extra-source-files:
 -- description:
@@ -24,45 +25,45 @@ library
                    Data.LLVM.CFG,
                    Data.LLVM.Types,
                    Data.LLVM.Visualization
-  other-modules: Data.LLVM.Private.Identifiers,
-                 Data.LLVM.Private.AttributeTypes,
-                 Data.LLVM.Private.DwarfHelpers,
-                 Data.LLVM.Private.KnotHelpers,
-                 Data.LLVM.Private.Lexer,
-                 Data.LLVM.Private.Parser,
-                 Data.LLVM.Private.Parser.Attributes,
-                 Data.LLVM.Private.Parser.Constants,
-                 Data.LLVM.Private.Parser.Instructions,
-                 Data.LLVM.Private.Parser.Primitive,
-                 Data.LLVM.Private.Parser.Types,
-                 Data.LLVM.Private.ParsingMonad,
-                 Data.LLVM.Private.PlaceholderTypeExtractors,
-                 Data.LLVM.Private.PlaceholderTypes,
-                 Data.LLVM.Private.Printers,
-                 Data.LLVM.Private.ReferentialTypes,
-                 Data.LLVM.Private.TieKnot,
-                 Data.LLVM.Private.Translators.Constants,
-                 Data.LLVM.Private.Translators.Functions,
-                 Data.LLVM.Private.Translators.Instructions,
-                 Data.LLVM.Private.Translators.Metadata,
-                 Data.LLVM.Private.Translators.Types
+                   Data.LLVM.Private.Identifiers,
+                   Data.LLVM.Private.AttributeTypes,
+                   Data.LLVM.Private.DwarfHelpers,
+                   Data.LLVM.Private.KnotHelpers,
+                   Data.LLVM.Private.Lexer,
+                   Data.LLVM.Private.Parser,
+                   Data.LLVM.Private.Parser.Attributes,
+                   Data.LLVM.Private.Parser.Constants,
+                   Data.LLVM.Private.Parser.Instructions,
+                   Data.LLVM.Private.Parser.Primitive,
+                   Data.LLVM.Private.Parser.Types,
+                   Data.LLVM.Private.ParsingMonad,
+                   Data.LLVM.Private.PlaceholderTypeExtractors,
+                   Data.LLVM.Private.PlaceholderTypes,
+                   Data.LLVM.Private.Printers,
+                   Data.LLVM.Private.ReferentialTypes,
+                   Data.LLVM.Private.TieKnot,
+                   Data.LLVM.Private.Translators.Constants,
+                   Data.LLVM.Private.Translators.Functions,
+                   Data.LLVM.Private.Translators.Instructions,
+                   Data.LLVM.Private.Translators.Metadata,
+                   Data.LLVM.Private.Translators.Types
 
   build-tools: alex >= 2 && < 3
   default-extensions: OverloadedStrings
   ghc-options: -Wall -O -funbox-strict-fields
   ghc-prof-options: -auto-all
 
--- executable parser-tests
---   --if flag(buildTests)
---   build-depends: HUnit, llvm-analysis, base > 3 && < 5
---   --else
---   --  buildable: False
-
---   main-is: ParserTest.hs
---   hs-source-dirs: tests
---   extensions: OverloadedStrings
+test-suite ParserTests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: ParserTest.hs
+  hs-source-dirs: tests
+  default-extensions: OverloadedStrings
+  build-depends: llvm-analysis, base > 3 && < 5,
+                 HUnit, test-framework, test-framework-hunit
 
 executable parser-driver
+  default-language: Haskell2010
   build-depends: llvm-analysis, haskell98, base > 3 && < 5, unordered-containers
 
   ghc-options: -Wall -O -rtsopts
