@@ -1,7 +1,7 @@
 import System ( getArgs )
 
 import Data.Either
-import qualified Data.HamtMap as M
+import qualified Data.HashMap.Strict as M
 
 import Data.LLVM
 import Data.LLVM.Types

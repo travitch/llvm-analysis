@@ -3,10 +3,10 @@ module Data.LLVM.CFG ( CFG
                      , makeCFG
                      ) where
 
-import Data.List (foldl')
+import Data.List ( foldl' )
 import Data.Graph.Inductive
-import Data.HamtMap ((!))
-import qualified Data.HamtMap as M
+import qualified Data.HashMap.Strict as M
+import Text.Printf
 
 import Data.LLVM.Private.Printers ( )
 import Data.LLVM.Private.ReferentialTypes
@@ -29,6 +29,10 @@ instance Show EdgeCondition where
   show (EqualityEdge v1 v2) = concat [ show v1, " is ", show v2 ]
   show (IndirectEdge v) = show v ++ " (indirect)"
 
+blockInstructions :: Value -> [Value]
+blockInstructions Value { valueContent = BasicBlock is } = is
+blockInstructions v = error $ printf "Value is not a basic block: %s" (show v)
+
 -- | Each instruction in the function body is a node in the graph.
 -- Branching instructions induce edges.  This form of the CFG is
 -- fine-grained in that each instruction has its own CFG node.  This
@@ -39,15 +43,17 @@ instance Show EdgeCondition where
 makeCFG :: Value -> CFG
 makeCFG func = mkGraph (concat cfgNodes) (concat $ concat cfgEdges)
   where body = functionBody $ valueContent func
-        allInstructions = concatMap (\(Value { valueContent = BasicBlock is }) -> is) body
+        allInstructions = concatMap blockInstructions body
         (nodeCount, nodeIDs) = foldl' labelInstruction (0, M.empty) allInstructions
         labelInstruction (idx, m) val = (idx+1, M.insert val idx m)
 
         instIdent :: Value -> Int
-        instIdent = (nodeIDs !)
+        instIdent val = case M.lookup val nodeIDs of
+          Just i -> i
+          Nothing -> error $ printf "No ID for value [%s]" (show val)
         jumpTargetId :: Value -> Int
         jumpTargetId Value { valueContent = BasicBlock (t:_) } = instIdent t
-        jumpTargetId v = error $ "Value is not a basic block: " ++ show v
+        jumpTargetId v = error $ printf "Value is not a basic block %s" (show v)
 
         caseEdge thisNodeId cond (val, dest) =
           (thisNodeId, jumpTargetId dest, EqualityEdge cond val)

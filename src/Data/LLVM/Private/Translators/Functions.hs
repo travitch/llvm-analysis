@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Data.LLVM.Private.Translators.Functions ( translateFunctionDefinition ) where
 
-import Data.List (mapAccumR)
-import qualified Data.HamtMap as M
+import Data.List ( mapAccumR )
+import qualified Data.HashMap.Strict as M
 
 import Data.LLVM.Types
 import Data.LLVM.Private.KnotHelpers

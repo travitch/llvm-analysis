@@ -1,8 +1,9 @@
 module Data.LLVM.Private.Translators.Constants ( translateConstant
                                                ) where
 
-import Data.List (mapAccumR)
-import Data.HamtMap ((!))
+import Data.List ( mapAccumR )
+import qualified Data.HashMap.Strict as M
+import Text.Printf
 
 import Data.LLVM.Private.KnotHelpers
 import qualified Data.LLVM.Private.PlaceholderTypes as O
@@ -25,9 +26,13 @@ translateConstant typeMapper globalDecls localDecls v initstream =
     O.ConstValue c ty -> trConstVal ty c
     O.ValueRef ident ->
       case ident of
-        LocalIdentifier {} -> localDecls ! ident
-        GlobalIdentifier {} -> globalDecls ! ident
-        _ -> error $ "Metadata identifiers cannot be translated with trConst " ++ show ident
+        LocalIdentifier {} -> case M.lookup ident localDecls of
+          Just i -> i
+          Nothing -> error $ printf "Identifier %s not found in the localDecl map" (show ident)
+        GlobalIdentifier {} -> case M.lookup ident globalDecls of
+          Just i -> i
+          Nothing -> error $ printf "Identifier %s not found in the globalDecl map" (show ident)
+        _ -> error $ printf "Metadata identifiers cannot be translated with trConst (%s)" (show ident)
 
   where trConst = translateConstant typeMapper globalDecls localDecls
         transMap idstream vals =
@@ -41,7 +46,13 @@ translateConstant typeMapper globalDecls localDecls v initstream =
           where t = typeMapper ty
                 x = case c of
                   O.BlockAddress fIdent bIdent ->
-                    let ba = BlockAddress (globalDecls ! fIdent) (localDecls ! bIdent)
+                    let funcConstant = case M.lookup fIdent globalDecls of
+                          Just f -> f
+                          Nothing -> error $ printf "Function %s not found in the globalDecl map" (show fIdent)
+                        labelConstant = case M.lookup bIdent localDecls of
+                          Just b -> b
+                          Nothing -> error $ printf "Local block %s not found in function %s" (show bIdent) (show fIdent)
+                        ba = BlockAddress funcConstant labelConstant
                     in mkCVal thisId t ba
                   O.ConstantAggregateZero -> mkCVal thisId t ConstantAggregateZero
                   O.ConstantArray cs ->

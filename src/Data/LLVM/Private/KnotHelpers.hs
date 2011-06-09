@@ -9,13 +9,13 @@ module Data.LLVM.Private.KnotHelpers ( SymbolTable
                                      ) where
 
 import Control.Comonad
-import Data.HamtMap (HamtMap)
-import Data.Stream.Supply hiding (split)
+import Data.HashMap.Strict ( HashMap )
+import Data.Stream.Supply hiding ( split )
 import Data.LLVM.Types
 import System.IO.Unsafe
 
 
-type SymbolTable = HamtMap Identifier Value
+type SymbolTable = HashMap Identifier Value
 
 type IdStream = Supply Integer
 

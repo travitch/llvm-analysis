@@ -1,7 +1,7 @@
 module Data.LLVM.Private.Translators.Types ( translateType ) where
 
-import qualified Data.HamtMap as M
-import Data.HamtMap ((!))
+import qualified Data.HashMap.Strict as M
+import Text.Printf
 
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import qualified Data.LLVM.Types as N
@@ -36,5 +36,9 @@ translateType decls = trans'
           O.TypeStruct ts' -> N.TypeStruct (map trans' ts')
           O.TypePackedStruct ts' -> N.TypePackedStruct (map trans' ts')
           O.TypeUpref _ -> error "Type uprefs not supported yet"
-          O.TypeNamed name -> N.TypeNamed (show name) $ mapping ! name
+          O.TypeNamed name ->
+            let typeName = case M.lookup name mapping of
+                  Just n -> n
+                  Nothing -> error $ printf "No mapping for named type %s" (show name)
+            in N.TypeNamed (show name) typeName
 

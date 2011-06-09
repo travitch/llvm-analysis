@@ -1,13 +1,14 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Data.LLVM.Types ( module Data.LLVM.Private.AttributeTypes
-                       , module Data.LLVM.Private.ReferentialTypes
-                       , Map
-                       , Module(..)
-                       , moduleFunctions
-                       ) where
+module Data.LLVM.Types
+       ( module Data.LLVM.Private.AttributeTypes
+       , module Data.LLVM.Private.ReferentialTypes
+       , Map
+       , Module(..)
+       , moduleFunctions
+       ) where
 
-import Data.HamtMap (HamtMap)
-import Data.List (intercalate)
+import Data.HashMap.Strict ( HashMap )
+import Data.List ( intercalate )
 
 import Data.LLVM.CFG
 
@@ -15,7 +16,7 @@ import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.Printers
 import Data.LLVM.Private.ReferentialTypes
 
-type Map = HamtMap
+type Map = HashMap
 
 data Module = Module { moduleDataLayout :: DataLayout
                      , moduleTarget :: TargetTriple

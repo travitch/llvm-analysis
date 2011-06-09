@@ -1,9 +1,9 @@
 module Data.LLVM.Private.Translators.Metadata ( translateMetadata ) where
 
 import Data.Dwarf
-import qualified Data.HamtMap as M
-import Data.HamtMap ((!))
-import Data.Maybe (fromJust)
+import qualified Data.HashMap.Strict as M
+import Data.Maybe ( fromJust )
+import Text.Printf
 
 import Data.LLVM.Private.KnotHelpers
 import Data.LLVM.Private.DwarfHelpers
@@ -37,8 +37,10 @@ translateMetadata trConst allMetadata md valmd name reflist =
         updateValMDMap ident = M.insert ident newMetadata valmd
         -- This helper looks up a metadata reference in the *final* metadata map,
         -- converting a named metadata ref into an actual metadata object
-        metaRef (O.ValueRef metaName) = allMetadata ! metaName
-        metaRef c = error ("Constant is not a metadata reference: " ++ show c)
+        metaRef (O.ValueRef metaName) = case M.lookup metaName allMetadata of
+          Just m -> m
+          Nothing -> error $ printf "No metadata node for referenced name %s" (show metaName)
+        metaRef c = error $ printf "Constant [%s] is not a metadata reference" (show c)
 
         allRefsMetadata = all isMetadata reflist
         isMetadata (Just (O.ValueRef MetaIdentifier {})) = True

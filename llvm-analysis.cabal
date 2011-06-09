@@ -1,113 +1,73 @@
--- The name of the package.
-Name: llvm-analysis
+name: llvm-analysis
+version: 0.1.0
+synopsis: A pure Haskell library for parsing and analyzing LLVM bitcode
+license: BSD3
+license-file: LICENSE
+author: Tristan Ravitch
+maintainer: travitch@cs.wisc.edu
+category: Development
+build-type: Simple
+cabal-version: >=1.10
 
--- The package version. See the Haskell package versioning policy
--- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
--- standards guiding when and how versions should be incremented.
-Version: 0.1
-
--- A short (one-line) description of the package.
-Synopsis: A pure Haskell library for parsing and analyzing LLVM bitcode
-
--- A longer description of the package.
--- Description:
-
--- The license under which the package is released.
-License: BSD3
-
--- The file containing the license text.
-License-file: LICENSE
-
--- The package author(s).
-Author: Tristan Ravitch
-
--- An email address to which users can send suggestions, bug reports,
--- and patches.
-Maintainer: travitch@cs.wisc.edu
-
--- A copyright notice.
--- Copyright:
-
-Category: Development
-
-Build-type: Simple
-
--- Extra files to be distributed with the package, such as examples or
--- a README.
--- Extra-source-files:
-
--- Constraint on the version of Cabal needed to build this package.
-Cabal-version: >=1.8
-
-flag buildTests
-  description: Build the test binaries
-  default: False
-
+-- extra-source-files:
+-- description:
 
 library
-  -- .hs or .lhs file containing the Main module.
-  -- Main-is: Main.hs
-
-  -- Packages needed in order to build this package.
-  build-depends: base > 3 && < 5, array, data-binary-ieee754,
-                 hamtmap, dwarf, fgl, graphviz, process, hashable,
-                 parsec >= 3.1 && < 3.2, streams >= 0.6 && < 0.7,
-                 comonad, bytestring
+  default-language: Haskell2010
+  build-depends: base > 3 && < 5, array, process, bytestring, fgl,
+                 parsec >= 3.1 && < 3.2, graphviz, dwarf,
+                 hashable, unordered-containers,
+                 data-binary-ieee754, graphviz,
+                 streams >= 0.6 && < 0.9, comonad
   hs-source-dirs: src
-
-  -- Modules not exported by this package.
   exposed-modules: Data.LLVM,
                    Data.LLVM.CFG,
                    Data.LLVM.Types,
-                   Data.LLVM.Visualization,
-                   Data.LLVM.Private.Identifiers,
-                   Data.LLVM.Private.AttributeTypes,
-                   Data.LLVM.Private.DwarfHelpers,
-                   Data.LLVM.Private.KnotHelpers,
-                   Data.LLVM.Private.Lexer,
-                   Data.LLVM.Private.Parser,
-                   Data.LLVM.Private.Parser.Attributes,
-                   Data.LLVM.Private.Parser.Constants,
-                   Data.LLVM.Private.Parser.Instructions,
-                   Data.LLVM.Private.Parser.Primitive,
-                   Data.LLVM.Private.Parser.Types,
-                   Data.LLVM.Private.ParsingMonad,
-                   Data.LLVM.Private.PlaceholderTypeExtractors,
-                   Data.LLVM.Private.PlaceholderTypes,
-                   Data.LLVM.Private.Printers,
-                   Data.LLVM.Private.ReferentialTypes,
-                   Data.LLVM.Private.TieKnot,
-                   Data.LLVM.Private.Translators.Constants,
-                   Data.LLVM.Private.Translators.Functions,
-                   Data.LLVM.Private.Translators.Instructions,
-                   Data.LLVM.Private.Translators.Metadata,
-                   Data.LLVM.Private.Translators.Types
+                   Data.LLVM.Visualization
+  other-modules: Data.LLVM.Private.Identifiers,
+                 Data.LLVM.Private.AttributeTypes,
+                 Data.LLVM.Private.DwarfHelpers,
+                 Data.LLVM.Private.KnotHelpers,
+                 Data.LLVM.Private.Lexer,
+                 Data.LLVM.Private.Parser,
+                 Data.LLVM.Private.Parser.Attributes,
+                 Data.LLVM.Private.Parser.Constants,
+                 Data.LLVM.Private.Parser.Instructions,
+                 Data.LLVM.Private.Parser.Primitive,
+                 Data.LLVM.Private.Parser.Types,
+                 Data.LLVM.Private.ParsingMonad,
+                 Data.LLVM.Private.PlaceholderTypeExtractors,
+                 Data.LLVM.Private.PlaceholderTypes,
+                 Data.LLVM.Private.Printers,
+                 Data.LLVM.Private.ReferentialTypes,
+                 Data.LLVM.Private.TieKnot,
+                 Data.LLVM.Private.Translators.Constants,
+                 Data.LLVM.Private.Translators.Functions,
+                 Data.LLVM.Private.Translators.Instructions,
+                 Data.LLVM.Private.Translators.Metadata,
+                 Data.LLVM.Private.Translators.Types
 
-  -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   build-tools: alex >= 2 && < 3
-  extensions: OverloadedStrings
-  ghc-options: -Wall -O
+  default-extensions: OverloadedStrings
+  ghc-options: -Wall -O -funbox-strict-fields
   ghc-prof-options: -auto-all
 
-executable parser-tests
-  --if flag(buildTests)
-  build-depends: HUnit, llvm-analysis, base > 3 && < 5
-  --else
-  --  buildable: False
+-- executable parser-tests
+--   --if flag(buildTests)
+--   build-depends: HUnit, llvm-analysis, base > 3 && < 5
+--   --else
+--   --  buildable: False
 
-  main-is: ParserTest.hs
-  hs-source-dirs: tests
-  extensions: OverloadedStrings
+--   main-is: ParserTest.hs
+--   hs-source-dirs: tests
+--   extensions: OverloadedStrings
 
 executable parser-driver
-  --if flag(buildTests)
-  build-depends: llvm-analysis, haskell98, base > 3 && < 5, hamtmap
-  --else
-  --  buildable: False
+  build-depends: llvm-analysis, haskell98, base > 3 && < 5, unordered-containers
 
   ghc-options: -Wall -O -rtsopts
   ghc-prof-options: -auto-all
   main-is: TestDriver.hs
   hs-source-dirs: tests
-  extensions: OverloadedStrings
+  default-extensions: OverloadedStrings
 
