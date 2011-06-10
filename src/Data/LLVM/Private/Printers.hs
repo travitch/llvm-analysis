@@ -21,7 +21,17 @@ import Data.LLVM.Private.ReferentialTypes
 
 -- FIXME: implement this large thing
 printMetadata :: Metadata -> String
-printMetadata _ = "metadata"
+printMetadata Metadata { metaValueName = Just metaValName
+                       , metaValueContent = MetaSourceLocation { metaSourceRow = row
+                                                               , metaSourceCol = col
+                                                               , metaSourceScope = scope
+                                                               }
+                       } =
+  mconcat [ show metaValName, " = metadata !{i32 "
+          , show row, ", i32 ", show col
+          , ", metadata ", show (metaValueName scope), " null}"
+          ]
+
 
 -- Take all of the asm chunks, break their contents into lines,
 -- then wrap each of those lines in the 'module asm' wrapper.
