@@ -1,5 +1,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
+                                          , MetadataT(..)
                                           , Type(..)
                                           , Value(..)
                                           , ValueT(..)
@@ -39,7 +40,7 @@ data Type = TypeInteger !Int -- bits
           | TypeNamed !String !Type
           deriving (Ord, Eq)
 
-data Metadata =
+data MetadataT =
   MetaSourceLocation { metaSourceRow :: Integer
                      , metaSourceCol :: Integer
                      , metaSourceScope :: Metadata
@@ -140,9 +141,26 @@ data Metadata =
   | MetadataUnknown
   deriving (Ord, Eq)
 
--- valueName is mostly informational at this point.  All references
--- will be resolved as part of the graph, but the name will be useful
--- for visualization purposes
+-- | A wrapper for 'Metadata' values that tracks an Identifier and a
+-- unique identifier (similar to the 'Value' wrapper).  Almost all
+-- 'Metadata' has an 'Identifier'.  The only exception seems to be a
+-- few 'Value' constants (such as Ints and null).
+data Metadata = Metadata { metaValueName :: Maybe Identifier
+                         , metaValueContent :: MetadataT
+                         , metaValueUniqueId :: Integer
+                         }
+
+instance Eq Metadata where
+  mv1 == mv2 = metaValueUniqueId mv1 == metaValueUniqueId mv2
+
+instance Ord Metadata where
+  mv1 `compare` mv2 = metaValueUniqueId mv1 `compare` metaValueUniqueId mv2
+
+-- | A wrapper around 'ValueT' values that tracks the 'Type', name,
+-- and attached metadata. valueName is mostly informational at this
+-- point.  All references will be resolved as part of the graph, but
+-- the name will be useful for visualization purposes and
+-- serialization.
 data Value = Value { valueType :: Type
                    , valueName :: Maybe Identifier
                    , valueMetadata :: Maybe Metadata
@@ -151,10 +169,10 @@ data Value = Value { valueType :: Type
                    }
 
 instance Eq Value where
-  (Value { valueUniqueId = i1 }) == (Value { valueUniqueId = i2 }) = i1 == i2
+  v1 == v2 = valueUniqueId v1 == valueUniqueId v2
 
 instance Ord Value where
-  (Value { valueUniqueId = i1 }) `compare` (Value { valueUniqueId = i2 }) = i1 `compare` i2
+  v1 `compare` v2 = valueUniqueId v1 `compare` valueUniqueId v2
 
 maxInt :: Integer
 maxInt = fromIntegral (maxBound :: Int)
