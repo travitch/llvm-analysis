@@ -42,107 +42,108 @@ translateMetadata :: (O.Constant -> IdStream -> Value) ->
                      (Map Identifier Metadata, Map Identifier Metadata)
 translateMetadata trConst allMetadataT md valmd name reflist =
   (M.insert name newMetadataT md, maybe valmd updateValMDMap valMetadataT)
-  where (newMetadataT, valMetadataT) = decodeRefs
-        updateValMDMap :: Identifier -> Map Identifier Metadata
-        updateValMDMap ident = M.insert ident newMetadataT valmd
-        -- This helper looks up a metadata reference in the *final* metadata map,
-        -- converting a named metadata ref into an actual metadata object
-        metaRef (O.ValueRef metaName) = case M.lookup metaName allMetadataT of
-          Just m -> m
-          Nothing -> error $ printf "No metadata node for referenced name %s" (show metaName)
-        metaRef c = error $ printf "Constant [%s] is not a metadata reference" (show c)
+  where
+    (newMetadataT, valMetadataT) = decodeRefs
+    updateValMDMap :: Identifier -> Map Identifier Metadata
+    updateValMDMap ident = M.insert ident newMetadataT valmd
+    -- This helper looks up a metadata reference in the *final* metadata map,
+    -- converting a named metadata ref into an actual metadata object
+    metaRef (O.ValueRef metaName) = case M.lookup metaName allMetadataT of
+      Just m -> m
+      Nothing -> error $ printf "No metadata node for referenced name %s" (show metaName)
+    metaRef c = error $ printf "Constant [%s] is not a metadata reference" (show c)
 
-        allRefsMetadataT = all isMetadataT reflist
-        isMetadataT (Just (O.ValueRef MetaIdentifier {})) = True
-        isMetadataT _ = False
+    allRefsMetadataT = all isMetadataT reflist
+    isMetadataT (Just (O.ValueRef MetaIdentifier {})) = True
+    isMetadataT _ = False
 
-        -- Turn source location meta records into a source location object;
-        -- These are the special records without a type tag and ending with
-        -- a literal untyped 'null'
-        -- mkMetaSourceLocation = mkSourceLocation metaRef reflist
-        -- This helper will determine whether the metadata record has
-        -- a tag or not; singleton lists can either be forwarding
-        -- records (single metadata entry) or a value reference.  Any
-        -- other type of metadata record begins with a *tag*.
-        -- Dispatch on this tag to figure out what type of record
-        -- should be built.
-        decodeRefs :: (Metadata, Maybe Identifier)
-        decodeRefs =
-          if allRefsMetadataT
-          then halfPair Metadata { metaValueName = Just name
-                                 , metaValueContent = mdContent
-                                 , metaValueUniqueId = undefined
-                                 }
-          else case reflist of
-            [] -> error "Empty metadata not allowed"
-            [Just elt] -> translateConstant elt
-            _ -> mkMetadataTOrSrcLoc reflist
-          where
-            mdContent = MetadataList $ map (metaRef . fromJust) reflist
-
-        -- FIXME: this needs to have real identifiers generated; pass
-        -- in a real stream and not an initialstream
-        translateConstant :: O.Constant -> (Metadata, Maybe Identifier)
-        translateConstant elt =
-          halfPair Metadata { metaValueName = Nothing
+    -- Turn source location meta records into a source location object;
+    -- These are the special records without a type tag and ending with
+    -- a literal untyped 'null'
+    -- mkMetaSourceLocation = mkSourceLocation metaRef reflist
+    -- This helper will determine whether the metadata record has
+    -- a tag or not; singleton lists can either be forwarding
+    -- records (single metadata entry) or a value reference.  Any
+    -- other type of metadata record begins with a *tag*.
+    -- Dispatch on this tag to figure out what type of record
+    -- should be built.
+    decodeRefs :: (Metadata, Maybe Identifier)
+    decodeRefs =
+      if allRefsMetadataT
+      then halfPair Metadata { metaValueName = Just name
                              , metaValueContent = mdContent
                              , metaValueUniqueId = undefined
                              }
-          where
-            mdContent = MetadataValueConstant (trConst elt initialStream)
+      else case reflist of
+        [] -> error "Empty metadata not allowed"
+        [Just elt] -> translateConstant elt
+        _ -> mkMetadataTOrSrcLoc reflist
+      where
+        mdContent = MetadataList $ map (metaRef . fromJust) reflist
 
-        mkMetadataTOrSrcLoc :: [Maybe O.Constant] -> (Metadata, Maybe Identifier)
-        mkMetadataTOrSrcLoc vals@[Just tag, a, b, Nothing] =
-          if getInt tag < llvmDebugVersion
-          then mkSourceLocation name metaRef vals
-          else mkMetadata tag [a, b, Nothing]
-        mkMetadataTOrSrcLoc ((Just tag):rest) = mkMetadata tag rest
-        mkMetadataTOrSrcLoc _ = mkUnknown name
+    -- FIXME: this needs to have real identifiers generated; pass
+    -- in a real stream and not an initialstream
+    translateConstant :: O.Constant -> (Metadata, Maybe Identifier)
+    translateConstant elt =
+      halfPair Metadata { metaValueName = Nothing
+                        , metaValueContent = mdContent
+                        , metaValueUniqueId = undefined
+                        }
+      where
+        mdContent = MetadataValueConstant (trConst elt initialStream)
 
-        -- Here, subtract out the version information from the tag and
-        -- construct the indicated record type.  Note: could just
-        -- ignore unknown tags.
-        mkMetadata :: O.Constant -> [Maybe O.Constant] -> (Metadata, Maybe Identifier)
-        mkMetadata tag components = case tag' - llvmDebugVersion of
-          1 -> mkCompositeType name metaRef DW_TAG_array_type components
-          4 -> mkCompositeType name metaRef DW_TAG_enumeration_type components
-          5 -> mkDerivedType name metaRef DW_TAG_formal_parameter components
-          11 -> mkLexicalBlock name metaRef components
-          13 -> mkDerivedType name metaRef DW_TAG_member components
-          15 -> mkDerivedType name metaRef DW_TAG_pointer_type components
-          16 -> mkDerivedType name metaRef DW_TAG_reference_type components
-          17 -> mkCompileUnit name components
-          19 -> mkCompositeType name metaRef DW_TAG_structure_type components
-          21 -> mkCompositeType name metaRef DW_TAG_subroutine_type components
-          22 -> mkDerivedType name metaRef DW_TAG_typedef components
-          23 -> mkCompositeType name metaRef DW_TAG_union_type components
-          28 -> mkCompositeType name metaRef DW_TAG_inheritance components
-          33 -> mkSubrange name components
-          36 -> mkBaseType name metaRef components
-          38 -> mkDerivedType name metaRef DW_TAG_const_type components
-          40 -> mkEnumerator name components
-          41 -> mkFile name metaRef components
-          46 -> mkSubprogram name metaRef components
-          52 -> mkGlobalVar name metaRef components
-          53 -> mkDerivedType name metaRef DW_TAG_volatile_type components
-          55 -> mkDerivedType name metaRef DW_TAG_restrict_type components
-          256 -> mkLocalVar name metaRef DW_TAG_auto_variable components
-          257 -> mkLocalVar name metaRef DW_TAG_arg_variable components
-          258 -> mkLocalVar name metaRef DW_TAG_return_variable components
-          -- These are probably DWARF4 extensions.  FIXME: Re-add them
-          -- when the dwarf package supports them
+    mkMetadataTOrSrcLoc :: [Maybe O.Constant] -> (Metadata, Maybe Identifier)
+    mkMetadataTOrSrcLoc vals@[Just tag, a, b, Nothing] =
+      if getInt tag < llvmDebugVersion
+      then mkSourceLocation name metaRef vals
+      else mkMetadata tag [a, b, Nothing]
+    mkMetadataTOrSrcLoc ((Just tag):rest) = mkMetadata tag rest
+    mkMetadataTOrSrcLoc _ = mkUnknown name
 
-          -- 259 -> mkCompositeType name metaRef DW_TAG_vector_type components
+    -- Here, subtract out the version information from the tag and
+    -- construct the indicated record type.  Note: could just
+    -- ignore unknown tags.
+    mkMetadata :: O.Constant -> [Maybe O.Constant] -> (Metadata, Maybe Identifier)
+    mkMetadata tag components = case tag' - llvmDebugVersion of
+      1 -> mkCompositeType name metaRef DW_TAG_array_type components
+      4 -> mkCompositeType name metaRef DW_TAG_enumeration_type components
+      5 -> mkDerivedType name metaRef DW_TAG_formal_parameter components
+      11 -> mkLexicalBlock name metaRef components
+      13 -> mkDerivedType name metaRef DW_TAG_member components
+      15 -> mkDerivedType name metaRef DW_TAG_pointer_type components
+      16 -> mkDerivedType name metaRef DW_TAG_reference_type components
+      17 -> mkCompileUnit name components
+      19 -> mkCompositeType name metaRef DW_TAG_structure_type components
+      21 -> mkCompositeType name metaRef DW_TAG_subroutine_type components
+      22 -> mkDerivedType name metaRef DW_TAG_typedef components
+      23 -> mkCompositeType name metaRef DW_TAG_union_type components
+      28 -> mkCompositeType name metaRef DW_TAG_inheritance components
+      33 -> mkSubrange name components
+      36 -> mkBaseType name metaRef components
+      38 -> mkDerivedType name metaRef DW_TAG_const_type components
+      40 -> mkEnumerator name components
+      41 -> mkFile name metaRef components
+      46 -> mkSubprogram name metaRef components
+      52 -> mkGlobalVar name metaRef components
+      53 -> mkDerivedType name metaRef DW_TAG_volatile_type components
+      55 -> mkDerivedType name metaRef DW_TAG_restrict_type components
+      256 -> mkLocalVar name metaRef DW_TAG_auto_variable components
+      257 -> mkLocalVar name metaRef DW_TAG_arg_variable components
+      258 -> mkLocalVar name metaRef DW_TAG_return_variable components
+      -- These are probably DWARF4 extensions.  FIXME: Re-add them
+      -- when the dwarf package supports them
 
-          -- There seems to be some kind of metadata generated by
-          -- llvm-gcc where the first element is a line number and it
-          -- contains two metadata refs.  Not sure what it means,
-          -- really.  There are also a few others that make even less
-          -- sense.  Just mapping them to something empty for now.
-          _ -> mkUnknown name
+      -- 259 -> mkCompositeType name metaRef DW_TAG_vector_type components
+
+      -- There seems to be some kind of metadata generated by
+      -- llvm-gcc where the first element is a line number and it
+      -- contains two metadata refs.  Not sure what it means,
+      -- really.  There are also a few others that make even less
+      -- sense.  Just mapping them to something empty for now.
+      _ -> mkUnknown name
 
 
-          where tag' = getInt tag
+      where tag' = getInt tag
 
 -- | This is a helper to construct a pair with the second element as
 -- Nothing; all of the translators return a pair, but most use Nothing
