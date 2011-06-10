@@ -17,7 +17,7 @@ import System.IO.Unsafe
 
 type SymbolTable = HashMap Identifier Value
 
-type IdStream = Supply Integer
+type IdStream = Supply UniqueId
 
 -- The documentation recommends forcing the compiler to not inline
 -- calls involving unsafePerformIO.  It shouldn't be an issue for this

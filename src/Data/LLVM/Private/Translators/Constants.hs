@@ -10,7 +10,7 @@ import qualified Data.LLVM.Private.PlaceholderTypes as O
 import Data.LLVM.Private.Translators.Instructions
 import Data.LLVM.Types
 
-mkCVal :: Integer -> Type -> ValueT -> Value
+mkCVal :: UniqueId -> Type -> ValueT -> Value
 mkCVal uid ty c = Value { valueName = Nothing
                         , valueMetadata = Nothing
                         , valueType = ty

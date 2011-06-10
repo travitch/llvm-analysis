@@ -99,7 +99,7 @@ completeGraph typeMapper decls = M.elems globalValues
     trGlobal = trConst M.empty
 
 
-mkValue :: Integer -> Type -> Maybe Identifier -> Maybe Metadata -> ValueT ->
+mkValue :: UniqueId -> Type -> Maybe Identifier -> Maybe Metadata -> ValueT ->
            Value
 mkValue uid ty ident md val =
   Value { valueType = ty
@@ -110,13 +110,13 @@ mkValue uid ty ident md val =
         }
 
 transExternal :: (O.Type -> Type) -> (Identifier -> Maybe Metadata) ->
-                 Integer -> O.Type -> Identifier ->
+                 UniqueId -> O.Type -> Identifier ->
                  Value
 transExternal typeMapper getGlobalMD thisId ty ident =
   mkValue thisId (typeMapper ty) (Just ident) (getGlobalMD ident) ExternalValue
 
 transExternalFunc :: (O.Type -> Type) -> (Identifier -> Maybe Metadata) ->
-                     Integer -> O.Type -> Identifier ->
+                     UniqueId -> O.Type -> Identifier ->
                      [FunctionAttribute] -> Value
 transExternalFunc typeMapper getGlobalMD thisId ty ident attrs =
   mkValue thisId (typeMapper ty) (Just ident) (getGlobalMD ident) (ExternalFunction attrs)

@@ -4,6 +4,7 @@ module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
                                           , Type(..)
                                           , Value(..)
                                           , ValueT(..)
+                                          , UniqueId
                                           , valueIsFunction
                                           ) where
 
@@ -141,13 +142,15 @@ data MetadataT =
   | MetadataUnknown
   deriving (Ord, Eq)
 
+type UniqueId = Int
+
 -- | A wrapper for 'Metadata' values that tracks an Identifier and a
 -- unique identifier (similar to the 'Value' wrapper).  Almost all
 -- 'Metadata' has an 'Identifier'.  The only exception seems to be a
 -- few 'Value' constants (such as Ints and null).
 data Metadata = Metadata { metaValueName :: Maybe Identifier
                          , metaValueContent :: MetadataT
-                         , metaValueUniqueId :: Integer
+                         , metaValueUniqueId :: UniqueId
                          }
 
 instance Eq Metadata where
@@ -165,7 +168,7 @@ data Value = Value { valueType :: Type
                    , valueName :: Maybe Identifier
                    , valueMetadata :: Maybe Metadata
                    , valueContent :: ValueT
-                   , valueUniqueId :: Integer
+                   , valueUniqueId :: UniqueId
                    }
 
 instance Eq Value where
@@ -174,7 +177,7 @@ instance Eq Value where
 instance Ord Value where
   v1 `compare` v2 = valueUniqueId v1 `compare` valueUniqueId v2
 
-maxInt :: Integer
+maxInt :: UniqueId
 maxInt = fromIntegral (maxBound :: Int)
 
 instance Hashable Value where
