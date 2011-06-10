@@ -1,6 +1,5 @@
-import System ( getArgs )
+import System.Environment ( getArgs )
 
-import Data.Either
 import qualified Data.HashMap.Strict as M
 
 import Data.LLVM
@@ -21,7 +20,7 @@ dumpModule m = do
   putStrLn $ "CFGs: " ++ (show $ length cfgs)
   mapM_ viewCFG cfgs
 
-printG0 (Right m) = do
-  let cfgs = M.elems $ moduleCFGs m
-      g0 = cfgs !! 0
-  print g0
+-- printG0 (Right m) = do
+--   let cfgs = M.elems $ moduleCFGs m
+--       g0 = cfgs !! 0
+--   print g0
