@@ -36,26 +36,27 @@ llvmDebugVersion = 524288
 -- to some value.
 translateMetadata :: (O.Constant -> IdStream -> Value) ->
                      (Map Identifier Metadata) ->
+                     IdStream ->
                      (Map Identifier Metadata) ->
                      (Map Identifier Metadata) ->
                      Identifier -> [Maybe O.Constant] ->
                      (Map Identifier Metadata, Map Identifier Metadata)
-translateMetadata trConst allMetadataT md valmd name reflist =
-  (M.insert name newMetadataT md, maybe valmd updateValMDMap valMetadataT)
+translateMetadata trConst allMetadata idStream md valmd name reflist =
+  (M.insert name newMetadata md, maybe valmd updateValMDMap valMetadata)
   where
-    (newMetadataT, valMetadataT) = decodeRefs
+    (newMetadata, valMetadata) = decodeRefs
     updateValMDMap :: Identifier -> Map Identifier Metadata
-    updateValMDMap ident = M.insert ident newMetadataT valmd
+    updateValMDMap ident = M.insert ident newMetadata valmd
     -- This helper looks up a metadata reference in the *final* metadata map,
     -- converting a named metadata ref into an actual metadata object
-    metaRef (O.ValueRef metaName) = case M.lookup metaName allMetadataT of
+    metaRef (O.ValueRef metaName) = case M.lookup metaName allMetadata of
       Just m -> m
       Nothing -> error $ printf "No metadata node for referenced name %s" (show metaName)
     metaRef c = error $ printf "Constant [%s] is not a metadata reference" (show c)
 
-    allRefsMetadataT = all isMetadataT reflist
-    isMetadataT (Just (O.ValueRef MetaIdentifier {})) = True
-    isMetadataT _ = False
+    allRefsMetadataT = all isMetadata reflist
+    isMetadata (Just (O.ValueRef MetaIdentifier {})) = True
+    isMetadata _ = False
 
     -- Turn source location meta records into a source location object;
     -- These are the special records without a type tag and ending with
