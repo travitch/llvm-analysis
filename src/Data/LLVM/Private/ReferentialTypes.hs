@@ -46,7 +46,6 @@ data MetadataT =
                      , metaSourceCol :: Integer
                      , metaSourceScope :: Metadata
                      }
-  | MetaNewValue Value
   | MetaDWLexicalBlock { metaLexicalBlockRow :: Integer
                        , metaLexicalBlockCol :: Integer
                        , metaLexicalBlockContext :: Metadata
@@ -314,7 +313,6 @@ data ValueT = Function { functionType :: Type
             | ConstantVector [Value]
             | ConstantValue ValueT
             | InlineAsm ByteString ByteString
-            | MetadataValue Metadata
             deriving (Ord, Eq)
 
 valueIsFunction :: Value -> Bool
