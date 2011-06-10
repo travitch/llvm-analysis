@@ -6,6 +6,7 @@ module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
                                           , ValueT(..)
                                           , UniqueId
                                           , valueIsFunction
+                                          , llvmDebugVersion
                                           ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
@@ -20,6 +21,11 @@ deriving instance Ord DW_VIRTUALITY
 deriving instance Ord DW_ATE
 deriving instance Ord DW_TAG
 deriving instance Ord DW_VAR_TAG
+
+-- | This is the version of LLVM's debug information that this library
+-- supports.
+llvmDebugVersion :: Integer
+llvmDebugVersion = 524288
 
 data Type = TypeInteger !Int -- bits
           | TypeFloat

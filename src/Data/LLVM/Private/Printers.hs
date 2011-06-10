@@ -15,7 +15,6 @@ import Data.LLVM.Private.ReferentialTypes
 --
 -- * Pretty up the DataLayout
 -- * Print out named type definitions
--- * Print metadata
 -- * Make the function type printing as flexible as the official
 --   version
 
@@ -42,7 +41,9 @@ maybeShowMDName :: Maybe Metadata -> String
 maybeShowMDName Nothing = "null"
 maybeShowMDName (Just m) = showMDName m
 
--- FIXME: Add the tag numbers
+dbgTag :: Int -> String
+dbgTag i = show (i + fromIntegral llvmDebugVersion)
+
 printMetadata :: Metadata -> String
 printMetadata md@Metadata { metaValueContent = sl@MetaSourceLocation { } } =
   mconcat [ showUntypedMDName md, " = metadata !{i32 ", show (metaSourceRow sl)
@@ -51,14 +52,16 @@ printMetadata md@Metadata { metaValueContent = sl@MetaSourceLocation { } } =
           , " null}"
           ]
 printMetadata md@Metadata { metaValueContent = lb@MetaDWLexicalBlock { } } =
-  mconcat [ showUntypedMDName md, " = metadata !{i32 ", show (metaLexicalBlockRow lb)
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 11
+          , ", i32 ", show (metaLexicalBlockRow lb)
           , ", i32 ", show (metaLexicalBlockCol lb)
           , ", ", showMDName (metaLexicalBlockContext lb)
           , ", ", showMDName (metaLexicalBlockFile lb)
           , ", i32 ", show (metaLexicalBlockDepth lb), "}"
           ]
 printMetadata md@Metadata { metaValueContent = cu@MetaDWCompileUnit {} } =
-  mconcat [ showUntypedMDName md, " = metadata !{i32 ", show (metaCompileUnitLanguage cu)
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 17
+          , ", i32 ", show (metaCompileUnitLanguage cu)
           , ", ", showMDString (metaCompileUnitSourceFile cu)
           , ", ", showMDString (metaCompileUnitCompileDir cu)
           , ", ", showMDString (metaCompileUnitProducer cu)
@@ -67,12 +70,14 @@ printMetadata md@Metadata { metaValueContent = cu@MetaDWCompileUnit {} } =
           , ", i32 ", show (metaCompileUnitVersion cu), "}"
           ]
 printMetadata md@Metadata { metaValueContent = f@MetaDWFile {} } =
-  mconcat [ showUntypedMDName md, " = metadata !{", showMDString (metaFileSourceFile f)
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 41
+          , ", ", showMDString (metaFileSourceFile f)
           , ", ", showMDString (metaFileSourceDir f)
           , ", ", showMDName (metaFileCompileUnit f), "}"
           ]
 printMetadata md@Metadata { metaValueContent = v@MetaDWVariable {} } =
-  mconcat [ showUntypedMDName md, " = metadata !{", showMDName (metaGlobalVarContext v)
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 52
+          , ", ", showMDName (metaGlobalVarContext v)
           , ", ", showMDString (metaGlobalVarName v)
           , ", ", showMDString (metaGlobalVarDisplayName v)
           , ", ", showMDString (metaGlobalVarLinkageName v)
@@ -83,7 +88,8 @@ printMetadata md@Metadata { metaValueContent = v@MetaDWVariable {} } =
           , ", ", showBool (metaGlobalVarNotExtern v), "}"
           ]
 printMetadata md@Metadata { metaValueContent = sp@MetaDWSubprogram {} } =
-  mconcat [ showUntypedMDName md, " = metadata !{", showMDName (metaSubprogramContext sp)
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 46
+          , ", ", showMDName (metaSubprogramContext sp)
           , ", ", showMDString (metaSubprogramName sp)
           , ", ", showMDString (metaSubprogramDisplayName sp)
           , ", ", showMDString (metaSubprogramLinkageName sp)
@@ -99,7 +105,8 @@ printMetadata md@Metadata { metaValueContent = sp@MetaDWSubprogram {} } =
           , ", ", showBool (metaSubprogramOptimized sp), "}"
           ]
 printMetadata md@Metadata { metaValueContent = bt@MetaDWBaseType {} } =
-  mconcat [ showUntypedMDName md, " = metadata !{", showMDName (metaBaseTypeContext bt)
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 36
+          , ", ", showMDName (metaBaseTypeContext bt)
           , ", ", showMDString (metaBaseTypeName bt)
           , ", ", maybeShowMDName (metaBaseTypeFile bt)
           , ", i32 ", show (metaBaseTypeLine bt)
@@ -135,15 +142,17 @@ printMetadata md@Metadata { metaValueContent = ct@MetaDWCompositeType {} } =
           , ", i32 ", show (metaCompositeTypeRuntime ct), "}"
           ]
 printMetadata md@Metadata { metaValueContent = sr@MetaDWSubrange {} } =
-  mconcat [ showUntypedMDName md, " = metadata !{i32 ", show (metaSubrangeLow sr)
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 33
+          , ", i32 ", show (metaSubrangeLow sr)
           , ", i32 ", show (metaSubrangeHigh sr), "}"
           ]
 printMetadata md@Metadata { metaValueContent = en@MetaDWEnumerator {} } =
-  mconcat [ showUntypedMDName md, " = metadata !{", showMDString (metaEnumeratorName en)
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 40
+          , ", ", showMDString (metaEnumeratorName en)
           , ", i32 ", show (metaEnumeratorValue en), "}"
           ]
 printMetadata md@Metadata { metaValueContent = l@MetaDWLocal {} } =
-  mconcat [ showUntypedMDName md, " = metadata !{i32", show (metaLocalTag l)
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", show (metaLocalTag l)
           , ", ", showMDName (metaLocalContext l)
           , ", ", showMDString (metaLocalName l)
           , ", ", showMDName (metaLocalFile l)

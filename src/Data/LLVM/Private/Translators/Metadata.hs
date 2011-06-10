@@ -11,9 +11,6 @@ import Data.LLVM.Private.PlaceholderTypeExtractors
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import Data.LLVM.Types
 
--- Constant defined by LLVM to version tags
-llvmDebugVersion :: Integer
-llvmDebugVersion = 524288
 
 -- Notes on metadata blocks.
 --
