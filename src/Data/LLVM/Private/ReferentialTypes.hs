@@ -12,6 +12,7 @@ module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.Dwarf
 import Data.Hashable
+import Data.Int
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.DwarfHelpers
@@ -48,24 +49,24 @@ data Type = TypeInteger !Int -- bits
           deriving (Ord, Eq)
 
 data MetadataT =
-  MetaSourceLocation { metaSourceRow :: Integer
-                     , metaSourceCol :: Integer
+  MetaSourceLocation { metaSourceRow :: !Int32
+                     , metaSourceCol :: !Int32
                      , metaSourceScope :: Metadata
                      }
-  | MetaDWLexicalBlock { metaLexicalBlockRow :: Integer
-                       , metaLexicalBlockCol :: Integer
+  | MetaDWLexicalBlock { metaLexicalBlockRow :: !Int32
+                       , metaLexicalBlockCol :: !Int32
                        , metaLexicalBlockContext :: Metadata
                        , metaLexicalBlockFile :: Metadata
-                       , metaLexicalBlockDepth :: Integer
+                       , metaLexicalBlockDepth :: !Int32
                        }
-  | MetaDWCompileUnit { metaCompileUnitLanguage :: DW_LANG
+  | MetaDWCompileUnit { metaCompileUnitLanguage :: !DW_LANG
                       , metaCompileUnitSourceFile :: ByteString
                       , metaCompileUnitCompileDir :: ByteString
                       , metaCompileUnitProducer :: ByteString
-                      , metaCompileUnitIsMain :: Bool
-                      , metaCompileUnitIsOpt :: Bool
+                      , metaCompileUnitIsMain :: !Bool
+                      , metaCompileUnitIsOpt :: !Bool
                       , metaCompileUnitFlags :: ByteString
-                      , metaCompileUnitVersion :: Integer
+                      , metaCompileUnitVersion :: !Int32
                       }
   | MetaDWFile { metaFileSourceFile :: ByteString
                , metaFileSourceDir :: ByteString
@@ -76,70 +77,70 @@ data MetadataT =
                    , metaGlobalVarDisplayName :: ByteString
                    , metaGlobalVarLinkageName :: ByteString
                    , metaGlobalVarFile :: Metadata
-                   , metaGlobalVarLine :: Integer
+                   , metaGlobalVarLine :: !Int32
                    , metaGlobalVarType :: Metadata
-                   , metaGlobalVarStatic :: Bool
-                   , metaGlobalVarNotExtern :: Bool
+                   , metaGlobalVarStatic :: !Bool
+                   , metaGlobalVarNotExtern :: !Bool
                    }
   | MetaDWSubprogram { metaSubprogramContext :: Metadata
                      , metaSubprogramName :: ByteString
                      , metaSubprogramDisplayName :: ByteString
                      , metaSubprogramLinkageName :: ByteString
                      , metaSubprogramFile :: Metadata
-                     , metaSubprogramLine :: Integer
+                     , metaSubprogramLine :: !Int32
                      , metaSubprogramType :: Metadata
-                     , metaSubprogramStatic :: Bool
-                     , metaSubprogramNotExtern :: Bool
-                     , metaSubprogramVirtuality :: DW_VIRTUALITY
-                     , metaSubprogramVirtIndex :: Integer
+                     , metaSubprogramStatic :: !Bool
+                     , metaSubprogramNotExtern :: !Bool
+                     , metaSubprogramVirtuality :: !DW_VIRTUALITY
+                     , metaSubprogramVirtIndex :: !Int32
                      , metaSubprogramBaseType :: Maybe Metadata
-                     , metaSubprogramArtificial :: Bool
-                     , metaSubprogramOptimized :: Bool
+                     , metaSubprogramArtificial :: !Bool
+                     , metaSubprogramOptimized :: !Bool
                      }
   | MetaDWBaseType { metaBaseTypeContext :: Metadata
                    , metaBaseTypeName :: ByteString
                    , metaBaseTypeFile :: Maybe Metadata
-                   , metaBaseTypeLine :: Integer
-                   , metaBaseTypeSize :: Integer
-                   , metaBaseTypeAlign :: Integer
-                   , metaBaseTypeOffset :: Integer
-                   , metaBaseTypeFlags :: Integer
-                   , metaBaseTypeEncoding :: DW_ATE
+                   , metaBaseTypeLine :: !Int32
+                   , metaBaseTypeSize :: !Int64
+                   , metaBaseTypeAlign :: !Int64
+                   , metaBaseTypeOffset :: !Int64
+                   , metaBaseTypeFlags :: !Int32
+                   , metaBaseTypeEncoding :: !DW_ATE
                    }
-  | MetaDWDerivedType { metaDerivedTypeTag :: DW_TAG
+  | MetaDWDerivedType { metaDerivedTypeTag :: !DW_TAG
                       , metaDerivedTypeContext :: Metadata
                       , metaDerivedTypeName :: ByteString
                       , metaDerivedTypeFile :: Maybe Metadata
-                      , metaDerivedTypeLine :: Integer
-                      , metaDerivedTypeSize :: Integer
-                      , metaDerivedTypeAlign :: Integer
-                      , metaDerivedTypeOffset :: Integer
+                      , metaDerivedTypeLine :: !Int32
+                      , metaDerivedTypeSize :: !Int64
+                      , metaDerivedTypeAlign :: !Int64
+                      , metaDerivedTypeOffset :: !Int64
                       , metaDerivedTypeParent :: Maybe Metadata
                       }
-  | MetaDWCompositeType { metaCompositeTypeTag :: DW_TAG
+  | MetaDWCompositeType { metaCompositeTypeTag :: !DW_TAG
                         , metaCompositeTypeContext :: Metadata
                         , metaCompositeTypeName :: ByteString
                         , metaCompositeTypeFile :: Maybe Metadata
-                        , metaCompositeTypeLine :: Integer
-                        , metaCompositeTypeSize :: Integer
-                        , metaCompositeTypeAlign :: Integer
-                        , metaCompositeTypeOffset :: Integer
-                        , metaCompositeTypeFlags :: Integer
+                        , metaCompositeTypeLine :: !Int32
+                        , metaCompositeTypeSize :: !Int64
+                        , metaCompositeTypeAlign :: !Int64
+                        , metaCompositeTypeOffset :: !Int64
+                        , metaCompositeTypeFlags :: !Int32
                         , metaCompositeTypeParent :: Maybe Metadata
                         , metaCompositeTypeMembers :: Maybe Metadata
-                        , metaCompositeTypeRuntime :: Integer
+                        , metaCompositeTypeRuntime :: !Int32
                         }
-  | MetaDWSubrange { metaSubrangeLow :: Integer
-                   , metaSubrangeHigh :: Integer
+  | MetaDWSubrange { metaSubrangeLow :: !Int64
+                   , metaSubrangeHigh :: !Int64
                    }
   | MetaDWEnumerator { metaEnumeratorName :: ByteString
-                     , metaEnumeratorValue :: Integer
+                     , metaEnumeratorValue :: !Int64
                      }
-  | MetaDWLocal { metaLocalTag :: DW_VAR_TAG
+  | MetaDWLocal { metaLocalTag :: !DW_VAR_TAG
                 , metaLocalContext :: Metadata
                 , metaLocalName :: ByteString
                 , metaLocalFile :: Metadata
-                , metaLocalLine :: Integer
+                , metaLocalLine :: !Int32
                 , metaLocalType :: Metadata
                 }
   | MetadataList [Metadata]

@@ -6,8 +6,8 @@ module Data.LLVM.Private.PlaceholderTypeExtractors ( getInt
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.LLVM.Private.PlaceholderTypes
 
-getInt :: Constant -> Integer
-getInt (ConstValue (ConstantInt i) (TypeInteger _)) = i
+getInt :: (Num a) => Constant -> a
+getInt (ConstValue (ConstantInt i) (TypeInteger _)) = fromIntegral i
 getInt c = error ("Constant is not an int: " ++ show c)
 
 getBool :: Constant -> Bool
