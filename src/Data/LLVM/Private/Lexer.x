@@ -10,7 +10,7 @@ module Data.LLVM.Private.Lexer ( lexer
 import Data.Binary.IEEE754
 import Data.Char (digitToInt)
 import Data.Monoid
-import Data.ByteString.Lazy.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as S
 import qualified Data.ByteString.Lazy.Char8 as B
 }
 
@@ -271,15 +271,15 @@ tokens :-
 {
 data LexerToken = TIntLit !Integer
            | TFloatLit !Double
-           | TStringLit !ByteString
-           | TMetadataString !ByteString
+           | TStringLit !S.ByteString
+           | TMetadataString !S.ByteString
            | TTrueLit
            | TFalseLit
            | TNullLit
            | TUndefLit
            | TZeroInitializer
-           | TString !ByteString
-           | TLabel !ByteString
+           | TString !S.ByteString
+           | TLabel !S.ByteString
 
            -- Operator-like tokens
            | TComma
@@ -299,9 +299,9 @@ data LexerToken = TIntLit !Integer
            | TDotDotDot
 
            -- Identifiers
-           | TLocalIdent !ByteString
-           | TGlobalIdent !ByteString
-           | TMetadataName !ByteString
+           | TLocalIdent !S.ByteString
+           | TGlobalIdent !S.ByteString
+           | TMetadataName !S.ByteString
 
            -- Linkage Types
            | TPrivate
@@ -491,12 +491,12 @@ tokenPos (Token p _) = p
 tokenT :: Token -> LexerToken
 tokenT (Token _ t) = t
 
-simpleTok :: LexerToken -> AlexPosn -> ByteString -> Token
+simpleTok :: LexerToken -> AlexPosn -> B.ByteString -> Token
 simpleTok t pos _ = Token pos t
 
-stringTok :: (ByteString -> LexerToken) -> (ByteString -> ByteString) ->
-             AlexPosn -> ByteString -> Token
-stringTok t fltr pos s = Token pos (t (fltr s))
+stringTok :: (S.ByteString -> LexerToken) -> (B.ByteString -> B.ByteString) ->
+             AlexPosn -> B.ByteString -> Token
+stringTok t fltr pos s = Token pos $ t (S.concat $ B.toChunks (fltr s))
 
 -- Helpers for constructing identifiers
 mkGlobalIdent = stringTok TGlobalIdent stripSigil
@@ -523,10 +523,10 @@ mkHexFloatLit pfxLen pos s = Token pos (TFloatLit $ wordToDouble $ readText s')
 mkStringConstant = stringTok TStringLit (unquote . B.tail)
 mkMetadataString = stringTok TMetadataString (unquote . B.tail)
 
-readText :: (Read a) => ByteString -> a
+readText :: (Read a) => B.ByteString -> a
 readText = read . B.unpack
 
-readTextInt :: ByteString -> Int
+readTextInt :: B.ByteString -> Int
 readTextInt t = fst $ B.foldr f (0, 0) t
   where f '-' (acc, _) = (-acc, -1)
         f c (acc, idx) | idx /= -1 = (acc + (digitToInt c) * (10 ^ idx), idx+1)

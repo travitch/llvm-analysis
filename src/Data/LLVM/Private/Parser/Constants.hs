@@ -3,7 +3,7 @@ module Data.LLVM.Private.Parser.Constants ( constantP
                                           , metadataNodeContentsP
                                           ) where
 
-import Control.Applicative hiding ((<|>))
+import Control.Applicative hiding ( (<|>) )
 import Text.Parsec
 
 import Data.LLVM.Private.Lexer

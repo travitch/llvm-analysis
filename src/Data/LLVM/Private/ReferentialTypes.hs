@@ -9,7 +9,7 @@ module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
                                           , llvmDebugVersion
                                           ) where
 
-import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString.Char8 ( ByteString )
 import Data.Dwarf
 import Data.Hashable
 import Data.Int

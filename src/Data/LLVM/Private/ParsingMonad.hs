@@ -1,18 +1,21 @@
-module Data.LLVM.Private.ParsingMonad ( -- ParsingMonad(..)
+module Data.LLVM.Private.ParsingMonad (
   maybeRunLLVMParser
   , runLLVMParser
   ) where
 
-import Data.LLVM.Private.Lexer
-import Data.LLVM.Private.Parser
-
+import Data.ByteString.Lazy.Char8 ( ByteString )
+import Text.Parsec.Error
 import Text.Parsec.Prim
 
--- runLLVMParser :: ([Token] -> ParsingMonad a) -> Text -> Either String a
-runLLVMParser p t = res
-  where tokens = lexer t
-        res = parse p "" tokens
+import Data.LLVM.Private.Lexer
+import Data.LLVM.Private.Parser ( )
 
--- maybeRunLLVMParser :: ([Token] -> ParsingMonad a) -> Text -> Maybe a
+
+runLLVMParser :: Parsec [Token] () a -> ByteString -> Either ParseError a
+runLLVMParser p t = res
+  where tks = lexer t
+        res = parse p "" tks
+
+maybeRunLLVMParser :: Parsec [Token] () a -> ByteString -> Maybe a
 maybeRunLLVMParser p t =
   either (const Nothing) Just (runLLVMParser p t)

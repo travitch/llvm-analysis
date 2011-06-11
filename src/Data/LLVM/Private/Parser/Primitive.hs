@@ -10,11 +10,11 @@ module Data.LLVM.Private.Parser.Primitive ( AssemblyParser
                                           , betweenTokens
                                           ) where
 
-import Control.Applicative hiding ((<|>), many)
-import Data.List (foldl')
-import Data.ByteString.Lazy.Char8 (ByteString)
+import Control.Applicative hiding ( (<|>), many )
+import Data.List ( foldl' )
+import Data.ByteString.Char8 ( ByteString )
 import Text.Parsec
-import Text.Parsec.Pos (newPos)
+import Text.Parsec.Pos ( newPos )
 
 import Data.LLVM.Private.Lexer
 

@@ -17,7 +17,7 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , module Data.LLVM.Private.Identifiers
                                         ) where
 
-import Data.ByteString.Lazy.Char8 (ByteString, unpack)
+import Data.ByteString.Char8 ( ByteString, unpack )
 
 import Data.LLVM.Private.Identifiers
 

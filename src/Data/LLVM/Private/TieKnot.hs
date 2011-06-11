@@ -2,7 +2,7 @@ module Data.LLVM.Private.TieKnot ( tieKnot ) where
 
 import Data.List ( foldl' )
 import qualified Data.HashMap.Strict as M
-import Data.ByteString.Lazy.Char8 ( ByteString )
+import Data.ByteString.Char8 ( ByteString )
 
 import Data.LLVM.Private.KnotHelpers
 import Data.LLVM.Private.Translators.Constants

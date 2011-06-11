@@ -6,7 +6,7 @@ module Data.LLVM.Private.Identifiers ( Identifier(..)
                                      ) where
 
 import Data.Hashable
-import Data.ByteString.Lazy.Char8 (ByteString, unpack)
+import Data.ByteString.Char8 ( ByteString, unpack )
 
 data Identifier = LocalIdentifier { localIdentifier :: ByteString
                                   , localHash :: !Int

@@ -6,7 +6,7 @@ module Data.LLVM.Private.Printers ( printMetadata
 
 import Data.List ( intercalate )
 import Data.Monoid
-import Data.ByteString.Lazy.Char8 ( ByteString, unpack )
+import Data.ByteString.Char8 ( ByteString, unpack )
 
 import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.ReferentialTypes

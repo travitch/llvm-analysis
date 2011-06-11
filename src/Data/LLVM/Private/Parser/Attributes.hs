@@ -28,8 +28,8 @@ module Data.LLVM.Private.Parser.Attributes ( paramAttributeP
                                            , arithFlagP
                                            ) where
 
-import Control.Applicative hiding ((<|>))
-import Data.ByteString.Lazy.Char8 (ByteString)
+import Control.Applicative hiding ( (<|>) )
+import Data.ByteString.Char8 ( ByteString )
 import Text.Parsec
 
 import Data.LLVM.Private.AttributeTypes

@@ -5,7 +5,7 @@ module Data.LLVM ( parseLLVMAsm
                  , parseLLVMBitcodeFile
                  ) where
 
-import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString.Lazy.Char8 ( ByteString )
 import qualified Data.ByteString.Lazy.Char8 as B
 import System.Process
 

@@ -1,6 +1,6 @@
-module Data.LLVM.Private.Parser (parser) where
+module Data.LLVM.Private.Parser ( parser ) where
 
-import Control.Applicative hiding ((<|>), many)
+import Control.Applicative hiding ( (<|>), many )
 import Text.Parsec
 
 import Data.LLVM.Private.AttributeTypes

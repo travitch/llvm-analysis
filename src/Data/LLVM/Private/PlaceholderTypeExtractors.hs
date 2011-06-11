@@ -3,7 +3,7 @@ module Data.LLVM.Private.PlaceholderTypeExtractors ( getInt
                                                    , getMDString
                                                    ) where
 
-import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString.Char8 ( ByteString )
 import Data.LLVM.Private.PlaceholderTypes
 
 getInt :: (Num a) => Constant -> a
