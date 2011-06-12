@@ -4,6 +4,7 @@ module Data.LLVM.Private.Printers ( printMetadata
                                   , printValue
                                   ) where
 
+import Data.Int
 import Data.List ( intercalate )
 import Data.Monoid
 import Data.ByteString.Char8 ( ByteString, unpack )
@@ -166,6 +167,8 @@ printMetadata md@Metadata { metaValueContent = MetadataList vals } =
           ]
 printMetadata md@Metadata { metaValueContent = MetadataValueConstant v } =
   mconcat [ showUntypedMDName md, " = metadata !{", printValue v, "}" ]
+printMetadata md@Metadata { metaValueContent = MetadataDiscarded } =
+  mconcat [ showUntypedMDName md, " = metadata !{ }" ]
 printMetadata md@Metadata { metaValueContent = MetadataUnknown } =
   mconcat [ showUntypedMDName md, " = metadata unknown" ]
 
@@ -953,7 +956,7 @@ printTailTag isTail = if isTail then "tail" else ""
 printVolatileFlag :: Bool -> String
 printVolatileFlag f = if f then "volatile" else ""
 
-printAlignment :: Integer -> String
+printAlignment :: Int64 -> String
 printAlignment align = case align of
   0 -> ""
   _ -> ", align " ++ show align

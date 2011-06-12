@@ -18,6 +18,7 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         ) where
 
 import Data.ByteString.Char8 ( ByteString, unpack )
+import Data.Hashable
 
 import Data.LLVM.Private.Identifiers
 
@@ -46,6 +47,24 @@ data LinkageType = LTPrivate
                  | LTDLLExport
                    deriving (Eq, Ord)
 
+instance Hashable LinkageType where
+  hash LTPrivate = 1
+  hash LTLinkerPrivate = 2
+  hash LTLinkerPrivateWeak = 3
+  hash LTLinkerPrivateWeakDefAuto = 4
+  hash LTInternal = 5
+  hash LTAvailableExternally = 6
+  hash LTLinkOnce = 7
+  hash LTWeak = 8
+  hash LTCommon = 9
+  hash LTAppending = 10
+  hash LTExternWeak = 11
+  hash LTLinkOnceODR = 12
+  hash LTWeakODR = 13
+  hash LTExtern = 14
+  hash LTDLLImport = 15
+  hash LTDLLExport = 16
+
 instance Show LinkageType where
   show LTPrivate = "private"
   show LTLinkerPrivate = "linker_private"
@@ -68,7 +87,7 @@ data CallingConvention = CCC
                        | CCFastCC
                        | CCColdCC
                        | CCGHC
-                       | CCN Int
+                       | CCN !Int
                        deriving (Eq, Ord)
 
 instance Show CallingConvention where
@@ -87,6 +106,11 @@ instance Show VisibilityStyle where
   show VisibilityDefault = ""
   show VisibilityHidden = "hidden"
   show VisibilityProtected = "protected"
+
+instance Hashable VisibilityStyle where
+  hash VisibilityDefault = 1
+  hash VisibilityHidden = 2
+  hash VisibilityProtected = 3
 
 data ParamAttribute = PAZeroExt
                     | PASignExt
@@ -110,7 +134,7 @@ instance Show ParamAttribute where
   show PANest = "nest"
   show (PAAlign i) = "align " ++ show i
 
-data FunctionAttribute = FAAlignStack Int
+data FunctionAttribute = FAAlignStack !Int
                        | FAAlwaysInline
                        | FAHotPatch
                        | FAInlineHint
@@ -212,6 +236,19 @@ data ICmpCondition = ICmpEq
                    | ICmpSle
                      deriving (Eq, Ord)
 
+instance Hashable ICmpCondition where
+  hash ICmpEq = 1
+  hash ICmpNe = 2
+  hash ICmpUgt = 3
+  hash ICmpUge = 4
+  hash ICmpUlt = 5
+  hash ICmpUle = 6
+  hash ICmpSgt = 7
+  hash ICmpSge = 8
+  hash ICmpSlt = 9
+  hash ICmpSle = 10
+
+
 instance Show ICmpCondition where
   show ICmpEq = "eq"
   show ICmpNe = "ne"
@@ -241,6 +278,24 @@ data FCmpCondition = FCmpFalse
                    | FCmpUno
                    | FCmpTrue
                      deriving (Eq, Ord)
+
+instance Hashable FCmpCondition where
+  hash FCmpFalse = 1
+  hash FCmpOeq = 2
+  hash FCmpOgt = 3
+  hash FCmpOge = 4
+  hash FCmpOlt = 5
+  hash FCmpOle = 6
+  hash FCmpOne = 7
+  hash FCmpOrd = 8
+  hash FCmpUeq = 9
+  hash FCmpUgt = 10
+  hash FCmpUge = 11
+  hash FCmpUlt = 12
+  hash FCmpUle = 13
+  hash FCmpUne = 14
+  hash FCmpUno = 15
+  hash FCmpTrue = 16
 
 instance Show FCmpCondition where
   show FCmpFalse = "false"

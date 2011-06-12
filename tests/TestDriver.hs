@@ -8,7 +8,8 @@ import Data.LLVM.Visualization
 
 main = do
   [ fname ] <- getArgs
-  llvmModule <- parseLLVMBitcodeFile fname
+  let opts = defaultParserOptions { metaPositionPrecision = PositionNone }
+  llvmModule <- parseLLVMBitcodeFile opts fname
   -- content <- T.readFile fname
   -- let llvmModule = parseLLVMAsm content
   either putStrLn dumpModule llvmModule

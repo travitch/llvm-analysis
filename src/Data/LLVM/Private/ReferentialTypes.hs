@@ -145,7 +145,12 @@ data MetadataT =
                 }
   | MetadataList [Metadata]
   | MetadataValueConstant Value
+    -- ^ A reference to a 'Value' in metadata
+  | MetadataDiscarded
+    -- ^ Metadata that has been discarded due to the parser
+    -- configuration
   | MetadataUnknown
+    -- ^ Unrecognized type of metadata
   deriving (Ord, Eq)
 
 type UniqueId = Int
@@ -156,7 +161,7 @@ type UniqueId = Int
 -- few 'Value' constants (such as Ints and null).
 data Metadata = Metadata { metaValueName :: Maybe Identifier
                          , metaValueContent :: MetadataT
-                         , metaValueUniqueId :: UniqueId
+                         , metaValueUniqueId :: !UniqueId
                          }
 
 instance Eq Metadata where
@@ -164,6 +169,9 @@ instance Eq Metadata where
 
 instance Ord Metadata where
   mv1 `compare` mv2 = metaValueUniqueId mv1 `compare` metaValueUniqueId mv2
+
+instance Hashable Metadata where
+  hash md = metaValueUniqueId md
 
 -- | A wrapper around 'ValueT' values that tracks the 'Type', name,
 -- and attached metadata. valueName is mostly informational at this
@@ -174,7 +182,7 @@ data Value = Value { valueType :: Type
                    , valueName :: Maybe Identifier
                    , valueMetadata :: Maybe Metadata
                    , valueContent :: ValueT
-                   , valueUniqueId :: UniqueId
+                   , valueUniqueId :: !UniqueId
                    }
 
 instance Eq Value where
@@ -193,22 +201,22 @@ instance Hashable Value where
 data ValueT = Function { functionType :: Type
                        , functionParameters :: [Value] -- A list of arguments
                        , functionBody :: [Value] -- A list of basic blocks
-                       , functionLinkage :: LinkageType
-                       , functionVisibility :: VisibilityStyle
-                       , functionCC :: CallingConvention
+                       , functionLinkage :: !LinkageType
+                       , functionVisibility :: !VisibilityStyle
+                       , functionCC :: !CallingConvention
                        , functionRetAttrs :: [ParamAttribute]
                        , functionAttrs :: [FunctionAttribute]
                        , functionName :: Identifier
                        , functionSection :: Maybe ByteString
-                       , functionAlign :: Integer
+                       , functionAlign :: !Int64
                        , functionGCName :: Maybe GCName
-                       , functionIsVararg :: Bool
+                       , functionIsVararg :: !Bool
                        }
-            | GlobalDeclaration { globalVariableAddressSpace :: Int
-                                , globalVariableLinkage :: LinkageType
-                                , globalVariableAnnotation :: GlobalAnnotation
+            | GlobalDeclaration { globalVariableAddressSpace :: !Int
+                                , globalVariableLinkage :: !LinkageType
+                                , globalVariableAnnotation :: !GlobalAnnotation
                                 , globalVariableInitializer :: Maybe Value
-                                , globalVariableAlignment :: Integer
+                                , globalVariableAlignment :: !Int64
                                 , globalVariableSection :: Maybe ByteString
                                 }
             | GlobalAlias { globalAliasLinkage :: LinkageType
@@ -265,9 +273,9 @@ data ValueT = Function { functionType :: Type
                               , insertValueValue :: Value
                               , insertValueIndices :: [Integer]
                               }
-            | AllocaInst Type Value Integer -- Type, NumElems, align
-            | LoadInst Bool Value Integer -- Volatile? Type Dest align
-            | StoreInst Bool Value Value Integer -- Volatile? Val Dest align
+            | AllocaInst Type Value !Int64 -- Type, NumElems, align
+            | LoadInst !Bool Value !Int64 -- Volatile? Type Dest align
+            | StoreInst !Bool Value Value !Int64 -- Volatile? Val Dest align
             | TruncInst Value Type -- The value being truncated, and the type truncted to
             | ZExtInst Value Type
             | SExtInst Value Type
@@ -280,24 +288,24 @@ data ValueT = Function { functionType :: Type
             | PtrToIntInst Value Type
             | IntToPtrInst Value Type
             | BitcastInst Value Type
-            | ICmpInst ICmpCondition Value Value
-            | FCmpInst FCmpCondition Value Value
+            | ICmpInst !ICmpCondition Value Value
+            | FCmpInst !FCmpCondition Value Value
             | PhiNode [(Value, Value)]
             | SelectInst Value Value Value
-            | GetElementPtrInst { getElementPtrInBounds :: Bool
+            | GetElementPtrInst { getElementPtrInBounds :: !Bool
                                 , getElementPtrValue :: Value
                                 , getElementPtrIndices :: [Value]
                                 }
-            | CallInst { callIsTail :: Bool
-                       , callConvention :: CallingConvention
+            | CallInst { callIsTail :: !Bool
+                       , callConvention :: !CallingConvention
                        , callParamAttrs :: [ParamAttribute]
                        , callRetType :: Type
                        , callFunction :: Value
                        , callArguments :: [(Value, [ParamAttribute])]
                        , callAttrs :: [FunctionAttribute]
-                       , callHasSRet :: Bool
+                       , callHasSRet :: !Bool
                        }
-            | InvokeInst { invokeConvention :: CallingConvention
+            | InvokeInst { invokeConvention :: !CallingConvention
                          , invokeParamAttrs :: [ParamAttribute]
                          , invokeRetType :: Type
                          , invokeFunction :: Value
@@ -305,15 +313,15 @@ data ValueT = Function { functionType :: Type
                          , invokeAttrs :: [FunctionAttribute]
                          , invokeNormalLabel :: Value
                          , invokeUnwindLabel :: Value
-                         , invokeHasSRet :: Bool
+                         , invokeHasSRet :: !Bool
                          }
             | VaArgInst Value Type
             | UndefValue
             | BlockAddress Value Value -- Function, block -- type i8*, constant
             | ConstantAggregateZero
             | ConstantArray [Value]
-            | ConstantFP Double
-            | ConstantInt Integer
+            | ConstantFP !Double
+            | ConstantInt !Integer
             | ConstantString ByteString
             | ConstantPointerNull
             | ConstantStruct [Value]

@@ -2,15 +2,18 @@ module Data.LLVM.Private.Translators.Metadata ( translateMetadata ) where
 
 import Data.Dwarf
 import qualified Data.HashMap.Strict as M
+import Data.Int
 import Data.Maybe ( fromJust )
 import Text.Printf
 
+import Data.LLVM.Private.Identifiers
 import Data.LLVM.Private.KnotHelpers
 import Data.LLVM.Private.DwarfHelpers
 import Data.LLVM.Private.PlaceholderTypeExtractors
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import Data.LLVM.Types
 
+import Data.LLVM.Private.ParserOptions
 
 -- Notes on metadata blocks.
 --
@@ -20,6 +23,8 @@ import Data.LLVM.Types
 -- llvm.dbg.value noting the new value of a variable.  Any other piece
 -- of metadata (besides the source locations handled above) should
 -- have an i32 tag as the first argument
+
+type LineMap = Map (O.Constant, Int32) Metadata
 
 -- | The top-level helper to translate metadata values from the
 -- non-referential format to the proper referential format during the
@@ -31,15 +36,16 @@ import Data.LLVM.Types
 -- definitions) are not annotated with their metadata.  Instead, the
 -- metadata for these constructs declares that it should be attached
 -- to some value.
-translateMetadata :: (O.Constant -> IdStream -> Value) ->
+translateMetadata :: ParserOptions ->
+                     (O.Constant -> IdStream -> Value) ->
                      (Map Identifier Metadata) ->
-                     IdStream ->
+                     IdStream -> LineMap ->
                      (Map Identifier Metadata) ->
                      (Map Identifier Metadata) ->
                      Identifier -> [Maybe O.Constant] ->
-                     (Map Identifier Metadata, Map Identifier Metadata)
-translateMetadata trConst allMetadata idStream md valmd name reflist =
-  (M.insert name newMetadata md, maybe valmd updateValMDMap valMetadata)
+                     (Map Identifier Metadata, Map Identifier Metadata, LineMap)
+translateMetadata opts trConst allMetadata idStream lineMap md valmd name reflist =
+  (M.insert name newMetadata md, maybe valmd updateValMDMap valMetadata, lineMap')
   where
     -- | This helper will determine whether the metadata record has
     -- a tag or not; singleton lists can either be forwarding
@@ -47,19 +53,21 @@ translateMetadata trConst allMetadata idStream md valmd name reflist =
     -- other type of metadata record begins with a *tag*.
     -- Dispatch on this tag to figure out what type of record
     -- should be built.
-    (newMetadata, valMetadata) =
+    (newMetadata, valMetadata, lineMap') =
       if allRefsMetadata reflist
-      then halfPair Metadata { metaValueName = Just name
-                             , metaValueContent =
-                               MetadataList $ map (metaRef . fromJust) reflist
-                             , metaValueUniqueId = extract idStream
-                             }
+      then (Metadata { metaValueName = Just name
+                     , metaValueContent =
+                       MetadataList $ map (metaRef . fromJust) reflist
+                     , metaValueUniqueId = extract idStream
+                     }, Nothing, lineMap)
       else case reflist of
         -- Note: only the translateConstant case requires a stream;
         -- all other cases are independent and only require a single
         -- id
         [] -> error "Empty metadata not allowed"
-        [Just elt] -> translateConstant idStream elt
+        [Just elt] ->
+          let (cnst, noident) = translateConstant idStream elt
+          in (cnst, noident, lineMap)
         _ -> mkMetadataOrSrcLoc (extract idStream) reflist
 
     updateValMDMap :: Identifier -> Map Identifier Metadata
@@ -85,13 +93,24 @@ translateMetadata trConst allMetadata idStream md valmd name reflist =
         is' = split is
         mdContent = MetadataValueConstant (trConst elt is')
 
-    mkMetadataOrSrcLoc :: UniqueId -> [Maybe O.Constant] -> (Metadata, Maybe Identifier)
+    mkMetadataOrSrcLoc :: UniqueId -> [Maybe O.Constant] ->
+                          (Metadata, Maybe Identifier, LineMap)
     mkMetadataOrSrcLoc uid vals@[Just tag, a, b, Nothing] =
       if getInt tag < llvmDebugVersion
-      then mkSourceLocation uid name metaRef vals
-      else mkMetadata uid tag [a, b, Nothing]
-    mkMetadataOrSrcLoc uid ((Just tag):rest) = mkMetadata uid tag rest
-    mkMetadataOrSrcLoc uid _ = mkUnknown uid name
+      then case metaPositionPrecision opts of
+        PositionPrecise ->
+          let (slmd, ident) = mkSourceLocation uid name metaRef vals
+          in (slmd, ident, lineMap)
+        PositionLineOnly -> mkSourceLine uid name metaRef lineMap vals
+        PositionNone -> (discardedMetadata, Nothing, lineMap)
+      else let (mslcmd, noident) = mkMetadata uid tag [a, b, Nothing]
+           in (mslcmd, noident, lineMap)
+    mkMetadataOrSrcLoc uid ((Just tag):rest) =
+      let (mslcmd, noident) = mkMetadata uid tag rest
+      in (mslcmd, noident, lineMap)
+    mkMetadataOrSrcLoc uid _ =
+      let (unkn, noident) = mkUnknown uid name
+      in (unkn, noident, lineMap)
 
     -- Here, subtract out the version information from the tag and
     -- construct the indicated record type.  Note: could just
@@ -145,6 +164,12 @@ translateMetadata trConst allMetadata idStream md valmd name reflist =
 -- few types of metadata use this indirect attachment method.
 halfPair :: a -> (a, Maybe b)
 halfPair x = (x, Nothing)
+
+discardedMetadata :: Metadata
+discardedMetadata = Metadata { metaValueName = Just (makeMetaIdentifier "discarded")
+                             , metaValueContent = MetadataDiscarded
+                             , metaValueUniqueId = -1
+                             }
 
 mkUnknown :: UniqueId -> Identifier -> (Metadata, Maybe Identifier)
 mkUnknown uid mdValName =
@@ -335,6 +360,26 @@ mkSourceLocation uid mdValName metaRef [ Just row, Just col, Just scope, Nothing
                             , metaSourceScope = metaRef scope
                             }
 mkSourceLocation _ _ _ c = error ("Invalid source location content: " ++ show c)
+
+mkSourceLine :: UniqueId -> Identifier -> (O.Constant -> Metadata) ->
+                LineMap -> [Maybe O.Constant] ->
+                (Metadata, Maybe Identifier, LineMap)
+mkSourceLine uid mdValName metaRef lineMap [ Just row, _, Just scope, Nothing ] =
+  case M.lookup (scope, lineNo) lineMap of
+    Just existingEntry -> (existingEntry, Nothing, lineMap)
+    Nothing -> (md, Nothing, M.insert (scope, lineNo) md lineMap)
+  where
+    lineNo = getInt row
+    fileRef = metaRef scope
+    mdt = MetaSourceLocation { metaSourceRow = lineNo
+                             , metaSourceCol = 0
+                             , metaSourceScope = fileRef
+                             }
+    md = Metadata { metaValueName = Just mdValName
+                  , metaValueContent = mdt
+                  , metaValueUniqueId = uid
+                  }
+mkSourceLine _ _ _ _ c = error ("Invalid source line content: " ++ show c)
 
 mkLexicalBlock :: UniqueId -> Identifier -> (O.Constant -> Metadata) -> [Maybe O.Constant] ->
                   (Metadata, Maybe Identifier)

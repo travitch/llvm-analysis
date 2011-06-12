@@ -9,13 +9,14 @@ import Text.Parsec.Prim
 
 import Data.LLVM.Private.Lexer
 import Data.LLVM.Private.Parser ( )
+import Data.LLVM.Private.Parser.Primitive
 
 
-runLLVMParser :: Parsec [Token] () a -> ByteString -> Either ParseError a
-runLLVMParser p t = res
-  where tks = lexer t
-        res = parse p "" tks
+runLLVMParser :: AssemblyParser a -> ByteString -> Either ParseError a
+runLLVMParser p t = parse p "" tks
+  where
+    tks = lexer t
 
-maybeRunLLVMParser :: Parsec [Token] () a -> ByteString -> Maybe a
+maybeRunLLVMParser :: AssemblyParser a -> ByteString -> Maybe a
 maybeRunLLVMParser p t =
   either (const Nothing) Just (runLLVMParser p t)

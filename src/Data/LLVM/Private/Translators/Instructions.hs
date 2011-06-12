@@ -119,15 +119,15 @@ translateInstruction typeMapper trConst oldContent idStream = newContent
                                }
           O.AllocaInst ty val align ->
             let v = trConst val idStream
-            in AllocaInst (typeMapper ty) v align
+            in AllocaInst (typeMapper ty) v (fromIntegral align)
           O.LoadInst volatile dest align ->
             let v = trConst dest idStream
-            in LoadInst volatile v align
+            in LoadInst volatile v (fromIntegral align)
           O.StoreInst volatile value dest align ->
             let (vStream, dStream) = split2 idStream
                 v = trConst value vStream
                 d' = trConst dest dStream
-            in StoreInst volatile v d' align
+            in StoreInst volatile v d' (fromIntegral align)
           O.TruncInst val ty -> trCast TruncInst val ty idStream
           O.ZExtInst val ty -> trCast ZExtInst val ty idStream
           O.SExtInst val ty -> trCast SExtInst val ty idStream

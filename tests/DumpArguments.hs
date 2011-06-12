@@ -9,7 +9,8 @@ import Data.LLVM.Types
 main :: IO ()
 main = do
   [ fname ] <- getArgs
-  llvmModule <- parseLLVMBitcodeFile fname
+  let opts = defaultParserOptions { metaPositionPrecision = PositionNone }
+  llvmModule <- parseLLVMBitcodeFile opts fname
   either putStrLn printAllFuncArgs llvmModule
 
 printAllFuncArgs :: Module -> IO ()

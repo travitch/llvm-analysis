@@ -46,7 +46,8 @@ library
                    Data.LLVM.Private.Translators.Functions,
                    Data.LLVM.Private.Translators.Instructions,
                    Data.LLVM.Private.Translators.Metadata,
-                   Data.LLVM.Private.Translators.Types
+                   Data.LLVM.Private.Translators.Types,
+                   Data.LLVM.Private.ParserOptions
 
   build-tools: alex >= 2 && < 3
   default-extensions: OverloadedStrings
