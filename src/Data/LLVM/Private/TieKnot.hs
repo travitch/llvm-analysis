@@ -1,5 +1,7 @@
 module Data.LLVM.Private.TieKnot ( tieKnot ) where
 
+import Control.DeepSeq
+
 import Data.List ( foldl' )
 import qualified Data.HashMap.Strict as M
 import Data.ByteString.Char8 ( ByteString )
@@ -22,14 +24,14 @@ import Data.LLVM.Types
 -- 3) Finally, everything else can refer to everything else, so fix up all
 --    references in one go using the previously defined maps in completeGraph
 tieKnot :: ParserOptions -> O.Module -> Module
-tieKnot opts (O.Module layout triple decls) =
-  Module { moduleDataLayout = layout
-         , moduleTarget = triple
-         , moduleAssembly = moduleAsm
-         , moduleGlobals = globalValues
-         , moduleCFGs = M.fromList $ zip funcs $ map makeCFG funcs
-         }
+tieKnot opts (O.Module layout triple decls) = globalValues `deepseq` m
   where
+    m = Module { moduleDataLayout = layout
+               , moduleTarget = triple
+               , moduleAssembly = moduleAsm
+               , moduleGlobals = globalValues
+               , moduleCFGs = M.fromList $ zip funcs $ map makeCFG funcs
+               }
     typeMapper = translateType decls
     moduleAsm = extractModuleAssembly decls
     globalValues :: [Value]

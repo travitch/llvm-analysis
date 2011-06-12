@@ -9,6 +9,7 @@ module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
                                           , llvmDebugVersion
                                           ) where
 
+import Control.DeepSeq
 import Data.ByteString.Char8 ( ByteString )
 import Data.Dwarf
 import Data.Hashable
@@ -22,6 +23,11 @@ deriving instance Ord DW_VIRTUALITY
 deriving instance Ord DW_ATE
 deriving instance Ord DW_TAG
 deriving instance Ord DW_VAR_TAG
+
+instance NFData Value
+instance NFData ValueT
+instance NFData MetaValue
+instance NFData MetadataT
 
 -- | This is the version of LLVM's debug information that this library
 -- supports.
