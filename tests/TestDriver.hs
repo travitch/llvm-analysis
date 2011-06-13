@@ -17,9 +17,9 @@ main = do
 dumpModule :: Module -> IO ()
 dumpModule m = do
   putStrLn $ show m
-  let cfgs = M.elems $ moduleCFGs m
-  putStrLn $ "CFGs: " ++ (show $ length cfgs)
-  mapM_ viewCFG cfgs
+  -- let cfgs = M.elems $ moduleCFGs m
+  -- putStrLn $ "CFGs: " ++ (show $ length cfgs)
+  -- mapM_ viewCFG cfgs
 
 -- printG0 (Right m) = do
 --   let cfgs = M.elems $ moduleCFGs m

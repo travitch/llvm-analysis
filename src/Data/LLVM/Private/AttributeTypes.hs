@@ -17,8 +17,8 @@ module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
                                         , module Data.LLVM.Private.Identifiers
                                         ) where
 
+import Control.DeepSeq
 import Data.ByteString.Char8 ( ByteString, unpack )
-import Data.Hashable
 
 import Data.LLVM.Private.Identifiers
 
@@ -28,6 +28,8 @@ data Assembly = Assembly ByteString
 instance Show Assembly where
   show (Assembly txt) = unpack txt
 
+instance NFData Assembly where
+  rnf a@(Assembly txt) = txt `seq` a `seq` ()
 
 data LinkageType = LTPrivate
                  | LTLinkerPrivate
@@ -47,23 +49,8 @@ data LinkageType = LTPrivate
                  | LTDLLExport
                    deriving (Eq, Ord)
 
-instance Hashable LinkageType where
-  hash LTPrivate = 1
-  hash LTLinkerPrivate = 2
-  hash LTLinkerPrivateWeak = 3
-  hash LTLinkerPrivateWeakDefAuto = 4
-  hash LTInternal = 5
-  hash LTAvailableExternally = 6
-  hash LTLinkOnce = 7
-  hash LTWeak = 8
-  hash LTCommon = 9
-  hash LTAppending = 10
-  hash LTExternWeak = 11
-  hash LTLinkOnceODR = 12
-  hash LTWeakODR = 13
-  hash LTExtern = 14
-  hash LTDLLImport = 15
-  hash LTDLLExport = 16
+-- Only trivial constructors so the default is fine
+instance NFData LinkageType
 
 instance Show LinkageType where
   show LTPrivate = "private"
@@ -90,6 +77,8 @@ data CallingConvention = CCC
                        | CCN !Int
                        deriving (Eq, Ord)
 
+instance NFData CallingConvention
+
 instance Show CallingConvention where
   show CCC = ""
   show CCFastCC = "fastcc"
@@ -102,15 +91,13 @@ data VisibilityStyle = VisibilityDefault
                      | VisibilityProtected
                        deriving (Eq, Ord)
 
+-- Again, default since there are only trivial constructors
+instance NFData VisibilityStyle
+
 instance Show VisibilityStyle where
   show VisibilityDefault = ""
   show VisibilityHidden = "hidden"
   show VisibilityProtected = "protected"
-
-instance Hashable VisibilityStyle where
-  hash VisibilityDefault = 1
-  hash VisibilityHidden = 2
-  hash VisibilityProtected = 3
 
 data ParamAttribute = PAZeroExt
                     | PASignExt
@@ -122,6 +109,8 @@ data ParamAttribute = PAZeroExt
                     | PANest
                     | PAAlign !Int
                     deriving (Eq, Ord)
+
+instance NFData ParamAttribute
 
 instance Show ParamAttribute where
   show PAZeroExt = "zeroext"
@@ -151,6 +140,8 @@ data FunctionAttribute = FAAlignStack !Int
                        | FASSPReq
                        deriving (Eq, Ord)
 
+instance NFData FunctionAttribute
+
 instance Show FunctionAttribute where
   show (FAAlignStack n) = "alignstack(" ++ show n ++ ")"
   show FAAlwaysInline = "alwaysinline"
@@ -172,19 +163,27 @@ data Endian = EBig
             | ELittle
               deriving (Eq, Ord)
 
+instance NFData Endian
+
 instance Show Endian where
   show EBig = "E"
   show ELittle = "e"
 
 -- Track the ABI alignment and preferred alignment
-data AlignSpec = AlignSpec Int Int
+data AlignSpec = AlignSpec !Int !Int
                  deriving (Show, Eq, Ord)
+
+instance NFData AlignSpec where
+  rnf a@(AlignSpec i1 i2) = i1 `seq` i2 `seq` a `seq` ()
 
 data TargetTriple = TargetTriple ByteString
                     deriving (Eq)
 
 instance Show TargetTriple where
   show (TargetTriple t) = unpack t
+
+instance NFData TargetTriple where
+  rnf t@(TargetTriple t') = t' `seq` t `seq` ()
 
 data DataLayout = DataLayout { endianness :: Endian
                              , pointerAlign :: (Int, AlignSpec)
@@ -196,6 +195,12 @@ data DataLayout = DataLayout { endianness :: Endian
                              , nativeWidths :: [ Int ]
                              }
                   deriving (Show, Eq)
+
+instance NFData DataLayout where
+  rnf d = endianness d `deepseq` pointerAlign d `deepseq`
+           intAlign d `deepseq` vectorAlign d `deepseq`
+           floatAlign d `deepseq` aggregateAlign d `deepseq`
+           stackAlign d `deepseq` nativeWidths d `deepseq` d `seq` ()
 
 -- Defaults specified by LLVM.  I think there can only be one pointer
 -- align specification, though it isn't explicitly stated
@@ -221,6 +226,9 @@ defaultDataLayout = DataLayout { endianness = EBig
 
 data GCName = GCName ByteString deriving (Eq, Ord)
 
+instance NFData GCName where
+  rnf n@(GCName s) = s `seq` n `seq` ()
+
 instance Show GCName where
   show (GCName t) = "gc \"" ++ unpack t ++ "\""
 
@@ -235,19 +243,6 @@ data ICmpCondition = ICmpEq
                    | ICmpSlt
                    | ICmpSle
                      deriving (Eq, Ord)
-
-instance Hashable ICmpCondition where
-  hash ICmpEq = 1
-  hash ICmpNe = 2
-  hash ICmpUgt = 3
-  hash ICmpUge = 4
-  hash ICmpUlt = 5
-  hash ICmpUle = 6
-  hash ICmpSgt = 7
-  hash ICmpSge = 8
-  hash ICmpSlt = 9
-  hash ICmpSle = 10
-
 
 instance Show ICmpCondition where
   show ICmpEq = "eq"
@@ -279,24 +274,6 @@ data FCmpCondition = FCmpFalse
                    | FCmpTrue
                      deriving (Eq, Ord)
 
-instance Hashable FCmpCondition where
-  hash FCmpFalse = 1
-  hash FCmpOeq = 2
-  hash FCmpOgt = 3
-  hash FCmpOge = 4
-  hash FCmpOlt = 5
-  hash FCmpOle = 6
-  hash FCmpOne = 7
-  hash FCmpOrd = 8
-  hash FCmpUeq = 9
-  hash FCmpUgt = 10
-  hash FCmpUge = 11
-  hash FCmpUlt = 12
-  hash FCmpUle = 13
-  hash FCmpUne = 14
-  hash FCmpUno = 15
-  hash FCmpTrue = 16
-
 instance Show FCmpCondition where
   show FCmpFalse = "false"
   show FCmpOeq = "oeq"
@@ -325,6 +302,8 @@ instance Show GlobalAnnotation where
 
 data ArithFlag = AFNSW | AFNUW
                deriving (Eq, Ord)
+
+instance NFData ArithFlag
 
 instance Show ArithFlag where
   show AFNSW = "nsw"

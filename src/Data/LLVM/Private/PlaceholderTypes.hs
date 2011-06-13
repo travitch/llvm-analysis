@@ -15,7 +15,6 @@ module Data.LLVM.Private.PlaceholderTypes ( Instruction(..)
                                           ) where
 
 import Data.ByteString.Char8 ( ByteString )
-import Data.Hashable
 
 import Data.LLVM.Private.AttributeTypes
 
@@ -66,10 +65,6 @@ maybeNamedInst i t v = Instruction { instName = i
 data Constant = ConstValue ConstantT Type
               | ValueRef Identifier
               deriving (Show, Eq)
-
-instance Hashable Constant where
-  hash (ConstValue ct t) = hash ct `combine` hash t
-  hash (ValueRef ident) = hash ident
 
 valueRef :: Identifier -> a -> Constant
 valueRef ident = const (ValueRef ident)
@@ -143,85 +138,6 @@ data InstructionT = RetInst (Maybe Constant)
             | VaArgInst Constant Type
             deriving (Show, Eq)
 
-instance Hashable InstructionT where
-  hash (RetInst c) = 1 `combine` hash c
-  hash (UnconditionalBranchInst c) = 2 `combine` hash c
-  hash (BranchInst c1 c2 c3) =
-    3 `combine` hash c1 `combine` hash c2 `combine` hash c3
-  hash (SwitchInst c1 c2 cs) =
-    4 `combine` hash c1 `combine` hash c2 `combine` hash cs
-  hash (IndirectBranchInst c cs) =
-    5 `combine` hash c `combine` hash cs
-  hash UnwindInst = 6
-  hash UnreachableInst = 7
-  hash (AddInst _ c1 c2) =
-    8 `combine` hash c1 `combine` hash c2
-  hash (SubInst _ c1 c2) =
-    9 `combine` hash c1 `combine` hash c2
-  hash (MulInst _ c1 c2) =
-    10 `combine` hash c1 `combine` hash c2
-  hash (DivInst c1 c2) =
-    11 `combine` hash c1 `combine` hash c2
-  hash (RemInst c1 c2) =
-    12 `combine` hash c1 `combine` hash c2
-  hash (ShlInst c1 c2) =
-    13 `combine` hash c1 `combine` hash c2
-  hash (LshrInst c1 c2) =
-    14 `combine` hash c1 `combine` hash c2
-  hash (AshrInst c1 c2) =
-    15 `combine` hash c1 `combine` hash c2
-  hash (AndInst c1 c2) =
-    16 `combine` hash c1 `combine` hash c2
-  hash (OrInst c1 c2) =
-    17 `combine` hash c1 `combine` hash c2
-  hash (XorInst c1 c2) =
-    18 `combine` hash c1 `combine` hash c2
-  hash (ExtractElementInst c1 c2) =
-    19 `combine` hash c1 `combine` hash c2
-  hash (InsertElementInst c1 c2 c3) =
-    20 `combine` hash c1 `combine` hash c2 `combine` hash c3
-  hash (ShuffleVectorInst c1 c2 c3) =
-    21 `combine` hash c1 `combine` hash c2 `combine` hash c3
-  hash (ExtractValueInst c is) =
-    22 `combine` hash c `combine` hash is
-  hash (InsertValueInst c1 c2 is) =
-    23 `combine` hash c1 `combine` hash c2 `combine` hash is
-  hash (AllocaInst t c i) =
-    24 `combine` hash t `combine` hash c `combine` hash i
-  hash (LoadInst b c i) =
-    25 `combine` hash b `combine` hash c `combine` hash i
-  hash (StoreInst b c1 c2 i) =
-    26 `combine` hash b `combine` hash c1 `combine` hash c2 `combine` hash i
-  hash (TruncInst c t) =
-    27 `combine` hash c `combine` hash t
-  hash (ZExtInst c t) = 28 `combine` hash c `combine` hash t
-  hash (SExtInst c t) = 29 `combine` hash c `combine` hash t
-  hash (FPTruncInst c t) = 30 `combine` hash c `combine` hash t
-  hash (FPExtInst c t) = 31 `combine` hash c `combine` hash t
-  hash (FPToUIInst c t) = 32 `combine` hash c `combine` hash t
-  hash (FPToSIInst c t) = 33 `combine` hash c `combine` hash t
-  hash (UIToFPInst c t) = 34 `combine` hash c `combine` hash t
-  hash (SIToFPInst c t) = 35 `combine` hash c `combine` hash t
-  hash (PtrToIntInst c t) = 36 `combine` hash c `combine` hash t
-  hash (IntToPtrInst c t) = 37 `combine` hash c `combine` hash t
-  hash (BitcastInst c t) = 38 `combine` hash c `combine` hash t
-  hash (ICmpInst c c1 c2) =
-    39 `combine` hash c `combine` hash c1 `combine` hash c2
-  hash (FCmpInst c c1 c2) =
-    40 `combine` hash c `combine` hash c1 `combine` hash c2
-  hash (PhiNode cs) = 41 `combine` hash cs
-  hash (SelectInst c1 c2 c3) =
-    42 `combine` hash c1 `combine` hash c2 `combine` hash c3
-  hash (GetElementPtrInst b c cs) =
-    43 `combine` hash b `combine` hash c `combine` hash cs
-  hash CallInst { callRetType = rt
-                , callFunction = f
-                } = 44 `combine` hash rt `combine` hash f
-  hash InvokeInst { invokeRetType = rt
-                  , invokeFunction = f
-                  } = 45 `combine` hash rt `combine` hash f
-  hash (VaArgInst c t) = 46 `combine` hash c `combine` hash t
-
 
 data Module = Module DataLayout TargetTriple [GlobalDeclaration]
             deriving (Show, Eq)
@@ -271,22 +187,6 @@ data ConstantT = BlockAddress Identifier Identifier -- Func Ident, Block Label -
                | InlineAsm ByteString ByteString -- asm, constraints
                deriving (Show, Eq)
 
-instance Hashable ConstantT where
-  hash (BlockAddress i1 i2) = hash i1 `combine` hash i2
-  hash ConstantAggregateZero = 234
-  hash (ConstantArray cs) = hash cs
-  hash (ConstantExpr i) = hash i
-  hash (ConstantFP d) = hash d
-  hash (ConstantInt i) = hash i
-  hash (ConstantString s) = hash s
-  hash ConstantPointerNull = 456
-  hash (ConstantStruct cs) = hash cs
-  hash (ConstantVector cs) = hash cs
-  hash UndefValue = 678
-  hash (MDNode mcs) = hash mcs
-  hash (MDString bs) = hash bs
-  hash (GlobalVariable vis lt s) = hash vis `combine` hash lt `combine` hash s
-  hash (InlineAsm s1 s2) = hash s1 `combine` hash s2
 
 data BasicBlock = BasicBlock (Maybe Identifier) [Instruction]
                 deriving (Show, Eq)
@@ -312,23 +212,3 @@ data Type = TypeInteger Int -- bits
           | TypeNamed Identifier
           deriving (Show, Eq)
 
-instance Hashable Type where
-  hash (TypeInteger i) = 1 `combine` hash i
-  hash TypeFloat = 2
-  hash TypeDouble = 3
-  hash TypeFP128 = 4
-  hash TypeX86FP80 = 5
-  hash TypePPCFP128 = 6
-  hash TypeX86MMX = 7
-  hash TypeVoid = 8
-  hash TypeLabel = 9
-  hash TypeMetadata = 10
-  hash (TypeArray sz t) = 11 `combine` hash sz `combine` hash t
-  hash (TypeVector sz t) = 12 `combine` hash sz `combine` hash t
-  hash (TypeFunction t ts b) =
-    13 `combine` hash t `combine` hash b `combine` hash ts
-  hash TypeOpaque = 14
-  hash (TypeStruct ts) = 15 `combine` hash ts
-  hash (TypePackedStruct ts) = 16 `combine` hash ts
-  hash (TypeUpref i) = 17 `combine` hash i
-  hash (TypeNamed i) = hash i

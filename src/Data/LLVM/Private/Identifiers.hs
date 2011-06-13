@@ -5,6 +5,7 @@ module Data.LLVM.Private.Identifiers ( Identifier(..)
                                      , makeMetaIdentifier
                                      ) where
 
+import Control.DeepSeq
 import Data.Hashable
 import Data.ByteString.Char8 ( ByteString, unpack )
 
@@ -28,6 +29,11 @@ instance Hashable Identifier where
   hash LocalIdentifier { localHash = h } = h
   hash GlobalIdentifier { globalHash = h } = h
   hash MetaIdentifier { metaHash = h } = h
+
+instance NFData Identifier where
+  rnf i@(LocalIdentifier {}) = localIdentifier i `seq` localHash i `seq` i `seq` ()
+  rnf i@(GlobalIdentifier {}) = globalIdentifier i `seq` globalHash i `seq` i `seq` ()
+  rnf i@(MetaIdentifier {}) = metaIdentifier i `seq` metaHash i `seq` i `seq` ()
 
 makeLocalIdentifier :: ByteString -> Identifier
 makeLocalIdentifier t =

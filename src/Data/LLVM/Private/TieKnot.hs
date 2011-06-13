@@ -14,7 +14,6 @@ import Data.LLVM.Private.Translators.Types
 import qualified Data.LLVM.Private.PlaceholderTypes as O
 import Data.LLVM.Private.ParserOptions
 
-import Data.LLVM.CFG
 import Data.LLVM.Types
 
 -- Idea:
@@ -24,19 +23,17 @@ import Data.LLVM.Types
 -- 3) Finally, everything else can refer to everything else, so fix up all
 --    references in one go using the previously defined maps in completeGraph
 tieKnot :: ParserOptions -> O.Module -> Module
-tieKnot opts (O.Module layout triple decls) = globalValues `deepseq` m
+tieKnot opts (O.Module layout triple decls) = m `deepseq` m
   where
     m = Module { moduleDataLayout = layout
                , moduleTarget = triple
                , moduleAssembly = moduleAsm
                , moduleGlobals = globalValues
-               , moduleCFGs = M.fromList $ zip funcs $ map makeCFG funcs
                }
     typeMapper = translateType decls
     moduleAsm = extractModuleAssembly decls
     globalValues :: [Value]
     globalValues = completeGraph opts typeMapper decls
-    funcs = filter valueIsFunction globalValues
 
 -- FIXME: Could do something with the named metadata.  There seem to
 -- be two entries that don't really give much information: the lists
@@ -48,13 +45,13 @@ completeGraph opts typeMapper decls = M.elems globalValues
   where
     (valStream, mdStream) = split2 initialStream
     globalValues = go decls M.empty valStream
-    (boundMD, mdForGlobals) = mdGo decls (M.empty, M.empty, M.empty) mdStream
+    (boundMD, mdForGlobals) = mdGo decls (M.empty, M.empty) mdStream
     metadata = boundMD `M.union` mdForGlobals
 
-    mdGo [] (md, mv, _) _ = (md, mv)
-    mdGo (O.UnnamedMetadata name refs : rest) (md, mv, lm) idstream =
+    mdGo [] (md, mv) _ = (md, mv)
+    mdGo (O.UnnamedMetadata name refs : rest) (md, mv) idstream =
       let (s1, s2) = split2 idstream
-      in mdGo rest (transMetadata s1 lm md mv name refs) s2
+      in mdGo rest (transMetadata s1 md mv name refs) s2
     mdGo (_:rest) vs idstream = mdGo rest vs idstream
 
     go [] vals _ = vals

@@ -28,8 +28,8 @@ translateType decls = trans'
           O.TypeVoid -> N.TypeVoid
           O.TypeLabel -> N.TypeLabel
           O.TypeMetadata -> N.TypeMetadata
-          O.TypeArray i t' -> N.TypeArray i (trans' t')
-          O.TypeVector i t' -> N.TypeVector i (trans' t')
+          O.TypeArray i t' -> N.TypeArray (fromIntegral i) (trans' t')
+          O.TypeVector i t' -> N.TypeVector (fromIntegral i) (trans' t')
           O.TypeFunction t' ts' v -> N.TypeFunction (trans' t') (map trans' ts') v
           O.TypeOpaque -> N.TypeOpaque
           O.TypePointer t' -> N.TypePointer (trans' t')
