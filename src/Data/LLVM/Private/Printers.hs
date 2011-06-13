@@ -241,6 +241,7 @@ printValue Value { valueContent =
 printValue Value { valueContent =
                       GlobalDeclaration { globalVariableAddressSpace = addrSpace
                                         , globalVariableLinkage = linkage
+                                        , globalVariableVisibility = vis
                                         , globalVariableAnnotation = annot
                                         , globalVariableInitializer = initializer
                                         , globalVariableAlignment = align
@@ -251,7 +252,7 @@ printValue Value { valueContent =
                  , valueMetadata = _
                  } =
    -- Don't show t here since showing the initializer will handle it
-  compose [ show name, "=", addrSpaceS, linkageS, annotsS
+  compose [ show name, "=", addrSpaceS, linkageS, visS, annotsS
           , initS, sectionS
           , printAlignment align
           ]
@@ -259,6 +260,7 @@ printValue Value { valueContent =
           0 -> ""
           _ -> "addrspace(" ++ show addrSpace ++ ")"
         linkageS = show linkage
+        visS = show vis
         annotsS = show annot
         sectionS = maybe "" ((", section "++) . quote . unpack) section
         initS = maybe "" printConstOrName initializer

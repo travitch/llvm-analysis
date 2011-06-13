@@ -9,7 +9,6 @@ module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
                                           , llvmDebugVersion
                                           ) where
 
-import Control.DeepSeq
 import Data.ByteString.Char8 ( ByteString )
 import Data.Dwarf
 import Data.Hashable
@@ -50,17 +49,6 @@ data Type = TypeInteger !Int -- bits
           | TypeNamed !String !Type
           deriving (Ord, Eq)
 
-instance NFData Type where
-  rnf t@(TypeInteger i) = i `deepseq` t `deepseq` ()
-  rnf t@(TypeArray i t') = t' `deepseq` i `seq` t `seq` ()
-  rnf t@(TypeVector i t') = t' `deepseq` i `seq` t `seq` ()
-  rnf t@(TypeFunction r ts b) = r `deepseq` ts `deepseq` b `seq` t `seq` ()
-  rnf t@(TypePointer t') = t' `deepseq` t `seq` ()
-  rnf t@(TypeStruct ts) = ts `deepseq` t `seq` ()
-  rnf t@(TypePackedStruct ts) = ts `deepseq` t `seq` ()
-  rnf t@(TypeNamed s t') = t' `deepseq` s `seq` t `seq` ()
-  rnf t = t `seq` ()
-
 data MetadataT =
   MetaSourceLocation { metaSourceRow :: !Int32
                      , metaSourceCol :: !Int32
@@ -73,22 +61,22 @@ data MetadataT =
                        , metaLexicalBlockDepth :: !Int32
                        }
   | MetaDWCompileUnit { metaCompileUnitLanguage :: !DW_LANG
-                      , metaCompileUnitSourceFile :: ByteString
-                      , metaCompileUnitCompileDir :: ByteString
-                      , metaCompileUnitProducer :: ByteString
+                      , metaCompileUnitSourceFile :: !ByteString
+                      , metaCompileUnitCompileDir :: !ByteString
+                      , metaCompileUnitProducer :: !ByteString
                       , metaCompileUnitIsMain :: !Bool
                       , metaCompileUnitIsOpt :: !Bool
-                      , metaCompileUnitFlags :: ByteString
+                      , metaCompileUnitFlags :: !ByteString
                       , metaCompileUnitVersion :: !Int32
                       }
-  | MetaDWFile { metaFileSourceFile :: ByteString
-               , metaFileSourceDir :: ByteString
+  | MetaDWFile { metaFileSourceFile :: !ByteString
+               , metaFileSourceDir :: !ByteString
                , metaFileCompileUnit :: Metadata
                }
   | MetaDWVariable { metaGlobalVarContext :: Metadata
-                   , metaGlobalVarName :: ByteString
-                   , metaGlobalVarDisplayName :: ByteString
-                   , metaGlobalVarLinkageName :: ByteString
+                   , metaGlobalVarName :: !ByteString
+                   , metaGlobalVarDisplayName :: !ByteString
+                   , metaGlobalVarLinkageName :: !ByteString
                    , metaGlobalVarFile :: Metadata
                    , metaGlobalVarLine :: !Int32
                    , metaGlobalVarType :: Metadata
@@ -96,9 +84,9 @@ data MetadataT =
                    , metaGlobalVarNotExtern :: !Bool
                    }
   | MetaDWSubprogram { metaSubprogramContext :: Metadata
-                     , metaSubprogramName :: ByteString
-                     , metaSubprogramDisplayName :: ByteString
-                     , metaSubprogramLinkageName :: ByteString
+                     , metaSubprogramName :: !ByteString
+                     , metaSubprogramDisplayName :: !ByteString
+                     , metaSubprogramLinkageName :: !ByteString
                      , metaSubprogramFile :: Metadata
                      , metaSubprogramLine :: !Int32
                      , metaSubprogramType :: Metadata
@@ -111,7 +99,7 @@ data MetadataT =
                      , metaSubprogramOptimized :: !Bool
                      }
   | MetaDWBaseType { metaBaseTypeContext :: Metadata
-                   , metaBaseTypeName :: ByteString
+                   , metaBaseTypeName :: !ByteString
                    , metaBaseTypeFile :: Maybe Metadata
                    , metaBaseTypeLine :: !Int32
                    , metaBaseTypeSize :: !Int64
@@ -122,7 +110,7 @@ data MetadataT =
                    }
   | MetaDWDerivedType { metaDerivedTypeTag :: !DW_TAG
                       , metaDerivedTypeContext :: Metadata
-                      , metaDerivedTypeName :: ByteString
+                      , metaDerivedTypeName :: !ByteString
                       , metaDerivedTypeFile :: Maybe Metadata
                       , metaDerivedTypeLine :: !Int32
                       , metaDerivedTypeSize :: !Int64
@@ -132,7 +120,7 @@ data MetadataT =
                       }
   | MetaDWCompositeType { metaCompositeTypeTag :: !DW_TAG
                         , metaCompositeTypeContext :: Metadata
-                        , metaCompositeTypeName :: ByteString
+                        , metaCompositeTypeName :: !ByteString
                         , metaCompositeTypeFile :: Maybe Metadata
                         , metaCompositeTypeLine :: !Int32
                         , metaCompositeTypeSize :: !Int64
@@ -146,12 +134,12 @@ data MetadataT =
   | MetaDWSubrange { metaSubrangeLow :: !Int64
                    , metaSubrangeHigh :: !Int64
                    }
-  | MetaDWEnumerator { metaEnumeratorName :: ByteString
+  | MetaDWEnumerator { metaEnumeratorName :: !ByteString
                      , metaEnumeratorValue :: !Int64
                      }
   | MetaDWLocal { metaLocalTag :: !DW_VAR_TAG
                 , metaLocalContext :: Metadata
-                , metaLocalName :: ByteString
+                , metaLocalName :: !ByteString
                 , metaLocalFile :: Metadata
                 , metaLocalLine :: !Int32
                 , metaLocalType :: Metadata
@@ -166,52 +154,6 @@ data MetadataT =
     -- ^ Unrecognized type of metadata
   deriving (Ord, Eq)
 
-instance NFData MetadataT where
-  rnf m@(MetaSourceLocation {}) = metaSourceScope m `deepseq` m `seq` ()
-  rnf m@(MetaDWLexicalBlock {}) = metaLexicalBlockContext m `deepseq`
-                                   metaLexicalBlockFile m `deepseq` m `seq` ()
-  rnf m@(MetaDWCompileUnit {}) = metaCompileUnitSourceFile m `seq`
-                                  metaCompileUnitCompileDir m `seq`
-                                  metaCompileUnitProducer m `seq`
-                                  metaCompileUnitFlags m `seq` m `seq` ()
-  rnf m@(MetaDWFile {}) = metaFileCompileUnit m `deepseq`
-                          metaFileSourceFile m `seq`
-                          metaFileSourceDir m `seq` m `seq` ()
-  rnf m@(MetaDWVariable {}) = metaGlobalVarContext m `deepseq`
-                               metaGlobalVarFile m `deepseq`
-                               metaGlobalVarType m `deepseq`
-                               metaGlobalVarName m `seq`
-                               metaGlobalVarDisplayName m `seq`
-                               metaGlobalVarLinkageName m `seq` m `seq` ()
-  rnf m@(MetaDWSubprogram {}) = metaSubprogramContext m `deepseq`
-                                 metaSubprogramFile m `deepseq`
-                                 metaSubprogramType m `deepseq`
-                                 metaSubprogramBaseType m `deepseq`
-                                 metaSubprogramName m `seq`
-                                 metaSubprogramDisplayName m `seq`
-                                 metaSubprogramLinkageName m `seq` m `seq` ()
-  rnf m@(MetaDWBaseType {}) = metaBaseTypeContext m `deepseq`
-                               metaBaseTypeFile m `deepseq`
-                               metaBaseTypeName m `seq` m `seq` ()
-  rnf m@(MetaDWDerivedType {}) = metaDerivedTypeContext m `deepseq`
-                                  metaDerivedTypeFile m `deepseq`
-                                  metaDerivedTypeParent m `deepseq`
-                                  metaDerivedTypeName m `seq` m `seq` ()
-  rnf m@(MetaDWCompositeType {}) = metaCompositeTypeContext m `deepseq`
-                                    metaCompositeTypeFile m `deepseq`
-                                    metaCompositeTypeParent m `deepseq`
-                                    metaCompositeTypeMembers m `deepseq`
-                                    metaCompositeTypeName m `seq` m `seq` ()
-  rnf m@(MetaDWSubrange {}) = m `seq` ()
-  rnf m@(MetaDWEnumerator {}) = metaEnumeratorName m `seq` m `seq` ()
-  rnf m@(MetaDWLocal {}) = metaLocalContext m `deepseq`
-                            metaLocalFile m `deepseq`
-                            metaLocalType m `deepseq`
-                            metaLocalName m `seq` m `seq` ()
-  rnf m@(MetadataList ms) = ms `deepseq` m `seq` ()
-  rnf m@(MetadataValueConstant v) = v `deepseq` m `seq` ()
-  rnf m@MetadataDiscarded = m `seq` ()
-  rnf m@MetadataUnknown = m `seq` ()
 
 type UniqueId = Int
 
@@ -233,16 +175,13 @@ instance Ord Metadata where
 instance Hashable Metadata where
   hash md = metaValueUniqueId md
 
-instance NFData Metadata where
-  rnf m = metaValueName m `deepseq` metaValueContent m `seq` m `seq` ()
-
 -- | A wrapper around 'ValueT' values that tracks the 'Type', name,
 -- and attached metadata. valueName is mostly informational at this
 -- point.  All references will be resolved as part of the graph, but
 -- the name will be useful for visualization purposes and
 -- serialization.
 data Value = Value { valueType :: Type
-                   , valueName :: Maybe Identifier
+                   , valueName :: !(Maybe Identifier)
                    , valueMetadata :: Maybe Metadata
                    , valueContent :: ValueT
                    , valueUniqueId :: !UniqueId
@@ -260,9 +199,6 @@ maxInt = fromIntegral (maxBound :: Int)
 instance Hashable Value where
   hash Value { valueUniqueId = i } = fromIntegral $ (i `mod` maxInt)
 
-instance NFData Value where
-  rnf v = valueType v `deepseq` valueName v `deepseq` valueMetadata v `deepseq` valueContent v `deepseq` ()
-
 -- Functions have parameters if they are not external
 data ValueT = Function { functionType :: Type
                        , functionParameters :: [Value] -- A list of arguments
@@ -272,18 +208,19 @@ data ValueT = Function { functionType :: Type
                        , functionCC :: !CallingConvention
                        , functionRetAttrs :: [ParamAttribute]
                        , functionAttrs :: [FunctionAttribute]
-                       , functionName :: Identifier
-                       , functionSection :: Maybe ByteString
+                       , functionName :: !Identifier
+                       , functionSection :: !(Maybe ByteString)
                        , functionAlign :: !Int64
-                       , functionGCName :: Maybe GCName
+                       , functionGCName :: !(Maybe GCName)
                        , functionIsVararg :: !Bool
                        }
             | GlobalDeclaration { globalVariableAddressSpace :: !Int
                                 , globalVariableLinkage :: !LinkageType
+                                , globalVariableVisibility :: !VisibilityStyle
                                 , globalVariableAnnotation :: !GlobalAnnotation
                                 , globalVariableInitializer :: Maybe Value
                                 , globalVariableAlignment :: !Int64
-                                , globalVariableSection :: Maybe ByteString
+                                , globalVariableSection :: !(Maybe ByteString)
                                 }
             | GlobalAlias { globalAliasLinkage :: !LinkageType
                           , globalAliasVisibility :: !VisibilityStyle
@@ -388,102 +325,13 @@ data ValueT = Function { functionType :: Type
             | ConstantArray [Value]
             | ConstantFP !Double
             | ConstantInt !Integer
-            | ConstantString ByteString
+            | ConstantString !ByteString
             | ConstantPointerNull
             | ConstantStruct [Value]
             | ConstantVector [Value]
             | ConstantValue ValueT
-            | InlineAsm ByteString ByteString
+            | InlineAsm !ByteString !ByteString
             deriving (Ord, Eq)
-
-instance NFData ValueT where
-  rnf f@(Function {}) = functionType f `deepseq` functionParameters f `deepseq`
-                          functionBody f `deepseq` functionLinkage f `deepseq`
-                          functionVisibility f `deepseq` functionCC f `deepseq`
-                          functionRetAttrs f `deepseq` functionAttrs f `deepseq`
-                          functionName f `deepseq` functionSection f `seq`
-                          functionAlign f `deepseq` functionGCName f `deepseq`
-                          functionIsVararg f `deepseq` ()
-  rnf g@(GlobalDeclaration {}) = globalVariableInitializer g `deepseq` globalVariableSection g `seq` ()
-  rnf g@(GlobalAlias {}) = globalAliasValue g `deepseq` ()
-  rnf v@ExternalValue = v `seq` ()
-  rnf e@(ExternalFunction atts) = atts `deepseq` e `seq` ()
-  rnf b@(BasicBlock vals) = vals `deepseq` b `seq` ()
-  rnf a@(Argument atts) = atts `deepseq` a `seq` ()
-  rnf r@(RetInst mv) = mv `deepseq` r `seq` ()
-  rnf u@(UnconditionalBranchInst v) = v `deepseq` u `seq` ()
-  rnf b@(BranchInst {}) = branchCondition b `deepseq` branchTrueTarget b `deepseq`
-                            branchFalseTarget b `deepseq` b `seq` ()
-  rnf s@(SwitchInst {}) =  switchValue s `deepseq` switchDefaultTarget s `deepseq`
-                             switchCases s `deepseq` s `seq` ()
-
-  rnf i@(IndirectBranchInst {}) = indirectBranchAddress i `deepseq` indirectBranchTargets i `deepseq`
-                                    i `seq` ()
-  rnf v@UnwindInst = v `seq` ()
-  rnf v@UnreachableInst = v `seq` ()
-  rnf i@(AddInst flags v1 v2) = flags `deepseq` v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(SubInst flags v1 v2) = flags `deepseq` v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(MulInst flags v1 v2) = flags `deepseq` v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(DivInst v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(RemInst v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(ShlInst v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(LshrInst v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(AndInst v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(OrInst v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(XorInst v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(ExtractElementInst {}) = extractElementVector i `deepseq` extractElementIndex i `deepseq` i `seq` ()
-  rnf i@(InsertElementInst {}) = insertElementVector i `deepseq`
-                                  insertElementValue i `deepseq`
-                                  insertElementIndex i `deepseq` i `seq` ()
-  rnf i@(ShuffleVectorInst {}) = shuffleVectorV1 i `deepseq`
-                                  shuffleVectorV2 i `deepseq`
-                                  shuffleVectorMask i `deepseq` i `seq` ()
-  rnf i@(ExtractValueInst {}) = extractValueAggregate i `deepseq`
-                                 extractValueIndices i `deepseq` i `seq` ()
-  rnf i@(InsertValueInst {}) = insertValueAggregate i `deepseq`
-                                insertValueValue i `deepseq`
-                                insertValueIndices i `deepseq` i `seq` ()
-  rnf i@(AllocaInst t v _) = t `deepseq` v `deepseq` i `seq` ()
-  rnf i@(LoadInst _ v _) = v `deepseq` i `seq` ()
-  rnf i@(StoreInst _ v1 v2 _) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(TruncInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(ZExtInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(SExtInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(FPTruncInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(FPExtInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(FPToUIInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(FPToSIInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(UIToFPInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(SIToFPInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(PtrToIntInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(IntToPtrInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(BitcastInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@(ICmpInst _ v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(FCmpInst _ v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@(PhiNode vs) = vs `deepseq` i `seq` ()
-  rnf i@(SelectInst v1 v2 v3) = v1 `deepseq` v2 `deepseq` v3 `deepseq` i `seq` ()
-  rnf i@(GetElementPtrInst {}) = getElementPtrValue i `deepseq` getElementPtrIndices i `deepseq` i `seq` ()
-  rnf i@(CallInst {}) = callParamAttrs i `deepseq` callRetType i `deepseq`
-                          callFunction i `deepseq` callArguments i `deepseq`
-                          callAttrs i `deepseq` i `seq` ()
-  rnf i@(InvokeInst {}) =  invokeParamAttrs i `deepseq` invokeRetType i `deepseq`
-                             invokeFunction i `deepseq` invokeArguments i `deepseq`
-                             invokeAttrs i `deepseq` invokeNormalLabel i `deepseq`
-                             invokeUnwindLabel i `deepseq` i `seq` ()
-  rnf i@(VaArgInst v t) = v `deepseq` t `deepseq` i `seq` ()
-  rnf i@UndefValue = i `seq` ()
-  rnf i@(BlockAddress v1 v2) = v1 `deepseq` v2 `deepseq` i `seq` ()
-  rnf i@ConstantAggregateZero = i `seq` ()
-  rnf i@(ConstantArray vs) = vs `deepseq` i `seq` ()
-  rnf i@(ConstantFP n) = n `seq` i `seq` ()
-  rnf i@(ConstantInt n) = n `seq` i `seq` ()
-  rnf i@(ConstantString s) = s `seq` i `seq` ()
-  rnf i@ConstantPointerNull = i `seq` ()
-  rnf i@(ConstantStruct vs) = vs `deepseq` i `seq` ()
-  rnf i@(ConstantVector vs) = vs `deepseq` i `seq` ()
-  rnf i@(ConstantValue v) = v `deepseq` i `seq` ()
-  rnf i@(InlineAsm s1 s2) = s1 `seq` s2 `seq` i `seq` ()
-
 
 valueIsFunction :: Value -> Bool
 valueIsFunction Value { valueContent = Function {} } = True

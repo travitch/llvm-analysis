@@ -2,7 +2,6 @@ module Data.LLVM.Private.Translators.Metadata ( translateMetadata ) where
 
 import Data.Dwarf
 import qualified Data.HashMap.Strict as M
-import Data.Int
 import Data.Maybe ( fromJust )
 import Text.Printf
 

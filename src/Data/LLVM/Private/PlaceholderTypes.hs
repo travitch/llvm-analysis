@@ -143,7 +143,7 @@ data Module = Module DataLayout TargetTriple [GlobalDeclaration]
             deriving (Show, Eq)
 
 -- Ident AddrSpace Annotations Type(aptr) Initializer alignment
-data GlobalDeclaration = GlobalDeclaration Identifier Int LinkageType GlobalAnnotation Type (Maybe Constant) Integer (Maybe ByteString)
+data GlobalDeclaration = GlobalDeclaration Identifier Int LinkageType VisibilityStyle GlobalAnnotation Type (Maybe Constant) Integer (Maybe ByteString)
                        | GlobalAlias Identifier LinkageType VisibilityStyle Type Constant
                        | NamedType Identifier Type
                        | ModuleAssembly Assembly

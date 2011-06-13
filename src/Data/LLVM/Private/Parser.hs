@@ -97,6 +97,7 @@ globalDeclP = do
   consumeToken TAssign
   addrSpace <- addrSpaceP
   lt <- linkageTypeP
+  vis <- visibilityStyleP
   ga <- globalAnnotationP
   t <- typeP
   -- Initializers are optional.  We only want to take the initializer if it is NOT
@@ -112,7 +113,7 @@ globalDeclP = do
         Just i' -> Just $ i' t
         Nothing -> Nothing
       pType = TypePointer t
-  return $! GlobalDeclaration name addrSpace lt ga pType i align section
+  return $! GlobalDeclaration name addrSpace lt vis ga pType i align section
   where globalInitP = try (partialConstantP <* notFollowedBy (consumeToken TAssign))
 
 externalDeclP :: AssemblyParser GlobalDeclaration

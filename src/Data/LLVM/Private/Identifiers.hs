@@ -9,13 +9,13 @@ import Control.DeepSeq
 import Data.Hashable
 import Data.ByteString.Char8 ( ByteString, unpack )
 
-data Identifier = LocalIdentifier { localIdentifier :: ByteString
+data Identifier = LocalIdentifier { localIdentifier :: !ByteString
                                   , localHash :: !Int
                                   }
-                | GlobalIdentifier { globalIdentifier :: ByteString
+                | GlobalIdentifier { globalIdentifier :: !ByteString
                                    , globalHash :: !Int
                                    }
-                | MetaIdentifier { metaIdentifier :: ByteString
+                | MetaIdentifier { metaIdentifier :: !ByteString
                                  , metaHash :: !Int
                                  }
                   deriving (Eq, Ord)

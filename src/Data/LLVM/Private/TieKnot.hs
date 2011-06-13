@@ -59,8 +59,8 @@ completeGraph opts typeMapper decls = M.elems globalValues
       let (s1, s2) = split2 idstream
           thisId = extract idstream
       in case decl of
-        O.GlobalDeclaration name addrspace linkage annot ty initializer align section ->
-          let g = transGlobalVar typeMapper trGlobal getMetadata s1 name addrspace linkage annot ty initializer align section
+        O.GlobalDeclaration name addrspace linkage vis annot ty initializer align section ->
+          let g = transGlobalVar typeMapper trGlobal getMetadata s1 name addrspace linkage vis annot ty initializer align section
               updatedVals = M.insert name g vals
           in go rest updatedVals s2
         O.FunctionDefinition { O.funcName = fname } ->
@@ -139,17 +139,18 @@ transAlias typeMapper trConst getGlobalMD idstream name linkage vis ty constant 
 transGlobalVar :: (O.Type -> Type) ->
                   (O.Constant -> IdStream -> Value) ->
                   (Identifier -> Maybe Metadata) ->
-                  IdStream -> Identifier -> Int -> LinkageType ->
+                  IdStream -> Identifier -> Int -> LinkageType -> VisibilityStyle ->
                   GlobalAnnotation -> O.Type -> Maybe O.Constant -> Integer ->
                   Maybe ByteString ->
                   Value
-transGlobalVar typeMapper trConst getGlobalMD idstream name addrspace linkage annot ty initializer align section =
+transGlobalVar typeMapper trConst getGlobalMD idstream name addrspace linkage vis annot ty initializer align section =
   val
   where
     i = maybe Nothing (Just . ((flip trConst) (split idstream))) initializer
     val = mkValue (extract idstream) (typeMapper ty) (Just name) (getGlobalMD name) decl
     decl = GlobalDeclaration { globalVariableAddressSpace = addrspace
                              , globalVariableLinkage = linkage
+                             , globalVariableVisibility = vis
                              , globalVariableAnnotation = annot
                              , globalVariableInitializer = i
                              , globalVariableAlignment = fromIntegral $ align

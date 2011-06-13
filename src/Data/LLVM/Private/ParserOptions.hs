@@ -15,9 +15,6 @@ module Data.LLVM.Private.ParserOptions (
 data PositionPrecision = PositionPrecise
                          -- ^ Preserve all information from LLVM (line
                          -- and column numbers)
-                       | PositionLineOnly
-                         -- ^ Discard column number information
-                         -- (reports all columns as 0)
                        | PositionNone
                          -- ^ Discard all position information
                        deriving (Show, Eq)
@@ -28,4 +25,4 @@ data ParserOptions = ParserOptions { metaPositionPrecision :: PositionPrecision 
 
 -- | Reasonable default parsing options
 defaultParserOptions :: ParserOptions
-defaultParserOptions = ParserOptions { metaPositionPrecision = PositionLineOnly }
+defaultParserOptions = ParserOptions { metaPositionPrecision = PositionNone }
