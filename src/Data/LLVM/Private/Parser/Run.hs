@@ -1,6 +1,6 @@
-module Data.LLVM.Private.ParsingMonad (
-  maybeRunLLVMParser
-  , runLLVMParser
+module Data.LLVM.Private.Parser.Run (
+  maybeRunLLVMParser,
+  runLLVMParser
   ) where
 
 import Data.ByteString.Lazy.Char8 ( ByteString )

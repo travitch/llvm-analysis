@@ -36,9 +36,10 @@ library
                    Data.LLVM.Private.Parser.Attributes,
                    Data.LLVM.Private.Parser.Constants,
                    Data.LLVM.Private.Parser.Instructions,
+                   Data.LLVM.Private.Parser.Options,
                    Data.LLVM.Private.Parser.Primitive,
+                   Data.LLVM.Private.Parser.Run,
                    Data.LLVM.Private.Parser.Types,
-                   Data.LLVM.Private.ParsingMonad,
                    Data.LLVM.Private.PlaceholderTypeExtractors,
                    Data.LLVM.Private.Printers,
                    Data.LLVM.Private.TieKnot,
@@ -47,8 +48,7 @@ library
                    Data.LLVM.Private.Translators.Functions,
                    Data.LLVM.Private.Translators.Instructions,
                    Data.LLVM.Private.Translators.Metadata,
-                   Data.LLVM.Private.Translators.Types,
-                   Data.LLVM.Private.ParserOptions
+                   Data.LLVM.Private.Translators.Types
 
   build-tools: alex >= 2 && < 3
   default-extensions: OverloadedStrings

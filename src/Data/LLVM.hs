@@ -14,8 +14,8 @@ import System.Process
 
 import Data.LLVM.Types
 import Data.LLVM.Private.Parser
-import Data.LLVM.Private.ParserOptions
-import Data.LLVM.Private.ParsingMonad
+import Data.LLVM.Private.Parser.Options
+import Data.LLVM.Private.Parser.Run
 import Data.LLVM.Private.TieKnot
 
 -- | Parse a Text string containing an LLVM Assembly file into the

@@ -1,19 +1,18 @@
 module Data.LLVM.Private.Translators.Metadata ( translateMetadata ) where
 
+import Data.ByteString.Char8 ( ByteString )
 import Data.Dwarf
 import qualified Data.HashMap.Strict as M
 import Data.Maybe ( fromJust )
 import Text.Printf
 
-import Data.LLVM.Private.PlaceholderTypeExtractors
 import Data.LLVM.Private.Translators.Dwarf
 import Data.LLVM.Types
 import Data.LLVM.Private.Types.Dwarf
 import Data.LLVM.Private.Types.Identifiers
 import qualified Data.LLVM.Private.Types.Placeholder as O
 import Data.LLVM.Private.UniqueId
-
-import Data.LLVM.Private.ParserOptions
+import Data.LLVM.Private.Parser.Options
 
 -- Notes on metadata blocks.
 --
@@ -410,3 +409,15 @@ mkBaseType uid mdValName metaRef [ Just context, Just name, file, Just line
                         }
     metaRef' = maybe Nothing (Just . metaRef)
 mkBaseType _ _ _ c = error ("Invalid base type descriptor content: " ++ show c)
+
+getInt :: (Num a) => O.Constant -> a
+getInt (O.ConstValue (O.ConstantInt i) (O.TypeInteger _)) = fromIntegral i
+getInt c = error ("Constant is not an int: " ++ show c)
+
+getBool :: O.Constant -> Bool
+getBool (O.ConstValue (O.ConstantInt i) (O.TypeInteger 1)) = i == 1
+getBool c = error ("Constant is not a bool: " ++ show c)
+
+getMDString :: O.Constant -> ByteString
+getMDString (O.ConstValue (O.MDString txt) O.TypeMetadata) = txt
+getMDString c = error ("Not a constant metadata string: " ++ show c)

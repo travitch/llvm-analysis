@@ -1,6 +1,6 @@
 -- | This module defines options that control the construction of
 -- 'Module's.
-module Data.LLVM.Private.ParserOptions (
+module Data.LLVM.Private.Parser.Options (
   -- * Types
   ParserOptions(..),
   PositionPrecision(..),

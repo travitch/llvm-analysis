@@ -13,7 +13,7 @@ import Data.LLVM.Private.Translators.Metadata
 import Data.LLVM.Private.Translators.Types
 import Data.LLVM.Private.Types.Identifiers
 import qualified Data.LLVM.Private.Types.Placeholder as O
-import Data.LLVM.Private.ParserOptions
+import Data.LLVM.Private.Parser.Options
 
 import Data.LLVM.Types
 
