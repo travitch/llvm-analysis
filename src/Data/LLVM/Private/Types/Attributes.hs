@@ -1,28 +1,31 @@
-module Data.LLVM.Private.AttributeTypes ( LinkageType(..)
-                                        , CallingConvention(..)
-                                        , VisibilityStyle(..)
-                                        , ParamAttribute(..)
-                                        , FunctionAttribute(..)
-                                        , Endian(..)
-                                        , ArithFlag(..)
-                                        , DataLayout(..)
-                                        , TargetTriple(..)
-                                        , AlignSpec(..)
-                                        , defaultDataLayout
-                                        , GCName(..)
-                                        , ICmpCondition(..)
-                                        , FCmpCondition(..)
-                                        , GlobalAnnotation(..)
-                                        , Assembly(..)
-                                        , module Data.LLVM.Private.Identifiers
-                                        ) where
+module Data.LLVM.Private.Types.Attributes (
+  -- * Types
+  LinkageType(..),
+  CallingConvention(..),
+  VisibilityStyle(..),
+  ParamAttribute(..),
+  FunctionAttribute(..),
+  Endian(..),
+  ArithFlag(..),
+  DataLayout(..),
+  TargetTriple(..),
+  AlignSpec(..),
+  GCName(..),
+  ICmpCondition(..),
+  FCmpCondition(..),
+  GlobalAnnotation(..),
+  Assembly(..),
+  -- * Values
+  defaultDataLayout
+  ) where
 
 import Control.DeepSeq
 import Data.ByteString.Char8 ( ByteString, unpack )
 
-import Data.LLVM.Private.Identifiers
+import Data.LLVM.Private.Types.Identifiers
 
-data Assembly = Assembly ByteString
+ -- Representing Assembly
+data Assembly = Assembly !ByteString
                 deriving (Eq, Ord)
 
 instance Show Assembly where
@@ -30,6 +33,8 @@ instance Show Assembly where
 
 instance NFData Assembly where
   rnf a@(Assembly txt) = txt `seq` a `seq` ()
+
+-- Linkage Types
 
 data LinkageType = LTPrivate
                  | LTLinkerPrivate
@@ -70,6 +75,8 @@ instance Show LinkageType where
   show LTDLLImport = "dllimport"
   show LTDLLExport = "dllexport"
 
+-- Calling convention
+
 data CallingConvention = CCC
                        | CCFastCC
                        | CCColdCC
@@ -86,6 +93,9 @@ instance Show CallingConvention where
   show CCGHC = "cc 10"
   show (CCN n) = "cc " ++ show n
 
+
+-- Visibility
+
 data VisibilityStyle = VisibilityDefault
                      | VisibilityHidden
                      | VisibilityProtected
@@ -98,6 +108,8 @@ instance Show VisibilityStyle where
   show VisibilityDefault = ""
   show VisibilityHidden = "hidden"
   show VisibilityProtected = "protected"
+
+-- Param attributes
 
 data ParamAttribute = PAZeroExt
                     | PASignExt
@@ -122,6 +134,8 @@ instance Show ParamAttribute where
   show PANoCapture = "nocapture"
   show PANest = "nest"
   show (PAAlign i) = "align " ++ show i
+
+-- Function Attributes
 
 data FunctionAttribute = FAAlignStack !Int
                        | FAAlwaysInline
@@ -224,7 +238,7 @@ defaultDataLayout = DataLayout { endianness = EBig
                                , nativeWidths = [] -- Set.empty
                                }
 
-data GCName = GCName ByteString deriving (Eq, Ord)
+data GCName = GCName !ByteString deriving (Eq, Ord)
 
 instance NFData GCName where
   rnf n@(GCName s) = s `seq` n `seq` ()

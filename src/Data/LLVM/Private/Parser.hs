@@ -3,14 +3,15 @@ module Data.LLVM.Private.Parser ( parser ) where
 import Control.Applicative hiding ( (<|>), many )
 import Text.Parsec
 
-import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.Lexer
-import Data.LLVM.Private.PlaceholderTypes
 import Data.LLVM.Private.Parser.Attributes
 import Data.LLVM.Private.Parser.Constants
 import Data.LLVM.Private.Parser.Instructions
 import Data.LLVM.Private.Parser.Primitive
 import Data.LLVM.Private.Parser.Types
+import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.Identifiers
+import Data.LLVM.Private.Types.Placeholder
 
 
 parser :: AssemblyParser Module

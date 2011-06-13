@@ -3,7 +3,7 @@ module Data.LLVM.Private.Translators.Types ( translateType ) where
 import qualified Data.HashMap.Strict as M
 import Text.Printf
 
-import qualified Data.LLVM.Private.PlaceholderTypes as O
+import qualified Data.LLVM.Private.Types.Placeholder as O
 import qualified Data.LLVM.Types as N
 
 -- Create a map from the placeholder types to the final types.  FIXME:

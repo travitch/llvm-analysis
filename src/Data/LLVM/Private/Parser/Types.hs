@@ -4,10 +4,10 @@ import Control.Applicative hiding ((<|>), many)
 import Data.List (foldl')
 import Text.Parsec
 
-import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.Lexer
-import Data.LLVM.Private.PlaceholderTypes
 import Data.LLVM.Private.Parser.Primitive
+import Data.LLVM.Private.Types.Identifiers
+import Data.LLVM.Private.Types.Placeholder
 
 typeP :: AssemblyParser Type
 typeP = do

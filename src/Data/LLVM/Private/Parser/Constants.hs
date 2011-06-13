@@ -7,10 +7,10 @@ import Control.Applicative hiding ( (<|>) )
 import Text.Parsec
 
 import Data.LLVM.Private.Lexer
-import Data.LLVM.Private.PlaceholderTypes
 import Data.LLVM.Private.Parser.Attributes
 import Data.LLVM.Private.Parser.Primitive
 import Data.LLVM.Private.Parser.Types
+import Data.LLVM.Private.Types.Placeholder
 
 -- | The first choice consumes at most one token (Failing otherwise).
 -- Don't need a try for it.

@@ -1,21 +1,25 @@
 {-# LANGUAGE StandaloneDeriving #-}
-module Data.LLVM.Private.ReferentialTypes ( Metadata(..)
-                                          , MetadataT(..)
-                                          , Type(..)
-                                          , Value(..)
-                                          , ValueT(..)
-                                          , UniqueId
-                                          , valueIsFunction
-                                          , llvmDebugVersion
-                                          ) where
+module Data.LLVM.Private.Types.Referential (
+  -- * Types
+  Metadata(..),
+  MetadataT(..),
+  Type(..),
+  Value(..),
+  ValueT(..),
+  UniqueId,
+  -- * Accessors
+  valueIsFunction,
+  llvmDebugVersion
+  ) where
 
 import Data.ByteString.Char8 ( ByteString )
 import Data.Dwarf
 import Data.Hashable
 import Data.Int
 
-import Data.LLVM.Private.AttributeTypes
-import Data.LLVM.Private.DwarfHelpers
+import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.Dwarf
+import Data.LLVM.Private.Types.Identifiers
 
 deriving instance Ord DW_LANG
 deriving instance Ord DW_VIRTUALITY
@@ -154,7 +158,10 @@ data MetadataT =
     -- ^ Unrecognized type of metadata
   deriving (Ord, Eq)
 
-
+-- | The type of the unique identifiers that let us to work with
+-- 'Value's and 'Metadata`, despite the cycles in the object graph.
+-- These ids are typically used as hash keys and give objects of these
+-- types identity.
 type UniqueId = Int
 
 -- | A wrapper for 'Metadata' values that tracks an Identifier and a

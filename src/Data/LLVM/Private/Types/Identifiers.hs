@@ -1,9 +1,13 @@
-module Data.LLVM.Private.Identifiers ( Identifier(..)
-                                     , identifierAsString
-                                     , makeLocalIdentifier
-                                     , makeGlobalIdentifier
-                                     , makeMetaIdentifier
-                                     ) where
+module Data.LLVM.Private.Types.Identifiers (
+  -- * Types
+  Identifier(..),
+  -- * Accessor
+  identifierAsString,
+  -- * Builders
+  makeLocalIdentifier,
+  makeGlobalIdentifier,
+  makeMetaIdentifier
+  ) where
 
 import Control.DeepSeq
 import Data.Hashable

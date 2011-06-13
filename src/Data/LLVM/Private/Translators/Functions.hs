@@ -1,13 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Data.LLVM.Private.Translators.Functions ( translateFunctionDefinition ) where
+module Data.LLVM.Private.Translators.Functions (
+  SymbolTable,
+  translateFunctionDefinition
+  ) where
 
 import Data.List ( mapAccumR )
+import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
 
 import Data.LLVM.Types
-import Data.LLVM.Private.KnotHelpers
-import qualified Data.LLVM.Private.PlaceholderTypes as O
+import Data.LLVM.Private.UniqueId
+import Data.LLVM.Private.Types.Identifiers
+import qualified Data.LLVM.Private.Types.Placeholder as O
 import Data.LLVM.Private.Translators.Instructions
+
+-- | The type of a 'Function's local symbol table.
+type SymbolTable = HashMap Identifier Value
 
 mkFuncType :: (O.Type -> Type) -> O.GlobalDeclaration -> Type
 mkFuncType typeMapper O.FunctionDefinition { O.funcRetType = fret

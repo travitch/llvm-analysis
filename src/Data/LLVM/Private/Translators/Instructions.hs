@@ -1,10 +1,10 @@
 module Data.LLVM.Private.Translators.Instructions ( translateInstruction ) where
 
-import Data.List (mapAccumR)
+import Data.List ( mapAccumR )
 
 import Data.LLVM.Types
-import Data.LLVM.Private.KnotHelpers
-import qualified Data.LLVM.Private.PlaceholderTypes as O
+import Data.LLVM.Private.UniqueId
+import qualified Data.LLVM.Private.Types.Placeholder as O
 
 translateInstruction :: (O.Type -> Type) -> (O.Constant -> IdStream -> Value) ->
                         O.InstructionT -> IdStream -> ValueT

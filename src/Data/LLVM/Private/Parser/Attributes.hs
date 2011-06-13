@@ -32,10 +32,11 @@ import Control.Applicative hiding ( (<|>) )
 import Data.ByteString.Char8 ( ByteString )
 import Text.Parsec
 
-import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.Lexer
-import Data.LLVM.Private.PlaceholderTypes
 import Data.LLVM.Private.Parser.Primitive
+import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.Identifiers
+import Data.LLVM.Private.Types.Placeholder
 
 
 paramAttributeP :: AssemblyParser ParamAttribute

@@ -1,9 +1,10 @@
-module Data.LLVM.Private.DwarfHelpers ( mkDwarfVirtuality
-                                      , mkDwarfLang
-                                      , mkDwarfEncoding
-                                      , mkDwarfTag
-                                      , DW_VAR_TAG(..)
-                                      ) where
+module Data.LLVM.Private.Translators.Dwarf (
+  -- * Constructors
+  mkDwarfVirtuality,
+  mkDwarfLang,
+  mkDwarfEncoding,
+  mkDwarfTag
+  ) where
 
 import Data.Dwarf
 
@@ -121,9 +122,3 @@ mkDwarfTag i = case i of
   57 -> DW_TAG_shared_type
   _ -> error ("Invalid DWARF tag type: " ++ show i)
 
--- This is a temporary type until the dwarf package supports DWARF4
--- extensions
-data DW_VAR_TAG = DW_TAG_auto_variable
-                | DW_TAG_arg_variable
-                | DW_TAG_return_variable
-                deriving (Show, Eq)

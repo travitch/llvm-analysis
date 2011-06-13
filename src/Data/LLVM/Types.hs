@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Types
-       ( module Data.LLVM.Private.AttributeTypes
-       , module Data.LLVM.Private.ReferentialTypes
+       ( module Data.LLVM.Private.Types.Attributes
+       , module Data.LLVM.Private.Types.Referential
        , Map
        , Module(..)
        , moduleFunctions
@@ -14,9 +14,9 @@ import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
 import Data.List ( intercalate )
 
-import Data.LLVM.Private.AttributeTypes
 import Data.LLVM.Private.Printers
-import Data.LLVM.Private.ReferentialTypes
+import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.Referential
 
 type Map = HashMap
 

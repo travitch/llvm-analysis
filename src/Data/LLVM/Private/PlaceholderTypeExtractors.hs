@@ -4,7 +4,7 @@ module Data.LLVM.Private.PlaceholderTypeExtractors ( getInt
                                                    ) where
 
 import Data.ByteString.Char8 ( ByteString )
-import Data.LLVM.Private.PlaceholderTypes
+import Data.LLVM.Private.Types.Placeholder
 
 getInt :: (Num a) => Constant -> a
 getInt (ConstValue (ConstantInt i) (TypeInteger _)) = fromIntegral i

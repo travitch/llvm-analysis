@@ -5,12 +5,13 @@ import qualified Data.HashMap.Strict as M
 import Data.Maybe ( fromJust )
 import Text.Printf
 
-import Data.LLVM.Private.Identifiers
-import Data.LLVM.Private.KnotHelpers
-import Data.LLVM.Private.DwarfHelpers
 import Data.LLVM.Private.PlaceholderTypeExtractors
-import qualified Data.LLVM.Private.PlaceholderTypes as O
+import Data.LLVM.Private.Translators.Dwarf
 import Data.LLVM.Types
+import Data.LLVM.Private.Types.Dwarf
+import Data.LLVM.Private.Types.Identifiers
+import qualified Data.LLVM.Private.Types.Placeholder as O
+import Data.LLVM.Private.UniqueId
 
 import Data.LLVM.Private.ParserOptions
 

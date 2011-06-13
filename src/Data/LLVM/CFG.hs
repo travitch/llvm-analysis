@@ -9,7 +9,7 @@ import qualified Data.HashMap.Strict as M
 import Text.Printf
 
 import Data.LLVM.Private.Printers ( )
-import Data.LLVM.Private.ReferentialTypes
+import Data.LLVM.Private.Types.Referential
 
 type CFG = Gr Value EdgeCondition
 

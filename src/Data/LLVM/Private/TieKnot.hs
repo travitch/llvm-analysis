@@ -6,12 +6,13 @@ import Data.List ( foldl' )
 import qualified Data.HashMap.Strict as M
 import Data.ByteString.Char8 ( ByteString )
 
-import Data.LLVM.Private.KnotHelpers
+import Data.LLVM.Private.UniqueId
 import Data.LLVM.Private.Translators.Constants
 import Data.LLVM.Private.Translators.Functions
 import Data.LLVM.Private.Translators.Metadata
 import Data.LLVM.Private.Translators.Types
-import qualified Data.LLVM.Private.PlaceholderTypes as O
+import Data.LLVM.Private.Types.Identifiers
+import qualified Data.LLVM.Private.Types.Placeholder as O
 import Data.LLVM.Private.ParserOptions
 
 import Data.LLVM.Types
@@ -22,6 +23,15 @@ import Data.LLVM.Types
 --    placeholder type to a real type.  This will be used everywhere else
 -- 3) Finally, everything else can refer to everything else, so fix up all
 --    references in one go using the previously defined maps in completeGraph
+
+-- | Convert the placeholder Module type into the user-visible Module
+-- with all references resolved.  This uses the knot-tying technique
+-- in which references are set up and resolved lazily using an
+-- intermediate Map structure.
+--
+-- To allow these Maps (and all of the placeholder data) to be
+-- collected, this function runs 'deepseq' over the resulting 'Module'
+-- to ensure all thunks are fully evaluated.
 tieKnot :: ParserOptions -> O.Module -> Module
 tieKnot opts (O.Module layout triple decls) = m `deepseq` m
   where

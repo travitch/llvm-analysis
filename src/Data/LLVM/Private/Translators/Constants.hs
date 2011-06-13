@@ -5,9 +5,10 @@ import Data.List ( mapAccumR )
 import qualified Data.HashMap.Strict as M
 import Text.Printf
 
-import Data.LLVM.Private.KnotHelpers
-import qualified Data.LLVM.Private.PlaceholderTypes as O
+import Data.LLVM.Private.UniqueId
 import Data.LLVM.Private.Translators.Instructions
+import Data.LLVM.Private.Types.Identifiers
+import qualified Data.LLVM.Private.Types.Placeholder as O
 import Data.LLVM.Types
 
 mkCVal :: UniqueId -> Type -> ValueT -> Value

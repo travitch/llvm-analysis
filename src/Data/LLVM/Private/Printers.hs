@@ -9,8 +9,9 @@ import Data.List ( intercalate )
 import Data.Monoid
 import Data.ByteString.Char8 ( ByteString, unpack )
 
-import Data.LLVM.Private.AttributeTypes
-import Data.LLVM.Private.ReferentialTypes
+import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.Identifiers
+import Data.LLVM.Private.Types.Referential
 
 -- TODO List
 --
