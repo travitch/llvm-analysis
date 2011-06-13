@@ -6,12 +6,9 @@ import Test.Framework.Providers.HUnit
 import Test.HUnit hiding ( Test, test )
 
 import Data.LLVM
-import Data.LLVM.Private.Parser
-import Data.LLVM.Private.Parser.Attributes
-import Data.LLVM.Private.Parser.Types
-import Data.LLVM.Private.AttributeTypes
-import Data.LLVM.Private.ParsingMonad
-import Data.LLVM.Private.PlaceholderTypes
+import Data.LLVM.Types hiding ( Type(..) )
+import Data.LLVM.Private.Testing.Parser
+import Data.LLVM.Private.Testing.Types
 
 identParser = maybeRunLLVMParser identifierP
 identTests = [ ("localIdentNamed", "parse %local", makeLocalIdentifier "local", identParser "%local")

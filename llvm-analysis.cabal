@@ -24,7 +24,9 @@ library
   exposed-modules: Data.LLVM,
                    Data.LLVM.CFG,
                    Data.LLVM.Types,
-                   Data.LLVM.Visualization
+                   Data.LLVM.Visualization,
+                   Data.LLVM.Private.Testing.Parser,
+                   Data.LLVM.Private.Testing.Types
   other-modules: Data.LLVM.Private.ForceModule,
                  Data.LLVM.Private.Lexer,
                  Data.LLVM.Private.Parser,

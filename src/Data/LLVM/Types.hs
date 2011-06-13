@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Types (
   module Data.LLVM.Private.Types.Attributes,
+  module Data.LLVM.Private.Types.Identifiers,
   module Data.LLVM.Private.Types.Referential,
   Module(..),
   moduleFunctions,
@@ -14,6 +15,7 @@ import Data.List ( intercalate )
 import Data.LLVM.Private.ForceModule
 import Data.LLVM.Private.Printers
 import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.Identifiers
 import Data.LLVM.Private.Types.Referential
 
 data Module = Module { moduleDataLayout :: DataLayout

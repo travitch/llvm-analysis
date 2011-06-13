@@ -9,7 +9,6 @@ import Text.Printf
 import Data.LLVM.Private.Translators.Dwarf
 import Data.LLVM.Types
 import Data.LLVM.Private.Types.Dwarf
-import Data.LLVM.Private.Types.Identifiers
 import Data.LLVM.Private.Types.InternalMap
 import qualified Data.LLVM.Private.Types.Placeholder as O
 import Data.LLVM.Private.UniqueId
