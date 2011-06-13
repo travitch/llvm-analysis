@@ -8,6 +8,7 @@ import Text.Printf
 import Data.LLVM.Private.UniqueId
 import Data.LLVM.Private.Translators.Instructions
 import Data.LLVM.Private.Types.Identifiers
+import Data.LLVM.Private.Types.InternalMap
 import qualified Data.LLVM.Private.Types.Placeholder as O
 import Data.LLVM.Types
 

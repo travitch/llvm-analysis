@@ -8,7 +8,6 @@ import Data.Graph.Inductive
 import qualified Data.HashMap.Strict as M
 import Text.Printf
 
-import Data.LLVM
 import Data.LLVM.Types
 
 type CFG = Gr Value EdgeCondition

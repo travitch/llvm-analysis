@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Visualization ( viewCFG ) where
 
 import Data.GraphViz
