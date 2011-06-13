@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+-- | Define the unparser for our LLVM IR
 module Data.LLVM.Private.Printers ( printMetadata
                                   , printAsm
                                   , printType
@@ -317,13 +319,17 @@ printValue Value { valueContent = ExternalFunction _
 
 printValue Value { valueContent = BasicBlock instructions
                  , valueName = Just identifier
-                 } = mconcat [ label, "\n", instS ]
-  where instS = unlines $ map (indent . printValue) instructions
-        identS = identifierAsString identifier
-        indent = ("  "++)
-        label = if isInteger identS
-                then "; <label>:" ++ identS
-                else identS ++ ":"
+                 } = mconcat [ label, "\n", instS'' ]
+  where
+    instS'' = unlines $ map indent instS'
+    instS = map printValue instructions
+    dbgS = map (printDebugTag . valueMetadata) instructions
+    instS' = map (uncurry (++)) $ zip instS dbgS
+    identS = identifierAsString identifier
+    indent = ("  "++)
+    label = if isInteger identS
+            then "; <label>:" ++ identS
+            else identS ++ ":"
 
 printValue Value { valueContent = BasicBlock instructions
                  , valueName = _
@@ -999,10 +1005,10 @@ printInstNamePrefix :: Maybe Identifier -> String
 printInstNamePrefix Nothing = ""
 printInstNamePrefix (Just n) = mconcat [ show n, " =" ]
 
-printDebugTag :: Maybe Value -> String
+printDebugTag :: Maybe Metadata -> String
 printDebugTag Nothing = ""
-printDebugTag (Just (Value { valueName = Just n })) = ", !dbg " ++ show n
-printDebugTag (Just e) = error $ "Not metadata: " ++ printValue e
+printDebugTag (Just (Metadata { metaValueName = Just n })) = ", !dbg " ++ show n
+printDebugTag (Just e) = error $ "Not metadata: " ++ printMetadata e
 
 printType :: Type -> String
 printType (TypeInteger bits) = 'i' : show bits

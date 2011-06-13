@@ -22,8 +22,6 @@ module Data.LLVM.Private.Types.Attributes (
 import Control.DeepSeq
 import Data.ByteString.Char8 ( ByteString, unpack )
 
-import Data.LLVM.Private.Types.Identifiers
-
  -- Representing Assembly
 data Assembly = Assembly !ByteString
                 deriving (Eq, Ord)

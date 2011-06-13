@@ -8,8 +8,8 @@ import Data.Graph.Inductive
 import qualified Data.HashMap.Strict as M
 import Text.Printf
 
-import Data.LLVM.Private.Printers ( )
-import Data.LLVM.Private.Types.Referential
+import Data.LLVM
+import Data.LLVM.Types
 
 type CFG = Gr Value EdgeCondition
 
@@ -29,6 +29,7 @@ instance Show EdgeCondition where
   show (EqualityEdge v1 v2) = concat [ show v1, " is ", show v2 ]
   show (IndirectEdge v) = show v ++ " (indirect)"
 
+-- | Get the instructions for a BasicBlock.
 blockInstructions :: Value -> [Value]
 blockInstructions Value { valueContent = BasicBlock is } = is
 blockInstructions v = error $ printf "Value is not a basic block: %s" (show v)

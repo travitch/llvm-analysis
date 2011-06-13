@@ -1,4 +1,5 @@
 {-# LANGUAGE StandaloneDeriving #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Private.Types.Referential (
   -- * Types
   Metadata(..),

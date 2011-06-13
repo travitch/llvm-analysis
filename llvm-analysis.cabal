@@ -40,7 +40,6 @@ library
                    Data.LLVM.Private.Parser.Primitive,
                    Data.LLVM.Private.Parser.Run,
                    Data.LLVM.Private.Parser.Types,
-                   Data.LLVM.Private.PlaceholderTypeExtractors,
                    Data.LLVM.Private.Printers,
                    Data.LLVM.Private.TieKnot,
                    Data.LLVM.Private.Translators.Constants,
