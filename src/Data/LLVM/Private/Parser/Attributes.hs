@@ -161,7 +161,7 @@ metadataIdentifierP = tokenAs matcher
             _ -> Nothing
 
 labelP :: AssemblyParser ByteString
-labelP = tokenAs matcher
+labelP = option "dummy.entry" $ tokenAs matcher
   where matcher x =
           case x of
             TLabel l -> Just l

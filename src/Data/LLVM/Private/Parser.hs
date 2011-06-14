@@ -182,25 +182,12 @@ namedMetadataP = mk <$> metadataIdentifierP <*> (infx *> p <* postfx)
                         in NamedMetadata name vals
 
 basicBlockP :: AssemblyParser BasicBlock
-basicBlockP = mk <$> labelP <*> many instructionP
+basicBlockP = mk <$> labelP <*> many1 instructionP
   where mk lbl = BasicBlock ((Just . makeLocalIdentifier) lbl)
 
 functionBodyP :: AssemblyParser [BasicBlock]
 functionBodyP = do
   consumeToken TLCurl
-  realParser <- lookAhead dispatcher
-  bbs <- realParser
+  bbs <- many1 basicBlockP
   consumeToken TRCurl
   return $! bbs
-  where dispatcher = tokenAs matcher
-        matcher x =
-          case x of
-            -- Parse a list of basic blocks since we have at least
-            -- one labeled block here.
-            TLabel _ -> Just (many1 basicBlockP)
-            -- This alternative form is invoked when a function has
-            -- only a single basic block with no label.  Create a list
-            -- of instructions with no label and then just wrap it
-            -- into a singleton list.
-            _ -> Just ((:[]) <$> (BasicBlock <$> (return Nothing) <*> many1 instructionP))
-
