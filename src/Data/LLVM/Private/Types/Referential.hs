@@ -1,14 +1,12 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Private.Types.Referential (
-  -- * Types
-  Metadata(..),
-  MetadataT(..),
   Type(..),
+  UniqueId,
   Value(..),
   ValueT(..),
-  UniqueId,
-  -- * Accessors
+  Metadata(..),
+  MetadataT(..),
   valueIsFunction,
   llvmDebugVersion
   ) where
@@ -34,7 +32,10 @@ deriving instance Ord DW_VAR_TAG
 llvmDebugVersion :: Integer
 llvmDebugVersion = 524288
 
-data Type = TypeInteger !Int -- bits
+-- | The type system of LLVM
+data Type = TypeInteger !Int
+            -- ^ Integral types; the parameter holds the number of
+            -- bits required to represent the type.
           | TypeFloat
           | TypeDouble
           | TypeFP128
@@ -45,13 +46,23 @@ data Type = TypeInteger !Int -- bits
           | TypeLabel
           | TypeMetadata
           | TypeArray !Int !Type
+            -- ^ Fixed-length arrays, where the Int holds the number
+            -- of elements in arrays of this type.
           | TypeVector !Int !Type
-          | TypeFunction !Type [Type] !Bool -- Return type, arg types, vararg
+            -- ^ Vectors with a fixed length.  These are vectors in
+            -- the SSE sense.
+          | TypeFunction !Type [Type] !Bool
+            -- ^ Functions with a return type, list of argument types,
+            -- and a flag that denotes whether or not the function
+            -- accepts varargs
           | TypeOpaque
-          | TypePointer !Type -- (Maybe Int) -- Address Space
+          | TypePointer !Type
+            -- ^ LLVM supports an optional address space annotation on
+            -- pointer types.  This library does not yet.
           | TypeStruct [Type]
           | TypePackedStruct [Type]
           | TypeNamed !String !Type
+            -- ^ A wrapper for typedefs
           deriving (Ord, Eq)
 
 data MetadataT =
@@ -341,6 +352,8 @@ data ValueT = Function { functionType :: Type
             | InlineAsm !ByteString !ByteString
             deriving (Ord, Eq)
 
+-- | This simple helper tests whether or not the given 'Value' is a
+-- Function definition
 valueIsFunction :: Value -> Bool
 valueIsFunction Value { valueContent = Function {} } = True
 valueIsFunction _ = False

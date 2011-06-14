@@ -1,9 +1,9 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Types (
+  Module(..),
+  module Data.LLVM.Private.Types.Referential,
   module Data.LLVM.Private.Types.Attributes,
   module Data.LLVM.Private.Types.Identifiers,
-  module Data.LLVM.Private.Types.Referential,
-  Module(..),
   moduleFunctions,
   ) where
 
@@ -18,16 +18,30 @@ import Data.LLVM.Private.Types.Attributes
 import Data.LLVM.Private.Types.Identifiers
 import Data.LLVM.Private.Types.Referential
 
+-- | This is the top-level representation of a program in LLVM.  This
+-- is the type returned from all of the parsers, and all analysis
+-- begins at the Module level.
 data Module = Module { moduleDataLayout :: DataLayout
+                       -- ^ The layout of the primitive datatypes on
+                       -- the architecture this module was generated
+                       -- for
                      , moduleTarget :: TargetTriple
+                       -- ^ The architecture that this module was
+                       -- generated for
                      , moduleAssembly :: [Assembly]
+                       -- ^ Module-level assembly declarations
                      , moduleGlobals :: [Value]
+                       -- ^ Global values (functions, constants,
+                       -- variables, and external references)
                      }
 
+-- | This helper extracts just the function definitions from the
+-- 'Module'
 moduleFunctions :: Module -> [Value]
 moduleFunctions Module { moduleGlobals = globals } =
   filter valueIsFunction globals
 
+-- | Implementation of the Show instance
 printModule :: Module -> String
 printModule Module { moduleDataLayout = layout
                    , moduleTarget = triple
