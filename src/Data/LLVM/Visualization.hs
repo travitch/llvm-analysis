@@ -16,7 +16,7 @@ instance Labellable EdgeCondition where
 viewCFG :: CFG -> IO ()
 viewCFG cfg = do
   -- preview cfg
-  let dg = graphToDot nonClusteredParams cfg
+  let dg = graphToDot nonClusteredParams (cfgGraph cfg)
   s <- prettyPrint dg
   putStrLn s
   putStrLn "\n\n"

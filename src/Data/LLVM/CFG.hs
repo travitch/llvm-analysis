@@ -1,7 +1,9 @@
+-- | This module defines control flow graphs over the LLVM IR.
 module Data.LLVM.CFG (
   -- * Types
-  CFG,
+  CFG(..),
   EdgeCondition(..),
+  CFGType,
   -- * Constructors
   mkCFG
   ) where
@@ -13,17 +15,36 @@ import Text.Printf
 
 import Data.LLVM.Types
 
+type CFGType = Gr Value EdgeCondition
+
 -- | The control flow graph representation
-type CFG = Gr Value EdgeCondition
+data CFG = CFG { cfgGraph :: CFGType
+               , cfgEntryValue :: Value
+               , cfgEntryNode :: Node
+               , cfgExitValue :: Value
+               , cfgExitNode :: Node
+               , cfgFunction :: Value
+               }
+
+
 
 -- | The types of edges that appear in the 'CFG'
-data EdgeCondition = UnconditionalEdge
-                   | DefaultEdge
-                   | TrueEdge Value
-                   | FalseEdge Value
-                   | EqualityEdge Value Value
-                   | IndirectEdge Value
-                   deriving (Ord, Eq)
+data EdgeCondition =
+  UnconditionalEdge
+  -- ^ An unconditional jump from somewhere
+  | DefaultEdge
+    -- ^ A default jump due to a case statement
+  | TrueEdge Value
+    -- ^ True edge successor for the comparison contained in the
+    -- value.  This value was the argument to the branch instruction.
+  | FalseEdge Value
+    -- ^ False edge successor for the comparison contained in the
+    -- value.  This value was the argument to a branch instruction.
+  | EqualityEdge Value Value
+    -- ^ A case equality edge (the case value v1 was equal to val v2)
+  | IndirectEdge Value
+    -- ^ Jump from the given indirect branch value
+  deriving (Ord, Eq)
 
 instance Show EdgeCondition where
   show UnconditionalEdge = ""
@@ -47,8 +68,18 @@ blockInstructions v = error $ printf "Value is not a basic block: %s" (show v)
 -- The other function, 'mkCompactCFG', has a basic-block-granularity
 -- CFG that can be easier to visualize.
 mkCFG :: Value -> CFG
-mkCFG func = mkGraph (concat cfgNodes) (concat $ concat cfgEdges)
+mkCFG func = CFG { cfgGraph = g
+                 , cfgFunction = func
+                 , cfgEntryValue = entryVal
+                 , cfgEntryNode = instIdent entryVal
+                 , cfgExitValue = exitVal
+                 , cfgExitNode = instIdent exitVal
+                 }
   where
+    (entryVal : _) = allInstructions
+    (exitVal : _) = reverse allInstructions
+
+    g = mkGraph (concat cfgNodes) (concat $ concat cfgEdges)
     body = functionBody $ valueContent func
     allInstructions = concatMap blockInstructions body
 
