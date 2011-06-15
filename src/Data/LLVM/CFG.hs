@@ -10,7 +10,6 @@ module Data.LLVM.CFG (
 
 import Data.List ( foldl' )
 import Data.Graph.Inductive
-import qualified Data.HashMap.Strict as M
 import Text.Printf
 
 import Data.LLVM.Types
@@ -83,14 +82,8 @@ mkCFG func = CFG { cfgGraph = g
     body = functionBody $ valueContent func
     allInstructions = concatMap blockInstructions body
 
-    (_, nodeIDs) = foldl' labelInstruction (0, M.empty) allInstructions
-    labelInstruction (idx, m) val = (idx+1, M.insert val idx m)
-
-
     instIdent :: Value -> Int
-    instIdent val = case M.lookup val nodeIDs of
-      Just i -> i
-      Nothing -> error $ printf "No ID for value [%s]" (show val)
+    instIdent = valueUniqueId
 
     -- | Only BasicBlocks are targets of jumps.  This function finds the
     -- identifier for the given block.
