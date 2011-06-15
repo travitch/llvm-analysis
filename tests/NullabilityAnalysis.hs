@@ -121,8 +121,11 @@ main = do
 
 nullAnalysis llvmModule = do
   let fs = moduleFunctions llvmModule
+      cfgs = map mkCFG fs
+      names = map (functionName . valueContent) fs
       na = emptyNullabilityAnalysis
-      res = map (forwardDataflow na) fs
-      res' = zip fs res
-  mapM_ (putStrLn . show) res'
+      res = map (forwardDataflow na) cfgs
+      res' = map (\(x, y) -> x y) (zip res (map cfgExitValue cfgs))
+      res'' = zip names res'
+  mapM_ (putStrLn . show) res''
   return ()

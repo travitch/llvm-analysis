@@ -24,34 +24,29 @@ class BoundedMeetSemiLattice a => DataflowAnalysis a where
   -- current set of facts, the current instruction, and a list of
   -- incoming edges.
 
--- | Types that have control flow graphs.
-class HasCFG a where
-  getCFG :: a -> CFG
-
-instance HasCFG CFG where
-  getCFG = id
-
-instance HasCFG Value where
-  getCFG = mkCFG
 
 -- | Perform a forward dataflow analysis of the given type over a
 -- function or CFG.
-forwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b) => a -> b -> a
+forwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b) => a -> b -> Value -> a
 forwardDataflow = dataflowAnalysis lpre lsuc cfgExitNode
 
 -- | Perform a backward dataflow analysis of the given type over a
 -- function or CFG.
-backwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b) => a -> b -> a
+backwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b) => a -> b -> Value -> a
 backwardDataflow = dataflowAnalysis lsuc lpre cfgEntryNode
 
 dataflowAnalysis :: (Eq a, DataflowAnalysis a, HasCFG b) =>
                     (CFGType -> Node -> [(Node, EdgeCondition)]) ->
                     (CFGType -> Node -> [(Node, EdgeCondition)]) ->
-                    (CFG -> Node) -> a -> b -> a
-dataflowAnalysis predFunc succFunc finalNodeFunc analysis f =
-  dataflow initialWorklist initialStates
+                    (CFG -> Node) -> a -> b -> Value -> a
+dataflowAnalysis predFunc succFunc finalNodeFunc analysis f target =
+  lookupFact finalStates (valueUniqueId target)
   where
+    finalStates = dataflow initialWorklist initialStates
+
     cfg = getCFG f
+    -- ^ The control flow graph for this function
+
     initialWorklist = S.fromList (nodes (cfgGraph cfg))
     -- ^ Put all nodes on the worklist
     initialStates = M.fromList $ zip (nodes (cfgGraph cfg)) (repeat analysis)
@@ -60,7 +55,7 @@ dataflowAnalysis predFunc succFunc finalNodeFunc analysis f =
     -- | If there is nothing left in the worklist, return the facts
     -- associated with the exit node.
     dataflow work facts = case viewl work of
-      EmptyL -> lookupFact facts (finalNodeFunc cfg)
+      EmptyL -> facts
       nod :< rest -> processNode nod rest facts
 
     lookupFact facts n = case M.lookup n facts of

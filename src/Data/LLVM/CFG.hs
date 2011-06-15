@@ -4,6 +4,7 @@ module Data.LLVM.CFG (
   CFG(..),
   EdgeCondition(..),
   CFGType,
+  HasCFG(..),
   -- * Constructors
   mkCFG
   ) where
@@ -24,8 +25,6 @@ data CFG = CFG { cfgGraph :: CFGType
                , cfgExitNode :: Node
                , cfgFunction :: Value
                }
-
-
 
 -- | The types of edges that appear in the 'CFG'
 data EdgeCondition =
@@ -52,6 +51,18 @@ instance Show EdgeCondition where
   show (FalseEdge v) = printf "%s is false" (show v)
   show (EqualityEdge v1 v2) = printf "%s is %s" (show v1) (show v2)
   show (IndirectEdge v) = printf "%s (indirect)" (show v)
+
+
+-- | Types that have control flow graphs.
+class HasCFG a where
+  getCFG :: a -> CFG
+
+instance HasCFG CFG where
+  getCFG = id
+
+instance HasCFG Value where
+  getCFG v@Value { valueContent = Function {} } = mkCFG v
+  getCFG _ = error "Non-function Value passed to getCFG"
 
 -- | Get the instructions for a BasicBlock.
 blockInstructions :: Value -> [Value]
