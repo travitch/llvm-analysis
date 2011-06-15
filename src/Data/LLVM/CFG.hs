@@ -64,12 +64,6 @@ instance HasCFG Value where
   getCFG v@Value { valueContent = Function {} } = mkCFG v
   getCFG _ = error "Non-function Value passed to getCFG"
 
--- | Get the instructions for a BasicBlock.
-blockInstructions :: Value -> [Value]
-blockInstructions Value { valueContent = BasicBlock is } = is
-blockInstructions v = error $ printf "Value is not a basic block: %s" (show v)
-
-
 -- | Build a control flow graph for the given function.  Each
 -- instruction in the function body is a node in the graph.  Branching
 -- instructions induce edges.  This form of the CFG is fine-grained in

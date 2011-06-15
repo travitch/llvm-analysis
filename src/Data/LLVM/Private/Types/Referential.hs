@@ -8,6 +8,7 @@ module Data.LLVM.Private.Types.Referential (
   Metadata(..),
   MetadataT(..),
   valueIsFunction,
+  blockInstructions,
   llvmDebugVersion
   ) where
 
@@ -15,6 +16,7 @@ import Data.ByteString.Char8 ( ByteString )
 import Data.Dwarf
 import Data.Hashable
 import Data.Int
+import Text.Printf
 
 import Data.LLVM.Private.Types.Attributes
 import Data.LLVM.Private.Types.Dwarf
@@ -295,23 +297,40 @@ data ValueT = Function { functionType :: Type
                               , insertValueValue :: Value
                               , insertValueIndices :: [Integer]
                               }
-            | AllocaInst Type Value !Int64 -- Type, NumElems, align
-            | LoadInst !Bool Value !Int64 -- Volatile? Type Dest align
-            | StoreInst !Bool Value Value !Int64 -- Volatile? Val Dest align
-            | TruncInst Value Type -- The value being truncated, and the type truncted to
+            | AllocaInst Type Value !Int64
+              -- ^ Type being allocated, number of elements, alignment
+            | LoadInst !Bool Value !Int64
+              -- ^ Volatile flag, address being loaded, alignment
+            | StoreInst !Bool Value Value !Int64
+              -- ^ Volatile flag, value being stored, address of the destination, alignment
+            | TruncInst Value Type
+              -- ^ Value being truncated, result type
             | ZExtInst Value Type
+              -- ^ Value being truncated, result type
             | SExtInst Value Type
+              -- ^ Value being truncated, result type
             | FPTruncInst Value Type
+              -- ^ Value being truncated, result type
             | FPExtInst Value Type
+              -- ^ Value being truncated, result type
             | FPToUIInst Value Type
+              -- ^ Value being truncated, result type
             | FPToSIInst Value Type
+              -- ^ Value being truncated, result type
             | UIToFPInst Value Type
+              -- ^ Value being truncated, result type
             | SIToFPInst Value Type
+              -- ^ Value being truncated, result type
             | PtrToIntInst Value Type
+              -- ^ Value being truncated, result type
             | IntToPtrInst Value Type
+              -- ^ Value being truncated, result type
             | BitcastInst Value Type
+              -- ^ Value being truncated, result type
             | ICmpInst !ICmpCondition Value Value
+              -- ^ Type of comparison, values being compared
             | FCmpInst !FCmpCondition Value Value
+              -- ^ Type of comparison, values being compared
             | PhiNode [(Value, Value)]
             | SelectInst Value Value Value
             | GetElementPtrInst { getElementPtrInBounds :: !Bool
@@ -351,6 +370,12 @@ data ValueT = Function { functionType :: Type
             | ConstantValue ValueT
             | InlineAsm !ByteString !ByteString
             deriving (Ord, Eq)
+
+
+-- | Get the instructions for a BasicBlock.
+blockInstructions :: Value -> [Value]
+blockInstructions Value { valueContent = BasicBlock is } = is
+blockInstructions v = error $ printf "Value is not a basic block: %d" (valueUniqueId v)
 
 -- | This simple helper tests whether or not the given 'Value' is a
 -- Function definition

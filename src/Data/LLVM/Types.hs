@@ -1,10 +1,10 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Types (
   Module(..),
+  moduleFunctions,
   module Data.LLVM.Private.Types.Referential,
   module Data.LLVM.Private.Types.Attributes,
   module Data.LLVM.Private.Types.Identifiers,
-  moduleFunctions,
   ) where
 
 import Control.DeepSeq

@@ -119,6 +119,10 @@ main = do
   llvmModule <- parseLLVMBitcodeFile defaultParserOptions inFile
   either putStrLn nullAnalysis llvmModule
 
+isArgument :: Value -> Bool
+isArgument Value { valueContent = Argument _ } = True
+isArgument _ = False
+
 nullAnalysis llvmModule = do
   let fs = moduleFunctions llvmModule
       cfgs = map mkCFG fs
@@ -126,6 +130,6 @@ nullAnalysis llvmModule = do
       na = emptyNullabilityAnalysis
       res = map (forwardDataflow na) cfgs
       res' = map (\(x, y) -> x y) (zip res (map cfgExitValue cfgs))
-      res'' = zip names res'
+      res'' = zip names $ map (S.filter isArgument) (map notNullable res')
   mapM_ (putStrLn . show) res''
   return ()
