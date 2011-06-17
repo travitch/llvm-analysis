@@ -6,6 +6,9 @@ import Language.Datalog
 import Data.LLVM
 import Data.LLVM.Types
 
+import Debug.Trace
+debug = flip trace
+
 data LogicValue = LLVMValue !Value
                 | IndexValue !Int
                 deriving (Show, Eq, Ord)
@@ -45,21 +48,24 @@ analysis m = do
 
   [ a, b, c, d ] <- mapM newLogicVar [ "a", "b", "c", "d" ]
 
-  extractFacts [ pointsToMemLoc, pointsToEdge, followEdges ] m
+  extractFacts (pointsToMemLoc, pointsToEdge, followEdges) m
 
   -- Simple case of p = &a
-  assertRule pointsTo [ a, b ] [ [rel pointsToMemLoc [ b ]]
-                               , [rel pointsToEdge [ a, b ]]
+  assertRule pointsTo [ a, b ] [ rel pointsToMemLoc [ b ]
+                               , rel pointsToEdge [ a, b ]
                                ]
-  assertRule pointsTo [ a, b ] [ [rel followEdges [ b, c ]]
-                               , [rel ] -- need to use an intermediate
-                                        -- relation to compute the
-                                        -- full set of objects that we
-                                        -- need to add edges to
+  assertRule pointsTo [ a, b ] [ rel pointsTo [ b, c ]
+                               , rel pointsTo [ a, d ]
+                               , rel pointsTo [ d, c ]
+                               ]
+  [ va, vb, vc, vd ] <- mapM newLogicVar [ "va", "vb", "loadVal", "RefdVar" ]
+  assertRule pointsTo [ va, vb ] [ rel followEdges [ vc, vd ]
+                               , rel pointsToEdge [ va, vc ]
+                               , rel pointsTo [ vb, vd ]
                                ]
   queryDatabase pointsTo [ a, b ]
 
-extractFacts :: [Relation] -> Module -> Datalog LogicValue ()
+extractFacts :: (Relation, Relation, Relation) -> Module -> Datalog LogicValue ()
 extractFacts rels m =
   mapM_ (extractFunctionFacts rels) (moduleFunctions m)
 
@@ -70,16 +76,25 @@ functionInstructions Value { valueContent = f@Function {} } =
 functionInstructions _ = error "Not a function"
 
 
-extractFunctionFacts :: [Relation] -> Value -> Datalog LogicValue ()
+extractFunctionFacts :: (Relation, Relation, Relation) -> Value -> Datalog LogicValue ()
 extractFunctionFacts rels v =
   mapM_ (extractValueFacts rels) (functionInstructions v)
 
-extractValueFacts :: [Relation] -> Value -> Datalog LogicValue ()
-extractValueFacts [ directEdge, copyPtr, storeDeref, derefStoreDirect
-                  , derefCopyPtr, derefCopyDeref ] v =
+extractValueFacts :: (Relation, Relation, Relation) -> Value -> Datalog LogicValue ()
+extractValueFacts (pointsToMemLoc, pointsToEdge, followEdges) v =
   case valueContent v of
-    StoreInst _ val dst _ -> undefined
-    LoadInst _ val _ -> undefined
+    -- Stores must have the value be of a pointer type, otherwise it
+    -- is a store of a scalar and not interesting
+    StoreInst _ val@Value { valueType = TypePointer _ } dst _ -> do
+      assertFact pointsToEdge [ LLVMValue dst, LLVMValue val ] `debug` "Asserted a storeInst fact"
+      case valueContent val of
+        LoadInst _ _ _ -> return ()
+        _ -> do
+          assertFact pointsToMemLoc [ LLVMValue val ] `debug` "Asserted a memLoc fact"
+    -- Likewise, loads must be of type T** (at least), or it isn't
+    -- interesting.
+    LoadInst _ val@Value { valueType = TypePointer (TypePointer _) } _ -> do
+      assertFact followEdges [ LLVMValue v, LLVMValue val ] `debug` "Asserted a loadInst fact"
     _ -> return ()
 
   -- A relation to mark formal parameters as such (so that they can be
