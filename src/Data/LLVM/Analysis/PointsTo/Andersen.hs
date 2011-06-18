@@ -10,71 +10,53 @@ import Debug.Trace
 debug = flip trace
 
 data LogicValue = LLVMValue !Value
+                | MemLoc !Value
                 | IndexValue !Int
                 deriving (Show, Eq, Ord)
 
 instance Hashable LogicValue where
   hash (LLVMValue v) = hash v
+  hash (MemLoc v) = hash v
   hash (IndexValue i) = hash i
 
 toLLVMValue :: LogicValue -> Value
 toLLVMValue (LLVMValue v) = v
+toLLVMValue (MemLoc v) = v
 toLLVMValue _ = error "Non-llvm value, corrupt domains"
 
 analysis :: Module -> Datalog LogicValue (QueryResult LogicValue)
 analysis m = do
   values <- newDomain "values"
+  locations <- newDomain "locations"
   index <- newDomain "integer"
+
+  initialRef <- newRelation "initialRef" [ values, locations ]
 
   storeValToDst <- newRelation "storeValToDst" [ values, values ]
   loadValAtLoc <- newRelation "loadValAtLoc" [ values, values ]
+  pointsTo <- newRelation "pointsTo" [ values, locations ]
+  memLoc <- newRelation "memLoc" [ locations, locations ]
 
-  -- pointsToEdge(a, b) is a fact that means that everything that a
-  -- points to gets an edge to everything b points to.  This is equivalent
-  -- to: Store b a
---  pointsToEdge <- newRelation "pointsToEdge" [ values, values ]
 
-  -- followEdges(dst, val) is a fact that means that the points-to set
-  -- of dst is the set of values that can be pointed to by anything in
-  -- the points-to set of val.
-  -- equivSet <- newRelation "equivSet" [ values, values ]
+  [ v1, v2, h1, h2 ] <- mapM newLogicVar [ "v1", "v2", "h1", "h2" ]
 
-  pointsTo <- newRelation "pointsTo" [ values, values ]
+  extractFacts (storeValToDst, loadValAtLoc, initialRef) m
 
-  [ dst, val, loc, a, b, c ] <- mapM newLogicVar [ "dst", "val", "loc", "a", "b", "c" ]
-
-  extractFacts (storeValToDst, loadValAtLoc, undefined) m
-
-  assertRule pointsTo [ a, b ] [ rel storeValToDst [ val, dst ]
-                               , rel pointsTo [ dst, a ]
-                               , rel pointsTo [ val, b ]
+  assertRule pointsTo [ v1, h1 ] [ rel initialRef [ v1, h1 ] ]
+  assertRule pointsTo [ v2, h2 ] [ rel loadValAtLoc [ v2, v1 ]
+                                 , rel pointsTo [ v1, h1 ]
+                                 , rel memLoc [ h1, h2 ]
+                                 ]
+  assertRule memLoc [ h1, h2 ] [ rel storeValToDst [ v2, v1 ]
+                               , rel pointsTo [ v1, h1 ]
+                               , rel pointsTo [ v2, h2 ]
                                ]
-  assertRule pointsTo [ a, b ] [ rel loadValAtLoc [ val, loc ]
-                               , rel pointsTo [ val, a ]
-                               , rel pointsTo [ loc, c ]
-                               , rel pointsTo [ c, b ]
-                               ]
+  assertRule pointsTo [ v1, h2 ] [ rel storeValToDst [ v2, v1 ]
+                                 , rel pointsTo [ v2, h2 ]
+                                 ]
 
-  -- Simple case of p = &a
-  -- assertRule pointsTo [ a, b ] [ rel pointsToEdge [ a, b ] ]
-  -- assertRule pointsTo [ a, b ] [ rel equivSet [ a, c ]
-  --                              , rel pointsTo [ c, b ]
-  --                              ]
-  -- assertRule pointsTo [ a, b ] [ rel p
-  -- assertRule pointsTo [ a, b ] [ rel pointsTo [ c, d ]
-  --                              , rel pointsTo [ c, b ]
-  --                              , rel pointsTo [ a, c ]
-  --                              ]
-  -- assertRule pointsTo [ a, b ] [ rel pointsTo [ b, c ]
-  --                              , rel pointsTo [ a, d ]
-  --                              , rel pointsTo [ d, c ]
-  --                              ]
-  -- [ va, vb, vc, vd ] <- mapM newLogicVar [ "va", "vb", "loadVal", "RefdVar" ]
-  -- assertRule pointsTo [ va, vb ] [ rel followEdges [ vc, vd ]
-  --                              , rel pointsToEdge [ va, vc ]
-  --                              , rel pointsTo [ vb, vd ]
-  --                              ]
-  queryDatabase pointsTo [ a, b ]
+
+  queryDatabase pointsTo [ v1, h1 ]
 
 extractFacts :: (Relation, Relation, Relation) -> Module -> Datalog LogicValue ()
 extractFacts rels m = do
@@ -93,20 +75,26 @@ extractFunctionFacts rels v =
   mapM_ (extractValueFacts rels) (functionInstructions v)
 
 extractValueFacts :: (Relation, Relation, Relation) -> Value -> Datalog LogicValue ()
-extractValueFacts (storeValToDst, loadValAtLoc, _) v =
+extractValueFacts (storeValToDst, loadValAtLoc, initialRef) v =
   case valueContent v of
     -- Stores must have the value be of a pointer type, otherwise it
     -- is a store of a scalar and not interesting
     StoreInst _ val dst@Value { valueType = TypePointer _ } _ -> do
       assertFact storeValToDst [ LLVMValue val, LLVMValue dst ]
-      -- case valueContent val of
-      --   LoadInst _ _ _ -> return ()
-      --   _ -> do
-      --     assertFact pointsToMemLoc [ LLVMValue val ] `debug` "Asserted a memLoc fact"
+      case valueContent val of
+        Argument _ -> assertFact initialRef [ LLVMValue val, MemLoc val ]
+        GlobalDeclaration {} -> assertFact initialRef [ LLVMValue val, MemLoc val ]
+        Function {} -> assertFact initialRef [ LLVMValue val, MemLoc val ]
+        _ -> return ()
     -- Likewise, loads must be of type T** (at least), or it isn't
     -- interesting.
     LoadInst _ loc@Value { valueType = TypePointer _ } _ -> do
       assertFact loadValAtLoc [ LLVMValue v, LLVMValue loc ]
+      case valueContent loc of
+        Argument _ -> assertFact initialRef [ LLVMValue loc, MemLoc loc ]
+        GlobalDeclaration {} -> assertFact initialRef [ LLVMValue loc, MemLoc loc ]
+        Function {} -> assertFact initialRef [ LLVMValue loc, MemLoc loc ]
+        _ -> return ()
     _ -> return ()
 
   -- A relation to mark formal parameters as such (so that they can be
