@@ -24,6 +24,7 @@ library
   hs-source-dirs: src
   exposed-modules: Data.LLVM,
                    Data.LLVM.Analysis.Dataflow,
+                   Data.LLVM.Analysis.PointsTo,
                    Data.LLVM.Analysis.PointsTo.Andersen,
                    Data.LLVM.CFG,
                    Data.LLVM.Types,
@@ -70,37 +71,47 @@ test-suite ParserTests
   build-depends: llvm-analysis, base > 3 && < 5,
                  HUnit, test-framework, test-framework-hunit
 
-executable ParserDriver
+test-suite AndersenTests
   default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5, unordered-containers
-
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: TestDriver.hs
+  type: exitcode-stdio-1.0
+  main-is: AndersenTest.hs
   hs-source-dirs: tests
-  default-extensions: OverloadedStrings
+  build-depends: llvm-analysis,
+                 base > 3 && < 5, filemanip >= 0.3.5.2,
+                 process, directory, filepath, containers,
+                 HUnit, test-framework, test-framework-hunit
 
-executable DumpArguments
-  default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5
+-- executable ParserDriver
+--   default-language: Haskell2010
+--   build-depends: llvm-analysis, base > 3 && < 5, unordered-containers
 
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: DumpArguments.hs
-  hs-source-dirs: tests
+--   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: TestDriver.hs
+--   hs-source-dirs: tests
+--   default-extensions: OverloadedStrings
 
-executable NullabilityAnalysis
-  default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5, containers, lattices
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: NullabilityAnalysis.hs
-  hs-source-dirs: tests
+-- executable DumpArguments
+--   default-language: Haskell2010
+--   build-depends: llvm-analysis, base > 3 && < 5
 
-executable PTAnalysis
-  default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5, containers, datalog
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: PointsTo.hs
-  hs-source-dirs: tests
+--   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: DumpArguments.hs
+--   hs-source-dirs: tests
+
+-- executable NullabilityAnalysis
+--   default-language: Haskell2010
+--   build-depends: llvm-analysis, base > 3 && < 5, containers, lattices
+--   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: NullabilityAnalysis.hs
+--   hs-source-dirs: tests
+
+-- executable PTAnalysis
+--   default-language: Haskell2010
+--   build-depends: llvm-analysis, base > 3 && < 5, containers, datalog
+--   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: PointsTo.hs
+--   hs-source-dirs: tests

@@ -1,14 +1,33 @@
-module Data.LLVM.Analysis.PointsTo.Andersen ( analysis, toLLVMValue ) where
+module Data.LLVM.Analysis.PointsTo.Andersen (
+  -- * Types
+  AndersenAnalysis,
+  -- * Constructor
+  runAndersenAnalysis
+  ) where
+--  analysis, toLLVMValue ) where
 
 import Data.Hashable
+import Data.Set ( Set )
+import qualified Data.Set as S
 import Language.Datalog
 
 import Data.LLVM
+import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Types
 
-import Debug.Trace
-debug = flip trace
+-- | The wrapper around the result of an Andersen's analysis.  It is
+-- an instance of the 'PointsToAnalysis' typeclass and is intended to
+-- be used through that interface.
+data AndersenAnalysis = AndersenAnalysis (QueryResult LogicValue)
 
+instance PointsToAnalysis AndersenAnalysis where
+  mayAlias = andersenMayAlias
+  pointsTo = andersenPointsTo
+
+-- | A wrapper type to shove values of different types into the
+-- Datalog engine.  MemLoc serves to mark certain values as pointing
+-- to memory locations.  It basically seeds the analysis with initial
+-- points-to information.
 data LogicValue = LLVMValue !Value
                 | MemLoc !Value
                 | IndexValue !Int
@@ -19,13 +38,16 @@ instance Hashable LogicValue where
   hash (MemLoc v) = hash v
   hash (IndexValue i) = hash i
 
+-- | Extract an LLVM 'Value' from a LogicValue
 toLLVMValue :: LogicValue -> Value
 toLLVMValue (LLVMValue v) = v
 toLLVMValue (MemLoc v) = v
 toLLVMValue _ = error "Non-llvm value, corrupt domains"
 
-analysis :: Module -> Datalog LogicValue (QueryResult LogicValue)
-analysis m = do
+-- | The actual definition of Andersen's points-to analysis.  It takes
+-- a whole 'Module' from which it extracts facts.
+andersen :: Module -> Datalog LogicValue (QueryResult LogicValue)
+andersen m = do
   values <- newDomain "values"
   locations <- newDomain "locations"
   index <- newDomain "integer"
@@ -34,7 +56,7 @@ analysis m = do
 
   storeValToDst <- newRelation "storeValToDst" [ values, values ]
   loadValAtLoc <- newRelation "loadValAtLoc" [ values, values ]
-  pointsTo <- newRelation "pointsTo" [ values, locations ]
+  pointsToR <- newRelation "pointsTo" [ values, locations ]
   memLoc <- newRelation "memLoc" [ locations, locations ]
 
 
@@ -42,27 +64,50 @@ analysis m = do
 
   extractFacts (storeValToDst, loadValAtLoc, initialRef) m
 
-  assertRule pointsTo [ v1, h1 ] [ rel initialRef [ v1, h1 ] ]
-  assertRule pointsTo [ v2, h2 ] [ rel loadValAtLoc [ v2, v1 ]
-                                 , rel pointsTo [ v1, h1 ]
+  assertRule pointsToR [ v1, h1 ] [ rel initialRef [ v1, h1 ] ]
+  assertRule pointsToR [ v2, h2 ] [ rel loadValAtLoc [ v2, v1 ]
+                                 , rel pointsToR [ v1, h1 ]
                                  , rel memLoc [ h1, h2 ]
                                  ]
   assertRule memLoc [ h1, h2 ] [ rel storeValToDst [ v2, v1 ]
-                               , rel pointsTo [ v1, h1 ]
-                               , rel pointsTo [ v2, h2 ]
+                               , rel pointsToR [ v1, h1 ]
+                               , rel pointsToR [ v2, h2 ]
                                ]
-  assertRule pointsTo [ v1, h2 ] [ rel storeValToDst [ v2, v1 ]
-                                 , rel pointsTo [ v2, h2 ]
+  assertRule pointsToR [ v1, h2 ] [ rel storeValToDst [ v2, v1 ]
+                                 , rel pointsToR [ v2, h2 ]
                                  ]
 
 
-  queryDatabase pointsTo [ v1, h1 ]
+  queryDatabase pointsToR [ v1, h1 ]
+
+-- | Run the points-to analysis and return an object that is an
+-- instance of PointsToAnalysis, which can be used to query the
+-- results.
+runAndersenAnalysis :: Module -> AndersenAnalysis
+runAndersenAnalysis m = AndersenAnalysis $ evalDatalog (andersen m)
+
+andersenMayAlias :: AndersenAnalysis -> Value -> Value -> Bool
+andersenMayAlias a v1 v2 =
+  (andersenPointsTo a v1 `S.intersection` andersenPointsTo a v2) /= S.empty
+
+andersenPointsTo :: AndersenAnalysis -> Value -> Set Value
+andersenPointsTo (AndersenAnalysis res) v = foldr buildRes S.empty rawVals
+  where
+    vres = restrictResults res [ (0, LLVMValue v) ]
+    -- ^ Restrict the results to just those we are interested in
+    -- (things v points to)
+    rawVals = allResults vres
+    -- | Due to some quirks (that may be worked out eventually),
+    -- values have a phantom points-to edge to themselves.  Just
+    -- ignore those when returning results (case 2 below).
+    buildRes [ _, target ] s = case v == toLLVMValue target of
+      False -> S.insert (toLLVMValue target) s
+      True -> s
+    buildRes _ _ = error "Invalid points-to relation arity"
 
 extractFacts :: (Relation, Relation, Relation) -> Module -> Datalog LogicValue ()
 extractFacts rels m = do
   mapM_ (extractFunctionFacts rels) (moduleFunctions m)
-
-
 
 functionInstructions :: Value -> [Value]
 functionInstructions Value { valueContent = f@Function {} } =
@@ -97,42 +142,3 @@ extractValueFacts (storeValToDst, loadValAtLoc, initialRef) v =
         _ -> return ()
     _ -> return ()
 
-  -- A relation to mark formal parameters as such (so that they can be
-  -- matched up to actual arguments during inference).
-  --
-  -- Function, Index, Formal
-  --formalParam <- newRelation "formalParam" [ values, index, values ]
-
-  -- The helper relation to mark actual arguments so that they can be
-  -- easily unified with formals.
-  --
-  -- Function, Index, Actual
-  --actualArg <- newRelation "actualArg" [ values, index, values ]
-
-  -- Helper to wire up return edges in the points-to graph.
-  --
-  -- Function, Value
-  --calleeReturn <- newRelation "calleeReturn" [ values, values ]
-
-  -- The other helper to wire up return edges (caller side).
-  --
-  -- Function, Value (result of call)
-  --callerReturn <- newRelation "callerReturn" [ values, values ]
-
-  -- -- Case 1: p = &a
-  -- directEdge <- newRelation "directEdge" [ values, values ]
-
-  -- -- Case 2: p = q
-  -- copyPtr <- newRelation "copyPointer" [ values, values ]
-
-  -- -- Case 3: p = *r
-  -- storeDeref <- newRelation "storeDereference" [ values, values ]
-
-  -- -- Case 4: *p = &a
-  -- derefStoreDirect <- newRelation "dereferenceStoreDirect" [ values, values ]
-
-  -- -- Case 5: *p = q
-  -- derefCopyPtr <- newRelation "derefereceCopyPointer" [ values, values ]
-
-  -- -- Case 6: *p = *q
-  -- derefCopyDeref <- newRelation "dereferenceCopyDereference" [ values, values ]
