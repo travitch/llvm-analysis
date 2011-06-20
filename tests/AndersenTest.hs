@@ -34,7 +34,6 @@ buildModule inputFile =
     openTempBitcodeFile = do
       let fname = replaceExtension inputFile ".bc"
       tmpDir <- getTemporaryDirectory
-      printf "Opening a tmp file %s in %s" (takeFileName fname) tmpDir
       -- fname has some leading directories on it - drop them when opening the temp file.
       openBinaryTempFile tmpDir (takeFileName fname)
     buildModule' (fp, h) = do
