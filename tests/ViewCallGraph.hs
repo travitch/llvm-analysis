@@ -17,6 +17,10 @@ main = do
   _ <- getChar
 
   let (CallGraph g) = cg
-      dg = graphToDot nonClusteredParams g
+      params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
+                                  , fmtEdge = \(_,_,l) -> [toLabel l]
+                                  }
+
+      dg = graphToDot params g
   dotrepr <- prettyPrint dg
   putStrLn dotrepr

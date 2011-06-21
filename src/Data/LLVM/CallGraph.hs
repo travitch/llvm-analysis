@@ -89,7 +89,7 @@ data CallGraph = CallGraph CGType
 -- those when adding indirect edges.
 mkCallGraph :: (PointsToAnalysis a) => Module -> a -> String -> CallGraph
 mkCallGraph m pta entryPoint =
-  CallGraph $ mkGraph allNodes allEdges
+  CallGraph $ mkGraph allNodes (unique allEdges)
   where
     allNodes = concat [ knownNodes, unknownNodes, externNodes ]
     (allEdges, unknownNodes) = buildEdges pta funcs
@@ -104,6 +104,10 @@ mkCallGraph m pta entryPoint =
 
     funcs = moduleFunctions m
 
+unique :: (Ord a) => [a] -> [a]
+unique = S.toList . S.fromList
+
+-- | This is the ID for the single "Unknown function" call graph node.
 unknownNodeId :: Node
 unknownNodeId = -100
 
