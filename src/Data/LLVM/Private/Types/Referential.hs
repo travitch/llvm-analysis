@@ -1,5 +1,3 @@
-{-# LANGUAGE StandaloneDeriving #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Private.Types.Referential (
   Type(..),
   UniqueId,
@@ -22,13 +20,6 @@ import Text.Printf
 import Data.LLVM.Private.Types.Attributes
 import Data.LLVM.Private.Types.Dwarf
 import Data.LLVM.Private.Types.Identifiers
-
-deriving instance Ord DW_LANG
-deriving instance Ord DW_VIRTUALITY
-deriving instance Ord DW_ATE
-deriving instance Ord DW_TAG
-deriving instance Ord DW_VAR_TAG
-
 
 -- | This is the version of LLVM's debug information that this library
 -- supports.
