@@ -1,5 +1,7 @@
 import System.Environment ( getArgs )
 
+import Data.GraphViz
+
 import Data.LLVM
 import Data.LLVM.CallGraph
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
@@ -13,4 +15,8 @@ main = do
       cg = mkCallGraph m aa ""
   viewCG cg
   _ <- getChar
-  putStrLn "foo"
+
+  let (CallGraph g) = cg
+      dg = graphToDot nonClusteredParams g
+  dotrepr <- prettyPrint dg
+  putStrLn dotrepr

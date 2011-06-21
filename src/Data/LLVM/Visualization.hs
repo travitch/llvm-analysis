@@ -8,11 +8,18 @@ import Data.LLVM.CallGraph
 
 viewCFG :: CFG -> IO ()
 viewCFG cfg = do
-  preview (cfgGraph cfg)
-  let dg = graphToDot nonClusteredParams (cfgGraph cfg)
-  s <- prettyPrint dg
-  putStrLn s
-  putStrLn "\n\n"
+  let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
+                                  , fmtEdge = \(_,_,l) -> [toLabel l]
+                                  }
+      dg = graphToDot params (cfgGraph cfg)
+  _ <- runGraphvizCanvas' dg Gtk
+  return ()
 
 viewCG :: CallGraph -> IO ()
-viewCG (CallGraph cg) = preview cg
+viewCG (CallGraph cg) = do
+  let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
+                                  , fmtEdge = \(_,_,l) -> [toLabel l]
+                                  }
+      dg = graphToDot params cg
+  _ <- runGraphvizCanvas' dg Gtk
+  return ()
