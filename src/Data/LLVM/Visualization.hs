@@ -16,10 +16,10 @@ viewCFG cfg = do
   return ()
 
 viewCG :: CallGraph -> IO ()
-viewCG (CallGraph cg) = do
+viewCG cg = do
   let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
                                   , fmtEdge = \(_,_,l) -> [toLabel l]
                                   }
-      dg = graphToDot params cg
+      dg = graphToDot params (callGraphRepr cg)
   _ <- runGraphvizCanvas' dg Gtk
   return ()

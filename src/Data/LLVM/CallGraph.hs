@@ -23,11 +23,13 @@
 -- Again, the more sophisticated callgraph is still pending.
 module Data.LLVM.CallGraph (
   -- * Types
-  CallGraph(..),
+  CallGraph,
   CallEdge(..),
   CallNode(..),
   -- * Constructor
-  mkCallGraph
+  mkCallGraph,
+  -- * Accessors
+  callGraphRepr
   ) where
 
 import Data.Graph.Inductive
@@ -79,6 +81,11 @@ instance Labellable CallEdge where
 -- | An opaque wrapper for the callgraph.  The nodes are functions and
 -- the edges are calls between them.
 data CallGraph = CallGraph CGType
+
+-- | Convert the CallGraph to an FGL graph that can be traversed,
+-- manipulated, or easily displayed with graphviz.
+callGraphRepr :: CallGraph -> CGType
+callGraphRepr (CallGraph g) = g
 
 -- | Build a call graph for the given 'Module' using a pre-computed
 -- points-to analysis.  The String parameter identifies the program
@@ -153,6 +160,8 @@ buildCallEdges pta caller Value { valueContent = c } = build' (getCallee c)
         GlobalAlias { globalAliasValue = aliasee } ->
           [(callerId, valueUniqueId aliasee, DirectCall)]
         ExternalFunction _ -> [(callerId, valueUniqueId calledFunc, DirectCall)]
+        -- Functions can be bitcasted before being called - trace
+        -- through those to find the underlying function
         BitcastInst bcv _ -> build' bcv
         _ -> let targets = S.toList $ pointsTo pta calledFunc
                  indirectEdges = map (\t -> (callerId, valueUniqueId t, IndirectCall)) targets

@@ -16,7 +16,7 @@ main = do
   viewCG cg
   _ <- getChar
 
-  let (CallGraph g) = cg
+  let g = callGraphRepr cg
       params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
                                   , fmtEdge = \(_,_,l) -> [toLabel l]
                                   }
