@@ -16,6 +16,7 @@
 -- not have the UnknownCall edge.  The preconditions for this will be:
 --
 -- * The 'Module' must have an entry point (otherwise it is a library)
+--
 -- * The function pointer must not be able to alias the result of a
 --   dlopen or similar call
 --
@@ -142,15 +143,18 @@ getCallee InvokeInst { invokeFunction = f } = f
 getCallee _ = error $ "Not a function in getCallee"
 
 buildCallEdges :: (PointsToAnalysis a) => a -> Value -> Value -> [LEdge CallEdge]
-buildCallEdges pta caller Value { valueContent = c } =
-  case valueContent callee of
-    Function {} -> [(callerId, valueUniqueId callee, DirectCall)]
-    GlobalAlias { globalAliasValue = aliasee } -> [(callerId, valueUniqueId aliasee, DirectCall)]
-    ExternalFunction _ -> [(callerId, valueUniqueId callee, DirectCall)]
-    _ -> let targets = S.toList $ pointsTo pta callee
-             indirectEdges = map (\t -> (callerId, valueUniqueId t, IndirectCall)) targets
-             unknownEdge = (callerId, unknownNodeId, UnknownCall)
-         in unknownEdge : indirectEdges
+buildCallEdges pta caller Value { valueContent = c } = build' (getCallee c)
   where
-    callee = getCallee c
     callerId = valueUniqueId caller
+    build' calledFunc =
+      case valueContent calledFunc of
+        Function {} ->
+          [(callerId, valueUniqueId calledFunc, DirectCall)]
+        GlobalAlias { globalAliasValue = aliasee } ->
+          [(callerId, valueUniqueId aliasee, DirectCall)]
+        ExternalFunction _ -> [(callerId, valueUniqueId calledFunc, DirectCall)]
+        BitcastInst bcv _ -> build' bcv
+        _ -> let targets = S.toList $ pointsTo pta calledFunc
+                 indirectEdges = map (\t -> (callerId, valueUniqueId t, IndirectCall)) targets
+                 unknownEdge = (callerId, unknownNodeId, UnknownCall)
+             in unknownEdge : indirectEdges
