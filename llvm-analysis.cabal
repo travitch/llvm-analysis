@@ -26,6 +26,7 @@ library
                    Data.LLVM.Analysis.Dataflow,
                    Data.LLVM.Analysis.PointsTo,
                    Data.LLVM.Analysis.PointsTo.Andersen,
+                   Data.LLVM.CallGraph,
                    Data.LLVM.CFG,
                    Data.LLVM.Types,
                    Data.LLVM.Visualization,
@@ -108,10 +109,18 @@ test-suite AndersenTests
 --   main-is: NullabilityAnalysis.hs
 --   hs-source-dirs: tests
 
--- executable PTAnalysis
---   default-language: Haskell2010
---   build-depends: llvm-analysis, base > 3 && < 5, containers, datalog
---   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
---   ghc-prof-options: -auto-all
---   main-is: PointsTo.hs
---   hs-source-dirs: tests
+executable PTAnalysis
+  default-language: Haskell2010
+  build-depends: llvm-analysis, base > 3 && < 5, containers
+  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+  ghc-prof-options: -auto-all
+  main-is: PointsTo.hs
+  hs-source-dirs: tests
+
+executable ViewCallGraph
+  default-language: Haskell2010
+  build-depends: llvm-analysis, base > 3 && < 5, containers
+  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+  ghc-prof-options: -auto-all
+  main-is: ViewCallGraph.hs
+  hs-source-dirs: tests

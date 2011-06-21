@@ -1,7 +1,2 @@
 fromList [ ("@p", fromList ["@a"])
-         , ("@a", fromList [])
-         , ("@b", fromList [])
-         , ("@q", fromList [])
-         , ("@pp", fromList [])
-         , ("@pq", fromList [])
          ]

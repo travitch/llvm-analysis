@@ -63,7 +63,9 @@ extractSummary :: Module -> AndersenAnalysis -> ExpectedResult
 extractSummary m a = foldr addInfo M.empty ptrs
   where
     ptrs = globalPointerVariables m ++ functionPointerParameters m
-    addInfo v r = M.insert (show $ fromJust $ valueName v) vals r
+    addInfo v r = case S.null vals of
+      True -> r
+      False -> M.insert (show $ fromJust $ valueName v) vals r
       where
         vals = S.map (show . fromJust . valueName) (pointsTo a v)
 

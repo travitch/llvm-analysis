@@ -11,11 +11,15 @@ module Data.LLVM.CFG (
 
 import Data.List ( foldl' )
 import Data.Graph.Inductive
+import Data.GraphViz
 import Text.Printf
 
 import Data.LLVM.Types
 
 type CFGType = Gr Value EdgeCondition
+
+instance Labellable EdgeCondition where
+  toLabel = (Label . StrLabel) . show
 
 -- | The control flow graph representation
 data CFG = CFG { cfgGraph :: CFGType

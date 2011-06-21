@@ -14,6 +14,7 @@ module Data.LLVM.Private.Types.Referential (
 
 import Data.ByteString.Char8 ( ByteString )
 import Data.Dwarf
+import Data.GraphViz
 import Data.Hashable
 import Data.Int
 import Text.Printf
@@ -65,7 +66,48 @@ data Type = TypeInteger !Int
           | TypePackedStruct [Type]
           | TypeNamed !String !Type
             -- ^ A wrapper for typedefs
-          deriving (Ord, Eq)
+
+instance Hashable Type where
+  hash (TypeInteger i) = 1 `combine` hash i
+  hash TypeFloat = 2
+  hash TypeDouble = 3
+  hash TypeFP128 = 4
+  hash TypeX86FP80 = 5
+  hash TypePPCFP128 = 6
+  hash TypeX86MMX = 7
+  hash TypeVoid = 8
+  hash TypeLabel = 9
+  hash TypeMetadata = 10
+  hash (TypeArray i t) = 11 `combine` hash i `combine` hash t
+  hash (TypeVector i t) = 12 `combine` hash i `combine` hash t
+  hash (TypeFunction r ts v) = 13 `combine` hash r `combine` hash ts `combine` hash v
+  hash TypeOpaque = 14
+  hash (TypePointer t) = 15 `combine` hash t
+  hash (TypeStruct ts) = 16 `combine` hash ts
+  hash (TypePackedStruct ts) = 17 `combine` hash ts
+  hash (TypeNamed s _) = 18 `combine` hash s
+
+instance Eq Type where
+  TypeInteger i1 == TypeInteger i2 = i1 == i2
+  TypeFloat == TypeFloat = True
+  TypeDouble == TypeDouble = True
+  TypeFP128 == TypeFP128 = True
+  TypeX86FP80 == TypeX86FP80 = True
+  TypePPCFP128 == TypePPCFP128 = True
+  TypeX86MMX == TypeX86MMX = True
+  TypeVoid == TypeVoid = True
+  TypeLabel == TypeLabel = True
+  TypeMetadata == TypeMetadata = True
+  TypeArray i1 t1 == TypeArray i2 t2 = i1 == i2 && t1 == t2
+  TypeVector i1 t1 == TypeVector i2 t2 = i1 == i2 && t1 == t2
+  TypeFunction r1 ts1 v1 == TypeFunction r2 ts2 v2 =
+    v1 == v2 && r1 == r2 && ts1 == ts2
+  TypeOpaque == TypeOpaque = True
+  TypePointer t1 == TypePointer t2 = t1 == t2
+  TypeStruct ts1 == TypeStruct ts2 = ts1 == ts2
+  TypePackedStruct ts1 == TypePackedStruct ts2 = ts1 == ts2
+  TypeNamed s1 _ == TypeNamed s2 _ = s1 == s2
+  _ == _ = False
 
 data MetadataT =
   MetaSourceLocation { metaSourceRow :: !Int32
@@ -220,6 +262,9 @@ maxInt = fromIntegral (maxBound :: Int)
 instance Hashable Value where
   hash Value { valueUniqueId = i } = fromIntegral $ (i `mod` maxInt)
 
+instance Labellable Value where
+  toLabel = (Label . StrLabel) . show . valueName
+
 -- Functions have parameters if they are not external
 data ValueT = Function { functionType :: Type
                        , functionParameters :: [Value] -- A list of arguments
@@ -369,7 +414,7 @@ data ValueT = Function { functionType :: Type
             | ConstantVector [Value]
             | ConstantValue ValueT
             | InlineAsm !ByteString !ByteString
-            deriving (Ord, Eq)
+            deriving (Eq)
 
 
 -- | Get the instructions for a BasicBlock.
