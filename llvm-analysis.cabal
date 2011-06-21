@@ -26,6 +26,7 @@ library
                    Data.LLVM.Analysis.Dataflow,
                    Data.LLVM.Analysis.PointsTo,
                    Data.LLVM.Analysis.PointsTo.Andersen,
+                   Data.LLVM.Analysis.PointsTo.TrivialFunction,
                    Data.LLVM.CallGraph,
                    Data.LLVM.CFG,
                    Data.LLVM.Types,

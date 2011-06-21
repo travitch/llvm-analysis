@@ -2,9 +2,8 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   -- * Types
   AndersenAnalysis,
   -- * Constructor
-  runAndersenAnalysis
+  runPointsToAnalysis
   ) where
---  analysis, toLLVMValue ) where
 
 import Data.Hashable
 import Data.List ( sort )
@@ -112,8 +111,8 @@ andersen m = do
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
 -- results.
-runAndersenAnalysis :: Module -> AndersenAnalysis
-runAndersenAnalysis m = AndersenAnalysis $ evalDatalog (andersen m)
+runPointsToAnalysis :: Module -> AndersenAnalysis
+runPointsToAnalysis m = AndersenAnalysis $ evalDatalog (andersen m)
 
 andersenMayAlias :: AndersenAnalysis -> Value -> Value -> Bool
 andersenMayAlias a v1 v2 =

@@ -93,7 +93,7 @@ functionPointerParameters m = concatMap pointerParams (moduleFunctions m)
 mkTest :: FilePath -> IO Test
 mkTest fp = do
   (m, ex) <- readInputAndExpected fp
-  let res = runAndersenAnalysis m
+  let res = runPointsToAnalysis m
       summary = extractSummary m res
   return $ testCase fp $ assertEqual fp ex summary
 
