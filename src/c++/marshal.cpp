@@ -9,6 +9,7 @@
 #include <vector>
 #include <tr1/unordered_map>
 
+#include <llvm/CallingConv.h>
 #include <llvm/LLVMContext.h>
 #include <llvm/Module.h>
 #include <llvm/Type.h>
@@ -78,6 +79,26 @@ VisibilityType decodeVisibility(const GlobalValue *gv) {
   }
 }
 
+CallingConvention decodeCallingConvention(CallingConv::ID cc) {
+  switch(cc) {
+  case CallingConv::C: return CC_C;
+  case CallingConv::Fast: return CC_FAST;
+  case CallingConv::Cold: return CC_COLD;
+  case CallingConv::GHC: return CC_GHC;
+  case CallingConv::X86_StdCall: return CC_X86_STDCALL;
+  case CallingConv::X86_FastCall: return CC_X86_FASTCALL;
+  case CallingConv::ARM_APCS: return CC_ARM_APCS;
+  case CallingConv::ARM_AAPCS: return CC_ARM_AAPCS;
+  case CallingConv::ARM_AAPCS_VFP: return CC_ARM_AAPCS_VFP;
+  case CallingConv::MSP430_INTR: return CC_MSP430_INTR;
+  case CallingConv::X86_ThisCall: return CC_X86_THISCALL;
+  case CallingConv::PTX_Kernel: return CC_PTX_KERNEL;
+  case CallingConv::PTX_Device: return CC_PTX_DEVICE;
+  case CallingConv::MBLAZE_INTR: return CC_MBLAZE_INTR;
+  case CallingConv::MBLAZE_SVOL: return CC_MBLAZE_SVOL;
+  }
+}
+
 void disposeCType(CType *ct) {
   if(ct->innerType)
     disposeCType(ct->innerType);
@@ -106,12 +127,12 @@ void disposeCValue(CValue *v) {
   // Do not dispose the type - that is taken care of in bulk in the
   // CModule disposal.  Same for MD.  Free local constant operands.
   free(v->name);
-  for(int i = 0; i < v->numOperands; ++i) {
-    if(isLocalConstant(v->operands[i]))
-      disposeCValue(v->operands[i]);
-  }
+  // for(int i = 0; i < v->numOperands; ++i) {
+  //   if(isLocalConstant(v->operands[i]))
+  //     disposeCValue(v->operands[i]);
+  // }
 
-  delete[] v->operands;
+  // delete[] v->operands;
   delete[] v->md;
 
   disposeData(v->valueTag, v->data);
@@ -266,8 +287,72 @@ CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
   return v;
 }
 
+CValue* translateArgument(CModule *m, const Argument *a) {
+  // Arguments are translated before instructions, so we don't really
+  // need to check to see if the argument exists already (it won't).
+  CValue *v = new CValue;
+  (*m->valueMap)[a] = v;
+
+  v->valueTag = VAL_ARGUMENT;
+  v->valueType = translateType(m, a->getType());
+  v->name = strdup(a->getNameStr().c_str());
+
+  // Metadata will be attached as instructions are processed.
+
+  CArgumentInfo *ai = new CArgumentInfo;
+  ai->hasSRet = a->hasStructRetAttr();
+  ai->hasByVal = a->hasByValAttr();
+  ai->hasNest = a->hasNestAttr();
+  ai->hasNoAlias = a->hasNoAliasAttr();
+  ai->hasNoCapture = a->hasNoCaptureAttr();
+
+  v->data = (void*)ai;
+
+  return v;
+}
+
+CValue* translateInstruction(CModule *m, const Instruction *i) {
+  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(i);
+  if(it != m->valueMap->end())
+    return it->second;
+
+  CValue *v = new CValue;
+
+  return v;
+}
+
+CValue* translateBasicBlock(CModule *m, const BasicBlock *bb) {
+  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(bb);
+  if(it != m->valueMap->end())
+    return it->second;
+
+  CValue *v = new CValue;
+  (*m->valueMap)[bb] = v;
+
+  v->valueTag = VAL_BASICBLOCK;
+  v->valueType = translateType(m, bb->getType());
+  v->name = strdup(bb->getNameStr().c_str());
+
+  // No metadata for these
+
+  CBasicBlockInfo* bbi = new CBasicBlockInfo;
+  bbi->blockLen = bb->size();
+  bbi->instructions = new CValue*[bbi->blockLen];
+
+  int idx = 0;
+  for(BasicBlock::const_iterator it = bb->begin(),
+        ed = bb->end(); it != ed; ++it)
+  {
+    bbi->instructions[idx++] = translateInstruction(m, &*it);
+  }
+
+  v->data = (void*)bbi;
+
+  return v;
+}
+
 CValue* translateFunction(CModule *m, const Function *f) {
-unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(f);
+  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(f);
   if(it != m->valueMap->end())
     return it->second;
 
@@ -275,7 +360,41 @@ unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(f);
   (*m->valueMap)[f] = v;
 
   v->valueTag = VAL_FUNCTION;
+  v->valueType = translateType(m, f->getFunctionType());
+  v->name = strdup(f->getNameStr().c_str());
 
+  // FIXME: Get metadata from module
+
+  CGlobalInfo *gi = new CGlobalInfo;
+  if(f->hasSection())
+    gi->section = strdup(f->getSection().c_str());
+
+  gi->visibility = decodeVisibility(f);
+  gi->linkage = decodeLinkage(f);
+  gi->isExternal = f->isDeclaration();
+  gi->callingConvention = decodeCallingConvention(f->getCallingConv());
+  if(f->hasGC())
+    gi->gcName = strdup(f->getGC());
+
+  gi->argListLen = f->arg_size();
+  gi->arguments = new CValue*[f->arg_size()];
+  int idx = 0;
+  for(Function::const_arg_iterator it = f->arg_begin(),
+        ed = f->arg_end(); it != ed; ++it)
+  {
+    gi->arguments[idx++] = translateArgument(m, &*it);
+  }
+
+  gi->blockListLen = f->size();
+  gi->body = new CValue*[f->size()];
+  idx = 0;
+  for(Function::const_iterator it = f->begin(),
+        ed = f->end(); it != ed; ++it)
+  {
+    gi->body[idx++] = translateBasicBlock(m, &*it);
+  }
+
+  v->data = (void*)gi;
 
   return NULL;
 }

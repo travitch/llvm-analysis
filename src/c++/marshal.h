@@ -1,4 +1,22 @@
 
+enum CallingConvention {
+  CC_C,
+  CC_FAST,
+  CC_COLD,
+  CC_GHC,
+  CC_X86_STDCALL,
+  CC_X86_FASTCALL,
+  CC_ARM_APCS,
+  CC_ARM_AAPCS,
+  CC_ARM_AAPCS_VFP,
+  CC_MSP430_INTR,
+  CC_X86_THISCALL,
+  CC_PTX_KERNEL,
+  CC_PTX_DEVICE,
+  CC_MBLAZE_INTR,
+  CC_MBLAZE_SVOL
+};
+
 enum TypeTag {
   TYPE_VOID,
   TYPE_FLOAT,
@@ -97,6 +115,19 @@ enum VisibilityType {
 
 struct CValue;
 
+struct CArgumentInfo {
+  int hasSRet;
+  int hasByVal;
+  int hasNest;
+  int hasNoAlias;
+  int hasNoCapture;
+};
+
+struct CBasicBlockInfo {
+  CValue **instructions;
+  int blockLen;
+};
+
 struct CGlobalInfo {
   int isExternal; // Declaration
   int alignment;
@@ -110,6 +141,15 @@ struct CGlobalInfo {
 
   // Only for global aliases
   CValue *aliasee;
+
+  // Only for functions
+  CallingConvention callingConvention;
+  char *gcName;
+  CValue **arguments;
+  int argListLen;
+  CValue **body;
+  int blockListLen;
+  // FIXME: Add attributes
 };
 
 struct CValue {
@@ -117,8 +157,8 @@ struct CValue {
   CType *valueType;
   char *name;
   CMetadata **md;
-  int numOperands;
-  CValue **operands;
+  // int numOperands;
+  // CValue **operands;
 
   void *data;
 };
