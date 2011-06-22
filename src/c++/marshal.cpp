@@ -10,6 +10,7 @@
 #include <tr1/unordered_map>
 
 #include <llvm/CallingConv.h>
+#include <llvm/Instructions.h>
 #include <llvm/LLVMContext.h>
 #include <llvm/Module.h>
 #include <llvm/Type.h>
@@ -119,8 +120,53 @@ bool isLocalConstant(CValue *v) {
 }
 
 // FIXME:
+// Have to do the delete in this function since the pointer must be
+// cast to the correct type.
 void disposeData(ValueTag t, void* data) {
+  switch(t) {
+  case VAL_ARGUMENT:
+  {
+    CArgumentInfo *ai = (CArgumentInfo*)data;
+    delete ai;
+    return;
+  }
 
+  case VAL_BASICBLOCK:
+  {
+    CBasicBlockInfo *bbi = (CBasicBlockInfo*)data;
+
+    // The actual values are deleted from the valueMap
+    delete[] bbi->instructions;
+
+    delete bbi;
+    return;
+  }
+
+  case VAL_ALIAS:
+  case VAL_GLOBALVARIABLE:
+  {
+    CGlobalInfo *gi = (CGlobalInfo*)data;
+
+    free(gi->section);
+
+    delete gi;
+    return;
+  }
+
+  case VAL_FUNCTION:
+  {
+    CFunctionInfo *fi = (CFunctionInfo*)data;
+
+    free(fi->section);
+    free(fi->gcName);
+
+    delete[] fi->arguments;
+    delete[] fi->body;
+
+    delete fi;
+    return;
+  }
+  }
 }
 
 void disposeCValue(CValue *v) {
@@ -250,6 +296,8 @@ CType* translateType(CModule *m, const Type *t) {
   return nt;
 }
 
+CValue* translateValue(CModule *m, const Value *v);
+
 CValue* translateConstant(CModule *m, const Constant *c) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(c);
   if(it != m->valueMap->end())
@@ -311,12 +359,38 @@ CValue* translateArgument(CModule *m, const Argument *a) {
   return v;
 }
 
+void buildRetInst(CModule *m, CValue *v, const ReturnInst *ri) {
+  v->valueTag = VAL_RETINST;
+  v->valueType = translateType(m, ri->getType());
+  // Never has a name
+
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
+
+  if(Value* rv = ri->getReturnValue())
+  {
+    ii->numOperands = 1;
+    ii->operands = new CValue*[1];
+    ii->operands[0] = translateValue(m, rv);
+  }
+
+  // Otherwise, the data fields default to 0 as intended
+}
+
 CValue* translateInstruction(CModule *m, const Instruction *i) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(i);
   if(it != m->valueMap->end())
     return it->second;
 
   CValue *v = new CValue;
+  (*m->valueMap)[i] = v;
+
+  switch(i->getOpcode()) {
+  case Instruction::Ret:
+    buildRetInst(m, v, dynamic_cast<const ReturnInst*>(i));
+    break;
+
+  }
 
   return v;
 }
@@ -365,36 +439,36 @@ CValue* translateFunction(CModule *m, const Function *f) {
 
   // FIXME: Get metadata from module
 
-  CGlobalInfo *gi = new CGlobalInfo;
+  CFunctionInfo *fi = new CFunctionInfo;
   if(f->hasSection())
-    gi->section = strdup(f->getSection().c_str());
+    fi->section = strdup(f->getSection().c_str());
 
-  gi->visibility = decodeVisibility(f);
-  gi->linkage = decodeLinkage(f);
-  gi->isExternal = f->isDeclaration();
-  gi->callingConvention = decodeCallingConvention(f->getCallingConv());
+  fi->visibility = decodeVisibility(f);
+  fi->linkage = decodeLinkage(f);
+  fi->isExternal = f->isDeclaration();
+  fi->callingConvention = decodeCallingConvention(f->getCallingConv());
   if(f->hasGC())
-    gi->gcName = strdup(f->getGC());
+    fi->gcName = strdup(f->getGC());
 
-  gi->argListLen = f->arg_size();
-  gi->arguments = new CValue*[f->arg_size()];
+  fi->argListLen = f->arg_size();
+  fi->arguments = new CValue*[f->arg_size()];
   int idx = 0;
   for(Function::const_arg_iterator it = f->arg_begin(),
         ed = f->arg_end(); it != ed; ++it)
   {
-    gi->arguments[idx++] = translateArgument(m, &*it);
+    fi->arguments[idx++] = translateArgument(m, &*it);
   }
 
-  gi->blockListLen = f->size();
-  gi->body = new CValue*[f->size()];
+  fi->blockListLen = f->size();
+  fi->body = new CValue*[f->size()];
   idx = 0;
   for(Function::const_iterator it = f->begin(),
         ed = f->end(); it != ed; ++it)
   {
-    gi->body[idx++] = translateBasicBlock(m, &*it);
+    fi->body[idx++] = translateBasicBlock(m, &*it);
   }
 
-  v->data = (void*)gi;
+  v->data = (void*)fi;
 
   return NULL;
 }
@@ -406,6 +480,7 @@ CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
 
   CValue *v = new CValue;
   (*m->valueMap)[gv] = v;
+
   v->valueTag = VAL_GLOBALVARIABLE;
   v->valueType = translateType(m, gv->getType());
   if(gv->hasName())
@@ -429,6 +504,15 @@ CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   v->data = (void*)gi;
 
   return v;
+}
+
+CValue* translateValue(CModule *m, const Value *v) {
+  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(v);
+  if(it != m->valueMap->end())
+    return it->second;
+
+  // FIXME
+  return NULL;
 }
 
 extern "C" {

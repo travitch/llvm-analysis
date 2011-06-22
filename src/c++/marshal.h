@@ -63,6 +63,7 @@ struct CType {
 enum ValueTag {
   VAL_ARGUMENT,
   VAL_BASICBLOCK,
+  // Constants
   VAL_INLINEASM,
   VAL_BLOCKADDRESS,
   VAL_CONSTANTAGGREGATEZERO,
@@ -75,9 +76,7 @@ enum ValueTag {
   VAL_UNDEFVALUE,
   VAL_CONSTANTEXPR,
   // Insts
-  VAL_BINARYOPERATOR,
-  VAL_CALLINST,
-  VAL_CMPINST,
+  VAL_RETINST,
   // Globals
   VAL_FUNCTION,
   VAL_GLOBALVARIABLE,
@@ -128,6 +127,22 @@ struct CBasicBlockInfo {
   int blockLen;
 };
 
+struct CFunctionInfo {
+  int isExternal; // Declaration
+  int alignment;
+  VisibilityType visibility;
+  LinkageType linkage;
+  char *section;
+
+  CallingConvention callingConvention;
+  char *gcName;
+  CValue **arguments;
+  int argListLen;
+  CValue **body;
+  int blockListLen;
+  // FIXME: Add attributes
+};
+
 struct CGlobalInfo {
   int isExternal; // Declaration
   int alignment;
@@ -141,15 +156,11 @@ struct CGlobalInfo {
 
   // Only for global aliases
   CValue *aliasee;
+};
 
-  // Only for functions
-  CallingConvention callingConvention;
-  char *gcName;
-  CValue **arguments;
-  int argListLen;
-  CValue **body;
-  int blockListLen;
-  // FIXME: Add attributes
+struct CInstructionInfo {
+  CValue **operands;
+  int numOperands;
 };
 
 struct CValue {
@@ -157,8 +168,6 @@ struct CValue {
   CType *valueType;
   char *name;
   CMetadata **md;
-  // int numOperands;
-  // CValue **operands;
 
   void *data;
 };
