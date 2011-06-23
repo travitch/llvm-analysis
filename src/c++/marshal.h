@@ -1,33 +1,33 @@
-enum CmpPredicate {
-  FCMP_FALSE,
-  FCMP_OEQ,
-  FCMP_OGT,
-  FCMP_OGE,
-  FCMP_OLT,
-  FCMP_OLE,
-  FCMP_ONE,
-  FCMP_ORD,
-  FCMP_UNO,
-  FCMP_UEQ,
-  FCMP_UGT,
-  FCMP_UGE,
-  FCMP_ULT,
-  FCMP_ULE,
-  FCMP_UNE,
-  FCMP_TRUE,
-  ICMP_EQ,
-  ICMP_NE,
-  ICMP_UGT,
-  ICMP_UGE,
-  ICMP_ULT,
-  ICMP_ULE,
-  ICMP_SGT,
-  ICMP_SGE,
-  ICMP_SLT,
-  ICMP_SLE
-};
+typedef enum {
+  F_CMP_FALSE,
+  F_CMP_OEQ,
+  F_CMP_OGT,
+  F_CMP_OGE,
+  F_CMP_OLT,
+  F_CMP_OLE,
+  F_CMP_ONE,
+  F_CMP_ORD,
+  F_CMP_UNO,
+  F_CMP_UEQ,
+  F_CMP_UGT,
+  F_CMP_UGE,
+  F_CMP_ULT,
+  F_CMP_ULE,
+  F_CMP_UNE,
+  F_CMP_TRUE,
+  I_CMP_EQ,
+  I_CMP_NE,
+  I_CMP_UGT,
+  I_CMP_UGE,
+  I_CMP_ULT,
+  I_CMP_ULE,
+  I_CMP_SGT,
+  I_CMP_SGE,
+  I_CMP_SLT,
+  I_CMP_SLE
+} CmpPredicate;
 
-enum CallingConvention {
+typedef enum {
   CC_C,
   CC_FAST,
   CC_COLD,
@@ -43,9 +43,9 @@ enum CallingConvention {
   CC_PTX_DEVICE,
   CC_MBLAZE_INTR,
   CC_MBLAZE_SVOL
-};
+} CallingConvention;
 
-enum TypeTag {
+typedef enum {
   TYPE_VOID,
   TYPE_FLOAT,
   TYPE_DOUBLE,
@@ -63,7 +63,7 @@ enum TypeTag {
   TYPE_POINTER,
   TYPE_VECTOR,
   TYPE_NAMED
-};
+} TypeTag;
 
 typedef struct CType_t CType;
 
@@ -90,7 +90,7 @@ struct CType_t {
   char *name;
 };
 
-enum ValueTag {
+typedef enum {
   VAL_ARGUMENT,
   VAL_BASICBLOCK,
   // Constants
@@ -163,36 +163,36 @@ enum ValueTag {
   VAL_FUNCTION,
   VAL_GLOBALVARIABLE,
   VAL_ALIAS
-};
+} ValueTag;
 
 typedef struct {
 
 } CMetadata;
 
-enum LinkageType {
-  ExternalLinkage,
-  AvailableExternallyLinkage,
-  LinkOnceAnyLinkage,
-  LinkOnceODRLinkage,
-  WeakAnyLinkage,
-  WeakODRLinkage,
-  AppendingLinkage,
-  InternalLinkage,
-  PrivateLinkage,
-  LinkerPrivateLinkage,
-  LinkerPrivateWeakLinkage,
-  LinkerPrivateWeakDefAutoLinkage,
-  DLLImportLinkage,
-  DLLExportLinkage,
-  ExternalWeakLinkage,
-  CommonLinkage
-};
+typedef enum {
+  LTExternal,
+  LTAvailableExternally,
+  LTLinkOnceAny,
+  LTLinkOnceODR,
+  LTWeakAny,
+  LTWeakODR,
+  LTAppending,
+  LTInternal,
+  LTPrivate,
+  LTLinkerPrivate,
+  LTLinkerPrivateWeak,
+  LTLinkerPrivateWeakDefAuto,
+  LTDLLImport,
+  LTDLLExport,
+  LTExternalWeak,
+  LTCommon
+} LinkageType;
 
-enum VisibilityType {
-  DefaultVisibility,
-  HiddenVisibility,
-  ProtectedVisibility
-};
+typedef enum {
+  VisibilityDefault,
+  VisibilityHidden,
+  VisibilityProtected
+} VisibilityType;
 
 typedef struct CValue_t CValue;
 
@@ -366,9 +366,9 @@ extern "C" {
   const char* cmoduleDataLayout(CModule *m);
   const char* cmoduleIdentifier(CModule *m);
   const char* cmoduleTargetTriple(CModule *m);
+  const char* cmoduleInlineAsm(CModule *m);
   int cmoduleIsLittleEndian(CModule *m);
   int cmodulePointerSize(CModule *m);
-  const char* cmoduleInlineAsm(CModule *m);
   CValue** cmoduleGlobalVariables(CModule *m);
   CValue** cmoduleGlobalAliases(CModule *m);
   CValue** cmoduleFunctions(CModule *m);

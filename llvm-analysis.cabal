@@ -6,9 +6,10 @@ license-file: LICENSE
 author: Tristan Ravitch
 maintainer: travitch@cs.wisc.edu
 category: Development
-build-type: Simple
+build-type: Custom
 cabal-version: >=1.10
 stability: experimental
+tested-with: GHC == 7.0.3
 
 -- extra-source-files:
 -- description:
@@ -33,7 +34,8 @@ library
                    Data.LLVM.Visualization,
                    Data.LLVM.Private.Testing.Parser,
                    Data.LLVM.Private.Testing.Types
-  other-modules: Data.LLVM.Private.ForceModule,
+  other-modules: Data.LLVM.Private.C2HS,
+                 Data.LLVM.Private.ForceModule,
                  Data.LLVM.Private.Lexer,
                  Data.LLVM.Private.Parser,
                  Data.LLVM.Private.Parser.Attributes,
@@ -57,12 +59,16 @@ library
                  Data.LLVM.Private.Types.InternalMap,
                  Data.LLVM.Private.Types.Placeholder,
                  Data.LLVM.Private.Types.Referential,
-                 Data.LLVM.Private.UniqueId
+                 Data.LLVM.Private.UniqueId,
+                 Data.LLVM.Private.Unmarshal
 
-  build-tools: alex >= 2 && < 3
+  C-sources: src/c++/marshal.cpp
+
+  build-tools: alex >= 2 && < 3, c2hs
   default-extensions: OverloadedStrings
   ghc-options: -Wall -O -funbox-strict-fields
   ghc-prof-options: -auto-all
+  include-dirs: src
 
 test-suite ParserTests
   default-language: Haskell2010
@@ -118,10 +124,10 @@ test-suite AndersenTests
 --   main-is: PointsTo.hs
 --   hs-source-dirs: tests
 
-executable ViewCallGraph
-  default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5, containers, graphviz
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: ViewCallGraph.hs
-  hs-source-dirs: tests
+-- executable ViewCallGraph
+--   default-language: Haskell2010
+--   build-depends: llvm-analysis, base > 3 && < 5, containers, graphviz
+--   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: ViewCallGraph.hs
+--   hs-source-dirs: tests

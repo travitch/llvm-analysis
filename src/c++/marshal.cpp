@@ -119,32 +119,32 @@ static ValueTag decodeOpcode(unsigned opcode) {
 
 static CmpPredicate decodePredicate(CmpInst::Predicate p) {
   switch(p) {
-  case CmpInst::FCMP_FALSE: return FCMP_FALSE;
-  case CmpInst::FCMP_OEQ: return FCMP_OEQ;
-  case CmpInst::FCMP_OGT: return FCMP_OGT;
-  case CmpInst::FCMP_OGE: return FCMP_OGE;
-  case CmpInst::FCMP_OLT: return FCMP_OLT;
-  case CmpInst::FCMP_OLE: return FCMP_OLE;
-  case CmpInst::FCMP_ONE: return FCMP_ONE;
-  case CmpInst::FCMP_ORD: return FCMP_ORD;
-  case CmpInst::FCMP_UNO: return FCMP_UNO;
-  case CmpInst::FCMP_UEQ: return FCMP_UEQ;
-  case CmpInst::FCMP_UGT: return FCMP_UGT;
-  case CmpInst::FCMP_UGE: return FCMP_UGE;
-  case CmpInst::FCMP_ULT: return FCMP_ULT;
-  case CmpInst::FCMP_ULE: return FCMP_ULE;
-  case CmpInst::FCMP_UNE: return FCMP_UNE;
-  case CmpInst::FCMP_TRUE: return FCMP_TRUE;
-  case CmpInst::ICMP_EQ: return ICMP_EQ;
-  case CmpInst::ICMP_NE: return ICMP_NE;
-  case CmpInst::ICMP_UGT: return ICMP_UGT;
-  case CmpInst::ICMP_UGE: return ICMP_UGE;
-  case CmpInst::ICMP_ULT: return ICMP_ULT;
-  case CmpInst::ICMP_ULE: return ICMP_ULE;
-  case CmpInst::ICMP_SGT: return ICMP_SGT;
-  case CmpInst::ICMP_SGE: return ICMP_SGE;
-  case CmpInst::ICMP_SLT: return ICMP_SLT;
-  case CmpInst::ICMP_SLE: return ICMP_SLE;
+  case CmpInst::FCMP_FALSE: return F_CMP_FALSE;
+  case CmpInst::FCMP_OEQ: return F_CMP_OEQ;
+  case CmpInst::FCMP_OGT: return F_CMP_OGT;
+  case CmpInst::FCMP_OGE: return F_CMP_OGE;
+  case CmpInst::FCMP_OLT: return F_CMP_OLT;
+  case CmpInst::FCMP_OLE: return F_CMP_OLE;
+  case CmpInst::FCMP_ONE: return F_CMP_ONE;
+  case CmpInst::FCMP_ORD: return F_CMP_ORD;
+  case CmpInst::FCMP_UNO: return F_CMP_UNO;
+  case CmpInst::FCMP_UEQ: return F_CMP_UEQ;
+  case CmpInst::FCMP_UGT: return F_CMP_UGT;
+  case CmpInst::FCMP_UGE: return F_CMP_UGE;
+  case CmpInst::FCMP_ULT: return F_CMP_ULT;
+  case CmpInst::FCMP_ULE: return F_CMP_ULE;
+  case CmpInst::FCMP_UNE: return F_CMP_UNE;
+  case CmpInst::FCMP_TRUE: return F_CMP_TRUE;
+  case CmpInst::ICMP_EQ: return I_CMP_EQ;
+  case CmpInst::ICMP_NE: return I_CMP_NE;
+  case CmpInst::ICMP_UGT: return I_CMP_UGT;
+  case CmpInst::ICMP_UGE: return I_CMP_UGE;
+  case CmpInst::ICMP_ULT: return I_CMP_ULT;
+  case CmpInst::ICMP_ULE: return I_CMP_ULE;
+  case CmpInst::ICMP_SGT: return I_CMP_SGT;
+  case CmpInst::ICMP_SGE: return I_CMP_SGE;
+  case CmpInst::ICMP_SLT: return I_CMP_SLT;
+  case CmpInst::ICMP_SLE: return I_CMP_SLE;
   }
 
   ostringstream os;
@@ -179,22 +179,22 @@ static TypeTag decodeTypeTag(Type::TypeID t) {
 
 static LinkageType decodeLinkage(const GlobalValue *gv) {
   switch(gv->getLinkage()) {
-  case GlobalValue::ExternalLinkage: return ExternalLinkage;
-  case GlobalValue::AvailableExternallyLinkage: return AvailableExternallyLinkage;
-  case GlobalValue::LinkOnceAnyLinkage: return LinkOnceAnyLinkage;
-  case GlobalValue::LinkOnceODRLinkage: return LinkOnceODRLinkage;
-  case GlobalValue::WeakAnyLinkage: return WeakAnyLinkage;
-  case GlobalValue::WeakODRLinkage: return WeakODRLinkage;
-  case GlobalValue::AppendingLinkage: return AppendingLinkage;
-  case GlobalValue::InternalLinkage: return InternalLinkage;
-  case GlobalValue::PrivateLinkage: return PrivateLinkage;
-  case GlobalValue::LinkerPrivateLinkage: return LinkerPrivateLinkage;
-  case GlobalValue::LinkerPrivateWeakLinkage: return LinkerPrivateWeakLinkage;
-  case GlobalValue::LinkerPrivateWeakDefAutoLinkage: return LinkerPrivateWeakDefAutoLinkage;
-  case GlobalValue::DLLImportLinkage: return DLLImportLinkage;
-  case GlobalValue::DLLExportLinkage: return DLLExportLinkage;
-  case GlobalValue::ExternalWeakLinkage: return ExternalWeakLinkage;
-  case GlobalValue::CommonLinkage: return CommonLinkage;
+  case GlobalValue::ExternalLinkage: return LTExternal;
+  case GlobalValue::AvailableExternallyLinkage: return LTAvailableExternally;
+  case GlobalValue::LinkOnceAnyLinkage: return LTLinkOnceAny;
+  case GlobalValue::LinkOnceODRLinkage: return LTLinkOnceODR;
+  case GlobalValue::WeakAnyLinkage: return LTWeakAny;
+  case GlobalValue::WeakODRLinkage: return LTWeakODR;
+  case GlobalValue::AppendingLinkage: return LTAppending;
+  case GlobalValue::InternalLinkage: return LTInternal;
+  case GlobalValue::PrivateLinkage: return LTPrivate;
+  case GlobalValue::LinkerPrivateLinkage: return LTLinkerPrivate;
+  case GlobalValue::LinkerPrivateWeakLinkage: return LTLinkerPrivateWeak;
+  case GlobalValue::LinkerPrivateWeakDefAutoLinkage: return LTLinkerPrivateWeakDefAuto;
+  case GlobalValue::DLLImportLinkage: return LTDLLImport;
+  case GlobalValue::DLLExportLinkage: return LTDLLExport;
+  case GlobalValue::ExternalWeakLinkage: return LTExternalWeak;
+  case GlobalValue::CommonLinkage: return LTCommon;
   }
 
   ostringstream os;
@@ -204,9 +204,9 @@ static LinkageType decodeLinkage(const GlobalValue *gv) {
 
 static VisibilityType decodeVisibility(const GlobalValue *gv) {
   switch(gv->getVisibility()) {
-  case GlobalValue::DefaultVisibility: return DefaultVisibility;
-  case GlobalValue::HiddenVisibility: return HiddenVisibility;
-  case GlobalValue::ProtectedVisibility: return ProtectedVisibility;
+  case GlobalValue::DefaultVisibility: return VisibilityDefault;
+  case GlobalValue::HiddenVisibility: return VisibilityHidden;
+  case GlobalValue::ProtectedVisibility: return VisibilityProtected;
   }
 
   ostringstream os;

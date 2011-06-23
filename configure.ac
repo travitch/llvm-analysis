@@ -1,6 +1,8 @@
-AC_INIT([Haskell LLVM bindings], [0.4.0.3], [bos@serpentine.com], [llvm])
+AC_INIT([Haskell LLVM analysis framework], [0.1.0], [travitch@cs.wisc.edu], [llvm-analysis])
 
-AC_CONFIG_SRCDIR([LLVM/ExecutionEngine.hs])
+AC_LANG(C++)
+
+AC_CONFIG_SRCDIR([src/Data/LLVM.hs])
 
 AC_CONFIG_FILES([llvm.buildinfo])
 
@@ -24,10 +26,10 @@ AC_ARG_WITH(llvm_bindir,
   llvm_bindir="$withval",
   llvm_bindir="$llvm_prefix/bin")dnl
 
-AC_PATH_PROGS(llvm_config, [llvm-config-2.7 llvm-config],
+AC_PATH_PROGS(llvm_config, [llvm-config-2.9 llvm-config],
   [AC_MSG_ERROR(could not find llvm-config in $llvm_bindir)],
   ["$llvm_bindir:$PATH"])
-  
+
 dnl * Choose target platform
 dnl
 dnl We don't use the standard autoconf macros for this, but instead
@@ -91,22 +93,19 @@ done
 CPPFLAGS="$llvm_cppflags $CPPFLAGS $TARGET_CPPFLAGS"
 LDFLAGS="$llvm_ldflags $LDFLAGS $TARGET_LDFLAGS"
 
-AC_CHECK_HEADERS([llvm-c/Core.h], [],
-  [AC_MSG_ERROR(could not find LLVM C bindings)])
+AC_CHECK_HEADERS([llvm/Module.h], [],
+  [AC_MSG_ERROR(could not find LLVM headers)])
 
 # We have to link using the C++ compiler.
 CC=$CXX
 
 save_LIBS="$LIBS"
-LIBS="-lLLVMSupport -lLLVMSystem $LIBS"
 
-AC_CHECK_LIB(LLVMCore, LLVMModuleCreateWithName, [], [])
-if test "$ac_cv_lib_LLVMCore_LLVMModuleCreateWithName" = "no"; then
-  unset ac_cv_lib_LLVMCore_LLVMModuleCreateWithName
-  LIBS="-lLLVMSupport $save_LIBS"
-  AC_CHECK_LIB(LLVMCore, LLVMModuleCreateWithName, [],
-    [AC_MSG_ERROR(could not find LLVM C bindings)])
-fi
+AC_LINK_IFELSE(
+  [AC_LANG_PROGRAM([#include <llvm/Module.h>],
+    [llvm::Module *dummy])],
+  [LIBS="-lLLVM-2.9 $LIBS"] [HAVE_LLVM=1],
+  [AC_MSG_ERROR(["The llvm-2.9 shared library is not installed"])])
 
 AC_SUBST([llvm_version])
 AC_SUBST([llvm_cppflags])
