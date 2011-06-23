@@ -26,6 +26,36 @@ using namespace llvm;
 using std::string;
 using std::tr1::unordered_map;
 
+CmpPredicate decodePredicate(CmpInst::Predicate p) {
+  switch(p) {
+  case CmpInst::FCMP_FALSE: return FCMP_FALSE;
+  case CmpInst::FCMP_OEQ: return FCMP_OEQ;
+  case CmpInst::FCMP_OGT: return FCMP_OGT;
+  case CmpInst::FCMP_OGE: return FCMP_OGE;
+  case CmpInst::FCMP_OLT: return FCMP_OLT;
+  case CmpInst::FCMP_OLE: return FCMP_OLE;
+  case CmpInst::FCMP_ONE: return FCMP_ONE;
+  case CmpInst::FCMP_ORD: return FCMP_ORD;
+  case CmpInst::FCMP_UNO: return FCMP_UNO;
+  case CmpInst::FCMP_UEQ: return FCMP_UEQ;
+  case CmpInst::FCMP_UGT: return FCMP_UGT;
+  case CmpInst::FCMP_UGE: return FCMP_UGE;
+  case CmpInst::FCMP_ULT: return FCMP_ULT;
+  case CmpInst::FCMP_ULE: return FCMP_ULE;
+  case CmpInst::FCMP_UNE: return FCMP_UNE;
+  case CmpInst::FCMP_TRUE: return FCMP_TRUE;
+  case CmpInst::ICMP_EQ: return ICMP_EQ;
+  case CmpInst::ICMP_NE: return ICMP_NE;
+  case CmpInst::ICMP_UGT: return ICMP_UGT;
+  case CmpInst::ICMP_UGE: return ICMP_UGE;
+  case CmpInst::ICMP_ULT: return ICMP_ULT;
+  case CmpInst::ICMP_ULE: return ICMP_ULE;
+  case CmpInst::ICMP_SGT: return ICMP_SGT;
+  case CmpInst::ICMP_SGE: return ICMP_SGE;
+  case CmpInst::ICMP_SLT: return ICMP_SLT;
+  case CmpInst::ICMP_SLE: return ICMP_SLE;
+  }
+}
 
 TypeTag decodeTypeTag(Type::TypeID t) {
   switch(t) {
@@ -49,7 +79,6 @@ TypeTag decodeTypeTag(Type::TypeID t) {
 
   assert(false && "Unhandled type tag case");
 }
-
 
 LinkageType decodeLinkage(const GlobalValue *gv) {
   switch(gv->getLinkage()) {
@@ -166,7 +195,149 @@ void disposeData(ValueTag t, void* data) {
     delete fi;
     return;
   }
+
+  case VAL_RETINST:
+  case VAL_UBRANCHINST:
+  case VAL_CBRANCHINST:
+  case VAL_SWITCHINST:
+  case VAL_INDIRECTBRINST:
+  {
+    CInstructionInfo *ii = (CInstructionInfo*)data;
+    delete[] ii->operands;
+    delete ii;
+    return;
   }
+
+  case VAL_INVOKEINST:
+  case VAL_CALLINST:
+  {
+    CCallInfo *ci = (CCallInfo*)data;
+
+    delete[] ci->arguments;
+    delete ci;
+    return;
+  }
+
+  case VAL_ADDINST:
+  case VAL_FADDINST:
+  case VAL_SUBINST:
+  case VAL_FSUBINST:
+  case VAL_MULINST:
+  case VAL_FMULINST:
+  case VAL_UDIVINST:
+  case VAL_SDIVINST:
+  case VAL_FDIVINST:
+  case VAL_UREMINST:
+  case VAL_SREMINST:
+  case VAL_FREMINST:
+  case VAL_SHLINST:
+  case VAL_LSHRINST:
+  case VAL_ASHRINST:
+  case VAL_ANDINST:
+  case VAL_ORINST:
+  case VAL_XORINST:
+  {
+    CBinaryOpInfo *bi = (CBinaryOpInfo*)data;
+    delete bi;
+    return;
+  }
+
+  case VAL_ALLOCAINST:
+  case VAL_LOADINST:
+  {
+    CUnaryOpInfo *ui = (CUnaryOpInfo*)data;
+    delete ui;
+    return;
+  }
+
+  case VAL_STOREINST:
+  {
+    CStoreInfo *si = (CStoreInfo*)data;
+    delete si;
+    return;
+  }
+
+  case VAL_GETELEMENTPTRINST:
+  {
+    CGEPInfo *gi = (CGEPInfo*)data;
+    delete[] gi->indices;
+    delete gi;
+    return;
+  }
+
+
+  case VAL_TRUNCINST:
+  case VAL_ZEXTINST:
+  case VAL_SEXTINST:
+  case VAL_FPTOUIINST:
+  case VAL_FPTOSIINST:
+  case VAL_UITOFPINST:
+  case VAL_SITOFPINST:
+  case VAL_FPTRUNCINST:
+  case VAL_FPEXTINST:
+  case VAL_PTRTOINTINST:
+  case VAL_INTTOPTRINST:
+  case VAL_BITCASTINST:
+  {
+    CUnaryOpInfo *ui = (CUnaryOpInfo*)data;
+    delete ui;
+    return;
+  }
+
+  case VAL_ICMPINST:
+  case VAL_FCMPINST:
+  {
+    CCmpInfo *ci = (CCmpInfo*)data;
+    delete ci;
+    return;
+  }
+
+  case VAL_PHINODE:
+  {
+    CPHIInfo *pi = (CPHIInfo*)data;
+    delete[] pi->incomingValues;
+    delete[] pi->valueBlocks;
+    delete pi;
+    return;
+  }
+
+  case VAL_SELECTINST:
+  {
+    CInstructionInfo *ii = (CInstructionInfo*)data;
+    delete[] ii->operands;
+    delete ii;
+    return;
+  }
+
+  case VAL_VAARGINST:
+  {
+    CUnaryOpInfo *ui = (CUnaryOpInfo*)data;
+    delete ui;
+    return;
+  }
+
+  case VAL_EXTRACTELEMENTINST:
+  case VAL_INSERTELEMENTINST:
+  case VAL_SHUFFLEVECTORINST:
+  {
+    CInstructionInfo *ii = (CInstructionInfo*)data;
+    delete[] ii->operands;
+    delete ii;
+    return;
+  }
+
+  case VAL_EXTRACTVALUEINST:
+  case VAL_INSERTVALUEINST:
+  {
+    CInsExtValInfo *vi = (CInsExtValInfo*)data;
+    delete[] vi->indices;
+    delete vi;
+    return;
+  }
+
+  }
+
+  assert(false && "Unhandled cleanup case");
 }
 
 void disposeCValue(CValue *v) {
@@ -322,6 +493,8 @@ CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
   // FIXME: Get metadata
 
   CGlobalInfo *gi = new CGlobalInfo;
+  v->data = (void*)gi;
+
   gi->isExternal = ga->isDeclaration();
   gi->alignment = ga->getAlignment();
   gi->visibility = decodeVisibility(ga);
@@ -330,8 +503,6 @@ CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
     gi->section = strdup(ga->getSection().c_str());
 
   gi->aliasee = translateConstant(m, ga->getAliasee());
-
-  v->data = (void*)gi;
 
   return v;
 }
@@ -349,13 +520,13 @@ CValue* translateArgument(CModule *m, const Argument *a) {
   // Metadata will be attached as instructions are processed.
 
   CArgumentInfo *ai = new CArgumentInfo;
+  v->data = (void*)ai;
+
   ai->hasSRet = a->hasStructRetAttr();
   ai->hasByVal = a->hasByValAttr();
   ai->hasNest = a->hasNestAttr();
   ai->hasNoAlias = a->hasNoAliasAttr();
   ai->hasNoCapture = a->hasNoCaptureAttr();
-
-  v->data = (void*)ai;
 
   return v;
 }
@@ -443,6 +614,8 @@ void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
     v->name = strdup(ii->getNameStr().c_str());
 
   CCallInfo *ci = new CCallInfo;
+  v->data = (void*)ci;
+
   ci->calledValue = translateValue(m, ii->getCalledValue());
   ci->callingConvention = decodeCallingConvention(ii->getCallingConv());
   ci->hasSRet = ii->hasStructRetAttr();
@@ -463,6 +636,8 @@ void buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
     v->name = strdup(ii->getNameStr().c_str());
 
   CCallInfo *ci = new CCallInfo;
+  v->data = (void*)ci;
+
   ci->calledValue = translateValue(m, ii->getCalledValue());
   ci->callingConvention = decodeCallingConvention(ii->getCallingConv());
   ci->hasSRet = ii->hasStructRetAttr();
@@ -475,6 +650,164 @@ void buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
   }
 }
 
+void buildAllocaInst(CModule *m, CValue *v, const AllocaInst *ai) {
+  v->valueTag = VAL_ALLOCAINST;
+  v->valueType = translateType(m, ai->getType());
+  if(ai->hasName())
+    v->name = strdup(ai->getNameStr().c_str());
+
+  CUnaryOpInfo *io = new CUnaryOpInfo;
+  v->data = (void*)io;
+
+  io->val = translateValue(m, ai->getArraySize());
+  io->align = ai->getAlignment();
+}
+
+void buildLoadInst(CModule *m, CValue *v, const LoadInst *li) {
+  v->valueTag = VAL_LOADINST;
+  v->valueType = translateType(m, li->getType());
+  if(li->hasName())
+    v->name = strdup(li->getNameStr().c_str());
+
+  CUnaryOpInfo *io = new CUnaryOpInfo;
+  v->data = (void*)io;
+
+  io->val = translateValue(m, li->getPointerOperand());
+  io->isVolatile = li->isVolatile();
+  io->align = li->getAlignment();
+  io->addrSpace = li->getPointerAddressSpace();
+}
+
+void buildStoreInst(CModule *m, CValue *v, const StoreInst *si) {
+  v->valueTag = VAL_STOREINST;
+  v->valueType = translateType(m, si->getType());
+  if(si->hasName())
+    v->name = strdup(si->getNameStr().c_str());
+
+  CStoreInfo *i = new CStoreInfo;
+  v->data = (void*)i;
+
+  i->value = translateValue(m, si->getValueOperand());
+  i->pointer = translateValue(m, si->getPointerOperand());
+  i->addrSpace = si->getPointerAddressSpace();
+  i->align = si->getAlignment();
+  i->isVolatile = si->isVolatile();
+}
+
+void buildGEPInst(CModule *m, CValue *v, const GetElementPtrInst *i) {
+  v->valueTag = VAL_GETELEMENTPTRINST;
+  v->valueType = translateType(m, i->getType());
+  if(i->hasName())
+    v->name = strdup(i->getNameStr().c_str());
+
+  CGEPInfo *gi = new CGEPInfo;
+  v->data = (void*)gi;
+
+  gi->operand = translateValue(m, i->getPointerOperand());
+  gi->indexListLen = i->getNumIndices();
+  gi->indices = new CValue*[gi->indexListLen];
+  gi->inBounds = i->isInBounds();
+  gi->addrSpace = i->getPointerAddressSpace();
+
+  size_t idx = 0;
+  for(GetElementPtrInst::const_op_iterator it = i->idx_begin(),
+        ed = i->idx_end(); it != ed; ++it) {
+    gi->indices[idx++] = translateValue(m, it->get());
+  }
+}
+
+void buildCastInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
+  const CastInst *ci = dynamic_cast<const CastInst*>(i);
+  v->valueTag = t;
+  v->valueType = translateType(m, ci->getType());
+  if(ci->hasName())
+    v->name = strdup(ci->getNameStr().c_str());
+
+  CUnaryOpInfo *ui = new CUnaryOpInfo;
+  v->data = (void*)ui;
+
+  ui->val = translateValue(m, ci->getOperand(0));
+}
+
+void buildCmpInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
+  const CmpInst *ci = dynamic_cast<const CmpInst*>(i);
+  v->valueTag = t;
+  v->valueType = translateType(m, ci->getType());
+  if(ci->hasName())
+    v->name = strdup(ci->getNameStr().c_str());
+
+  CCmpInfo *cmp = new CCmpInfo;
+  v->data = (void*)cmp;
+
+  cmp->op1 = translateValue(m, ci->getOperand(0));
+  cmp->op2 = translateValue(m, ci->getOperand(1));
+  cmp->pred = decodePredicate(ci->getPredicate());
+}
+
+void buildPHINode(CModule *m, CValue *v, const PHINode* n) {
+  v->valueTag = VAL_PHINODE;
+  v->valueType = translateType(m, n->getType());
+  if(n->hasName())
+    v->name = strdup(n->getNameStr().c_str());
+
+  CPHIInfo *pi = new CPHIInfo;
+  v->data = (void*)pi;
+
+  pi->numIncomingValues = n->getNumIncomingValues();
+  pi->incomingValues = new CValue*[pi->numIncomingValues];
+  pi->valueBlocks = new CValue*[pi->numIncomingValues];
+
+  for(int i = 0; i < pi->numIncomingValues; ++i) {
+    pi->incomingValues[i] = translateValue(m, n->getIncomingValue(i));
+    pi->valueBlocks[i] = translateValue(m, n->getIncomingBlock(i));
+  }
+}
+
+void buildVAArgInst(CModule *m, CValue *v, const VAArgInst *vi) {
+  v->valueTag = VAL_VAARGINST;
+  v->valueType = translateType(m, vi->getType());
+  if(vi->hasName())
+    v->name = strdup(vi->getNameStr().c_str());
+
+  CUnaryOpInfo *ui = new CUnaryOpInfo;
+  v->data = (void*)ui;
+
+  ui->val = translateValue(m, vi->getPointerOperand());
+}
+
+void buildExtractValueInst(CModule *m, CValue *v, const ExtractValueInst *ei) {
+  v->valueTag = VAL_EXTRACTVALUEINST;
+  v->valueType = translateType(m, ei->getType());
+  if(ei->hasName())
+    v->name = strdup(ei->getNameStr().c_str());
+
+  CInsExtValInfo *vi = new CInsExtValInfo;
+  v->data = (void*)vi;
+
+  vi->aggregate = translateValue(m, ei->getAggregateOperand());
+  vi->numIndices = ei->getNumIndices();
+  vi->indices = new int[vi->numIndices];
+
+  std::copy(ei->idx_begin(), ei->idx_end(), vi->indices);
+}
+
+void buildInsertValueInst(CModule *m, CValue *v, const InsertValueInst *ii) {
+  v->valueTag = VAL_INSERTVALUEINST;
+  v->valueType = translateType(m, ii->getType());
+  if(ii->hasName())
+    v->name = strdup(ii->getNameStr().c_str());
+
+  CInsExtValInfo *vi = new CInsExtValInfo;
+  v->data = (void*)vi;
+
+  vi->aggregate = translateValue(m, ii->getAggregateOperand());
+  vi->val = translateValue(m, ii->getInsertedValueOperand());
+  vi->numIndices = ii->getNumIndices();
+  vi->indices = new int[vi->numIndices];
+
+  std::copy(ii->idx_begin(), ii->idx_end(), vi->indices);
+}
+
 CValue* translateInstruction(CModule *m, const Instruction *i) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(i);
   if(it != m->valueMap->end())
@@ -482,6 +815,8 @@ CValue* translateInstruction(CModule *m, const Instruction *i) {
 
   CValue *v = new CValue;
   (*m->valueMap)[i] = v;
+
+  // FIXME: Handle metadata here
 
   switch(i->getOpcode()) {
     // Terminator instructions
@@ -564,15 +899,118 @@ CValue* translateInstruction(CModule *m, const Instruction *i) {
     break;
 
     // Memory operations
-    //case Instruction::Alloca:
+  case Instruction::Alloca:
+    buildAllocaInst(m, v, dynamic_cast<const AllocaInst*>(i));
+    break;
 
+  case Instruction::Load:
+    buildLoadInst(m, v, dynamic_cast<const LoadInst*>(i));
+    break;
+
+  case Instruction::Store:
+    buildStoreInst(m, v, dynamic_cast<const StoreInst*>(i));
+    break;
+
+  case Instruction::GetElementPtr:
+    buildGEPInst(m, v, dynamic_cast<const GetElementPtrInst*>(i));
+    break;
 
     // Casts
+  case Instruction::Trunc:
+    buildCastInst(m, v, VAL_TRUNCINST, i);
+    break;
+
+  case Instruction::ZExt:
+    buildCastInst(m, v, VAL_ZEXTINST, i);
+    break;
+
+  case Instruction::SExt:
+    buildCastInst(m, v, VAL_SEXTINST, i);
+    break;
+
+  case Instruction::FPToUI:
+    buildCastInst(m, v, VAL_FPTOUIINST, i);
+    break;
+
+  case Instruction::FPToSI:
+    buildCastInst(m, v, VAL_FPTOSIINST, i);
+    break;
+
+  case Instruction::UIToFP:
+    buildCastInst(m, v, VAL_UITOFPINST, i);
+    break;
+
+  case Instruction::SIToFP:
+    buildCastInst(m, v, VAL_SITOFPINST, i);
+    break;
+
+  case Instruction::FPTrunc:
+    buildCastInst(m, v, VAL_FPTRUNCINST, i);
+    break;
+
+  case Instruction::FPExt:
+    buildCastInst(m, v, VAL_FPEXTINST, i);
+    break;
+
+  case Instruction::PtrToInt:
+    buildCastInst(m, v, VAL_PTRTOINTINST, i);
+    break;
+
+  case Instruction::IntToPtr:
+    buildCastInst(m, v, VAL_INTTOPTRINST, i);
+    break;
+
+  case Instruction::BitCast:
+    buildCastInst(m, v, VAL_BITCASTINST, i);
+    break;
 
     // Other instructions
+  case Instruction::ICmp:
+    buildCmpInst(m, v, VAL_ICMPINST, i);
+    break;
+
+  case Instruction::FCmp:
+    buildCmpInst(m, v, VAL_FCMPINST, i);
+    break;
+
+  case Instruction::PHI:
+    buildPHINode(m, v, dynamic_cast<const PHINode*>(i));
+    break;
+
   case Instruction::Call:
     buildCallInst(m, v, dynamic_cast<const CallInst*>(i));
     break;
+
+  case Instruction::Select:
+    buildSimpleInst(m, v, VAL_SELECTINST, i);
+    break;
+
+  case Instruction::VAArg:
+    buildVAArgInst(m, v, dynamic_cast<const VAArgInst*>(i));
+    break;
+
+  case Instruction::ExtractElement:
+    buildSimpleInst(m, v, VAL_EXTRACTELEMENTINST, i);
+    break;
+
+  case Instruction::InsertElement:
+    buildSimpleInst(m, v, VAL_INSERTELEMENTINST, i);
+    break;
+
+  case Instruction::ShuffleVector:
+    buildSimpleInst(m, v, VAL_SHUFFLEVECTORINST, i);
+    break;
+
+  case Instruction::ExtractValue:
+    buildExtractValueInst(m, v, dynamic_cast<const ExtractValueInst*>(i));
+    break;
+
+  case Instruction::InsertValue:
+    buildInsertValueInst(m, v, dynamic_cast<const InsertValueInst*>(i));
+    break;
+
+  default:
+    assert(false && "Unhandled instruction type");
   }
 
   return v;
@@ -623,6 +1061,8 @@ CValue* translateFunction(CModule *m, const Function *f) {
   // FIXME: Get metadata from module
 
   CFunctionInfo *fi = new CFunctionInfo;
+  v->data = (void*)fi;
+
   if(f->hasSection())
     fi->section = strdup(f->getSection().c_str());
 
@@ -651,9 +1091,7 @@ CValue* translateFunction(CModule *m, const Function *f) {
     fi->body[idx++] = translateBasicBlock(m, &*it);
   }
 
-  v->data = (void*)fi;
-
-  return NULL;
+  return v;
 }
 
 CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
@@ -695,6 +1133,11 @@ CValue* translateValue(CModule *m, const Value *v) {
     return it->second;
 
   // FIXME
+  //
+  // The majority of calls to this function will be resolved by the
+  // hash table.  Most of the rest will be resolved by translating a
+  // function or a constant.
+
   return NULL;
 }
 

@@ -1,3 +1,31 @@
+enum CmpPredicate {
+  FCMP_FALSE,
+  FCMP_OEQ,
+  FCMP_OGT,
+  FCMP_OGE,
+  FCMP_OLT,
+  FCMP_OLE,
+  FCMP_ONE,
+  FCMP_ORD,
+  FCMP_UNO,
+  FCMP_UEQ,
+  FCMP_UGT,
+  FCMP_UGE,
+  FCMP_ULT,
+  FCMP_ULE,
+  FCMP_UNE,
+  FCMP_TRUE,
+  ICMP_EQ,
+  ICMP_NE,
+  ICMP_UGT,
+  ICMP_UGE,
+  ICMP_ULT,
+  ICMP_ULE,
+  ICMP_SGT,
+  ICMP_SGE,
+  ICMP_SLT,
+  ICMP_SLE
+};
 
 enum CallingConvention {
   CC_C,
@@ -83,7 +111,6 @@ enum ValueTag {
                    // = value to match, op[2n+1] = dest for match
   VAL_INDIRECTBRINST, // op[0] = address, rest are possible dests
   VAL_INVOKEINST,
-  VAL_CALLINST,
   VAL_UNWINDINST,
   VAL_UNREACHABLEINST,
   VAL_ADDINST,
@@ -104,6 +131,33 @@ enum ValueTag {
   VAL_ANDINST,
   VAL_ORINST,
   VAL_XORINST,
+  VAL_ALLOCAINST,
+  VAL_LOADINST,
+  VAL_STOREINST,
+  VAL_GETELEMENTPTRINST,
+  VAL_TRUNCINST,
+  VAL_ZEXTINST,
+  VAL_SEXTINST,
+  VAL_FPTOUIINST,
+  VAL_FPTOSIINST,
+  VAL_UITOFPINST,
+  VAL_SITOFPINST,
+  VAL_FPTRUNCINST,
+  VAL_FPEXTINST,
+  VAL_PTRTOINTINST,
+  VAL_INTTOPTRINST,
+  VAL_BITCASTINST,
+  VAL_ICMPINST,
+  VAL_FCMPINST,
+  VAL_PHINODE,
+  VAL_CALLINST,
+  VAL_SELECTINST, // 0 = condition, 1 = trueval, 2 = falseval
+  VAL_VAARGINST,
+  VAL_EXTRACTELEMENTINST, // 0 = vector, 1 = index
+  VAL_INSERTELEMENTINST, // 0 = vector, 1 = value, 2 = index
+  VAL_SHUFFLEVECTORINST, // 0 = v1, 1 = v2, v3 = mask
+  VAL_EXTRACTVALUEINST,
+  VAL_INSERTVALUEINST,
   // Globals
   VAL_FUNCTION,
   VAL_GLOBALVARIABLE,
@@ -198,6 +252,50 @@ struct CBinaryOpInfo {
   // 2 == hasNoSignedWrap
   // 3 == both
   int flags;
+};
+
+struct CUnaryOpInfo {
+  CValue *val;
+  int align;
+
+  // Load
+  int isVolatile;
+  int addrSpace;
+};
+
+struct CStoreInfo {
+  CValue *value;
+  CValue *pointer;
+  int addrSpace;
+  int align;
+  int isVolatile;
+};
+
+struct CGEPInfo {
+  CValue *operand;
+  CValue **indices;
+  int indexListLen;
+  int inBounds;
+  int addrSpace;
+};
+
+struct CCmpInfo {
+  CValue *op1;
+  CValue *op2;
+  CmpPredicate pred;
+};
+
+struct CPHIInfo {
+  CValue **incomingValues;
+  CValue **valueBlocks;
+  int numIncomingValues;
+};
+
+struct CInsExtValInfo {
+  CValue *aggregate;
+  CValue *val; // only insert
+  int *indices;
+  int numIndices;
 };
 
 // Also for invoke
