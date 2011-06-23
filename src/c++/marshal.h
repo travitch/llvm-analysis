@@ -65,7 +65,9 @@ enum TypeTag {
   TYPE_NAMED
 };
 
-struct CType {
+typedef struct CType_t CType;
+
+struct CType_t {
   TypeTag typeTag;
   // For TypeInt, lengths of TypeArray and TypeVector
   unsigned long long size;
@@ -163,9 +165,9 @@ enum ValueTag {
   VAL_ALIAS
 };
 
-struct CMetadata {
+typedef struct {
 
-};
+} CMetadata;
 
 enum LinkageType {
   ExternalLinkage,
@@ -192,22 +194,22 @@ enum VisibilityType {
   ProtectedVisibility
 };
 
-struct CValue;
+typedef struct CValue_t CValue;
 
-struct CArgumentInfo {
+typedef struct {
   int hasSRet;
   int hasByVal;
   int hasNest;
   int hasNoAlias;
   int hasNoCapture;
-};
+} CArgumentInfo;
 
-struct CBasicBlockInfo {
+typedef struct {
   CValue **instructions;
   int blockLen;
-};
+} CBasicBlockInfo;
 
-struct CFunctionInfo {
+typedef struct {
   int isExternal; // Declaration
   int alignment;
   VisibilityType visibility;
@@ -221,9 +223,9 @@ struct CFunctionInfo {
   CValue **body;
   int blockListLen;
   // FIXME: Add attributes
-};
+} CFunctionInfo;
 
-struct CGlobalInfo {
+typedef struct {
   int isExternal; // Declaration
   int alignment;
   VisibilityType visibility;
@@ -236,14 +238,14 @@ struct CGlobalInfo {
 
   // Only for global aliases
   CValue *aliasee;
-};
+} CGlobalInfo;
 
-struct CInstructionInfo {
+typedef struct {
   CValue **operands;
   int numOperands;
-};
+} CInstructionInfo;
 
-struct CBinaryOpInfo {
+typedef struct {
   CValue *lhs;
   CValue *rhs;
   // 0 == no flags
@@ -251,54 +253,54 @@ struct CBinaryOpInfo {
   // 2 == hasNoSignedWrap
   // 3 == both
   int flags;
-};
+} CBinaryOpInfo;
 
-struct CUnaryOpInfo {
+typedef struct {
   CValue *val;
   int align;
 
   // Load
   int isVolatile;
   int addrSpace;
-};
+} CUnaryOpInfo;
 
-struct CStoreInfo {
+typedef struct {
   CValue *value;
   CValue *pointer;
   int addrSpace;
   int align;
   int isVolatile;
-};
+} CStoreInfo;
 
-struct CGEPInfo {
+typedef struct {
   CValue *operand;
   CValue **indices;
   int indexListLen;
   int inBounds;
   int addrSpace;
-};
+} CGEPInfo;
 
-struct CCmpInfo {
+typedef struct {
   CValue *op1;
   CValue *op2;
   CmpPredicate pred;
-};
+} CCmpInfo;
 
-struct CPHIInfo {
+typedef struct {
   CValue **incomingValues;
   CValue **valueBlocks;
   int numIncomingValues;
-};
+} CPHIInfo;
 
-struct CInsExtValInfo {
+typedef struct {
   CValue *aggregate;
   CValue *val; // only insert
   int *indices;
   int numIndices;
-};
+} CInsExtValInfo;
 
 // Also for invoke
-struct CCallInfo {
+typedef struct {
   CValue *calledValue;
   CValue **arguments;
   int argListLen;
@@ -311,39 +313,39 @@ struct CCallInfo {
   // Invoke only
   CValue *normalDest;
   CValue *unwindDest;
-};
+} CCallInfo;
 
-struct CInlineAsmInfo {
+typedef struct {
   char *asmString;
   char *constraintString;
-};
+} CInlineAsmInfo;
 
-struct CBlockAddrInfo {
+typedef struct {
   CValue *func;
   CValue *block;
-};
+} CBlockAddrInfo;
 
 // This is lossy but good enough for all practical purposes.
-struct CConstInt {
+typedef struct {
   long long int val;
-};
+} CConstInt;
 
-struct CConstFP {
+typedef struct {
   double val;
-};
+} CConstFP;
 
-struct CConstAggregate {
+typedef struct {
   CValue **constants;
   int numElements;
-};
+} CConstAggregate;
 
-struct CConstExprInfo {
+typedef struct {
   CValue **operands;
   int numOperands;
   ValueTag instrType;
-};
+} CConstExprInfo;
 
-struct CValue {
+struct CValue_t {
   ValueTag valueTag;
   CType *valueType;
   char *name;
@@ -351,3 +353,25 @@ struct CValue {
 
   void *data;
 };
+
+typedef struct CModule_t CModule;
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
+  void disposeCModule(CModule *m);
+  CModule* marshalLLVM(const char *filename);
+  int cmoduleIsError(CModule *m);
+  const char* cmoduleErrMsg(CModule *m);
+  const char* cmoduleDataLayout(CModule *m);
+  const char* cmoduleIdentifier(CModule *m);
+  const char* cmoduleTargetTriple(CModule *m);
+  int cmoduleIsLittleEndian(CModule *m);
+  int cmodulePointerSize(CModule *m);
+  const char* cmoduleInlineAsm(CModule *m);
+  CValue** cmoduleGlobalVariables(CModule *m);
+  CValue** cmoduleGlobalAliases(CModule *m);
+  CValue** cmoduleFunctions(CModule *m);
+#if defined(__cplusplus)
+}
+#endif

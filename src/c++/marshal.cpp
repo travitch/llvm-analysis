@@ -1,6 +1,8 @@
 #define __STDC_LIMIT_MACROS
 #define __STDC_CONSTANT_MACROS
 
+#include "marshal.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -22,14 +24,12 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/system_error.h>
 
-#include "marshal.h"
-
 using namespace llvm;
 using std::ostringstream;
 using std::string;
 using std::tr1::unordered_map;
 
-struct CModule {
+struct CModule_t {
   char *moduleIdentifier;
   char *moduleDataLayout;
   char *targetTriple;
@@ -318,6 +318,13 @@ static void disposeData(ValueTag t, void* data) {
     return;
   }
 
+  case VAL_UNWINDINST:
+  case VAL_UNREACHABLEINST:
+  {
+    // No data
+    return;
+  }
+
   case VAL_INVOKEINST:
   case VAL_CALLINST:
   {
@@ -445,6 +452,13 @@ static void disposeData(ValueTag t, void* data) {
     return;
   }
 
+  case VAL_BLOCKADDRESS:
+  {
+    CBlockAddrInfo *bi = (CBlockAddrInfo*)data;
+    delete bi;
+    return;
+  }
+
   case VAL_CONSTANTINT:
   {
     CConstInt *d = (CConstInt*)data;
@@ -494,14 +508,8 @@ static void disposeData(ValueTag t, void* data) {
 
 static void disposeCValue(CValue *v) {
   // Do not dispose the type - that is taken care of in bulk in the
-  // CModule disposal.  Same for MD.  Free local constant operands.
+  // CModule disposal.  Same for MD.
   free(v->name);
-  // for(int i = 0; i < v->numOperands; ++i) {
-  //   if(isLocalConstant(v->operands[i]))
-  //     disposeCValue(v->operands[i]);
-  // }
-
-  // delete[] v->operands;
   delete[] v->md;
 
   disposeData(v->valueTag, v->data);
@@ -1512,7 +1520,7 @@ extern "C" {
     delete m;
   }
 
-  CModule * marshall(const char * filename) {
+  CModule* marshalLLVM(const char * filename) {
     CModule *ret = new CModule;
     std::string errMsg;
     OwningPtr<MemoryBuffer> buffer;
@@ -1596,4 +1604,78 @@ extern "C" {
 
     return ret;
   }
+
+  int cmoduleIsError(CModule *m) {
+    return m->isError;
+  }
+
+  const char* cmoduleErrMsg(CModule *m) {
+    return m->errMsg;
+  }
+
+  const char* cmoduleDataLayout(CModule *m) {
+    return m->moduleDataLayout;
+  }
+
+  const char* cmoduleIdentifier(CModule *m) {
+    return m->moduleIdentifier;
+  }
+
+  const char* cmoduleTargetTriple(CModule *m) {
+    return m->targetTriple;
+  }
+
+  int cmoduleIsLittleEndian(CModule *m) {
+    return m->littleEndian;
+  }
+
+  int cmodulePointerSize(CModule *m) {
+    return m->pointerSize;
+  }
+
+  const char* cmoduleInlineAsm(CModule *m) {
+    return m->moduleInlineAsm;
+  }
+
+  CValue** cmoduleGlobalVariables(CModule *m) {
+    return m->globalVariables;
+  }
+
+  CValue** cmoduleGlobalAliases(CModule *m) {
+    return m->globalAliases;
+  }
+
+  CValue** cmoduleFunctions(CModule *m) {
+    return m->functions;
+  }
 }
+
+/*
+struct CModule {
+  char *moduleIdentifier;
+  char *moduleDataLayout;
+  char *targetTriple;
+  int littleEndian;
+  int pointerSize;
+  char *moduleInlineAsm;
+
+  CValue **globalVariables;
+  CValue **globalAliases;
+  CValue **functions;
+
+  int isError;
+  char *errMsg;
+
+  // Foreign callers do not need to access below this point.
+  Module* original;
+
+  // This map is actually state only for this translation code.  Since
+  // types have pointer equality in LLVM, every type will just be
+  // translated once to a heap-allocated CType.  On the Haskell side,
+  // each CType needs to be translated once (mapping the address of
+  // the CType to the translated version).
+  unordered_map<const Type*, CType*> *typeMap;
+  unordered_map<const Value*, CValue*> *valueMap;
+};
+
+ */
