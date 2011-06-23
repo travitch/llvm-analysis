@@ -2,9 +2,9 @@
 #define __STDC_CONSTANT_MACROS
 
 #include <algorithm>
-#include <cassert>
 #include <cstdlib>
 #include <cstring>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <tr1/unordered_map>
@@ -23,8 +23,37 @@
 #include "marshal.h"
 
 using namespace llvm;
+using std::ostringstream;
 using std::string;
 using std::tr1::unordered_map;
+
+struct CModule {
+  char *moduleIdentifier;
+  char *moduleDataLayout;
+  char *targetTriple;
+  int littleEndian;
+  int pointerSize;
+  char *moduleInlineAsm;
+
+  CValue **globalVariables;
+  CValue **globalAliases;
+  CValue **functions;
+
+  int isError;
+  char *errMsg;
+
+  // Foreign callers do not need to access below this point.
+  Module* original;
+
+  // This map is actually state only for this translation code.  Since
+  // types have pointer equality in LLVM, every type will just be
+  // translated once to a heap-allocated CType.  On the Haskell side,
+  // each CType needs to be translated once (mapping the address of
+  // the CType to the translated version).
+  unordered_map<const Type*, CType*> *typeMap;
+  unordered_map<const Value*, CValue*> *valueMap;
+};
+
 
 CmpPredicate decodePredicate(CmpInst::Predicate p) {
   switch(p) {
@@ -55,6 +84,10 @@ CmpPredicate decodePredicate(CmpInst::Predicate p) {
   case CmpInst::ICMP_SLT: return ICMP_SLT;
   case CmpInst::ICMP_SLE: return ICMP_SLE;
   }
+
+  ostringstream os;
+  os << "Unhandled comparison predicate: " << p;
+  throw os.str();
 }
 
 TypeTag decodeTypeTag(Type::TypeID t) {
@@ -77,7 +110,9 @@ TypeTag decodeTypeTag(Type::TypeID t) {
   case Type::VectorTyID: return TYPE_VECTOR;
   }
 
-  assert(false && "Unhandled type tag case");
+  ostringstream os;
+  os << "Unhandled type tag case: " << t;
+  throw os.str();
 }
 
 LinkageType decodeLinkage(const GlobalValue *gv) {
@@ -99,6 +134,10 @@ LinkageType decodeLinkage(const GlobalValue *gv) {
   case GlobalValue::ExternalWeakLinkage: return ExternalWeakLinkage;
   case GlobalValue::CommonLinkage: return CommonLinkage;
   }
+
+  ostringstream os;
+  os << "Unhandled linkage type: " << gv->getLinkage();
+  throw os.str();
 }
 
 VisibilityType decodeVisibility(const GlobalValue *gv) {
@@ -107,6 +146,10 @@ VisibilityType decodeVisibility(const GlobalValue *gv) {
   case GlobalValue::HiddenVisibility: return HiddenVisibility;
   case GlobalValue::ProtectedVisibility: return ProtectedVisibility;
   }
+
+  ostringstream os;
+  os << "Unhandled visibility style: " << gv->getVisibility();
+  throw os.str();
 }
 
 CallingConvention decodeCallingConvention(CallingConv::ID cc) {
@@ -127,6 +170,10 @@ CallingConvention decodeCallingConvention(CallingConv::ID cc) {
   case CallingConv::MBLAZE_INTR: return CC_MBLAZE_INTR;
   case CallingConv::MBLAZE_SVOL: return CC_MBLAZE_SVOL;
   }
+
+  ostringstream os;
+  os << "Unhandled calling convention: " << cc;
+  throw os.str();
 }
 
 void disposeCType(CType *ct) {
@@ -337,7 +384,9 @@ void disposeData(ValueTag t, void* data) {
 
   }
 
-  assert(false && "Unhandled cleanup case");
+  ostringstream os;
+  os << "Unhandled cleanup case for value tag: " << t;
+  throw os.str();
 }
 
 void disposeCValue(CValue *v) {
@@ -356,28 +405,6 @@ void disposeCValue(CValue *v) {
 
   delete v;
 }
-
-struct CModule {
-  char *moduleIdentifier;
-  char *moduleDataLayout;
-  char *targetTriple;
-  int littleEndian;
-  int pointerSize;
-  char *moduleInlineAsm;
-
-  CValue **globalVariables;
-  CValue **globalAliases;
-  CValue **functions;
-
-  // This map is actually state only for this translation code.  Since
-  // types have pointer equality in LLVM, every type will just be
-  // translated once to a heap-allocated CType.  On the Haskell side,
-  // each CType needs to be translated once (mapping the address of
-  // the CType to the translated version).
-  unordered_map<const Type*, CType*> *typeMap;
-  unordered_map<const Value*, CValue*> *valueMap;
-  Module* original;
-};
 
 // FIXME: Add in named types to help break cycles.  This information
 // is kind of available from the module.
@@ -467,16 +494,9 @@ CType* translateType(CModule *m, const Type *t) {
   return nt;
 }
 
+CValue* translateConstant(CModule *m, const Constant *c);
 CValue* translateValue(CModule *m, const Value *v);
 CValue* translateBasicBlock(CModule *m, const BasicBlock *bb);
-
-CValue* translateConstant(CModule *m, const Constant *c) {
-  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(c);
-  if(it != m->valueMap->end())
-    return it->second;
-
-  return NULL;
-}
 
 CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(ga);
@@ -1010,7 +1030,11 @@ CValue* translateInstruction(CModule *m, const Instruction *i) {
     break;
 
   default:
-    assert(false && "Unhandled instruction type");
+  {
+    ostringstream os;
+    os << "Unhandled instruction type: " << i->getOpcode();
+    throw os.str();
+  }
   }
 
   return v;
@@ -1127,11 +1151,31 @@ CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   return v;
 }
 
+CValue* translateConstant(CModule *m, const Constant *c) {
+  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(c);
+  if(it != m->valueMap->end())
+    return it->second;
+
+  return NULL;
+}
+
 CValue* translateValue(CModule *m, const Value *v) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(v);
   if(it != m->valueMap->end())
     return it->second;
 
+  if(const Constant *c = dynamic_cast<const Constant*>(v)) {
+    return translateConstant(m, c);
+  }
+
+  if(const Instruction *i = dynamic_cast<const Instruction*>(v)) {
+    return translateInstruction(m, i);
+  }
+
+  if(dynamic_cast<const Argument*>(v)) {
+    string msg = "Un-cached Argument passed to translateValue";
+    throw msg;
+  }
   // FIXME
   //
   // The majority of calls to this function will be resolved by the
@@ -1148,6 +1192,7 @@ extern "C" {
     including the underlying C++ LLVM Module.
    */
   void disposeCModule(CModule *m) {
+    free(m->errMsg);
     free(m->moduleIdentifier);
     free(m->moduleDataLayout);
     free(m->targetTriple);
@@ -1179,13 +1224,25 @@ extern "C" {
   }
 
   CModule * marshall(const char * filename) {
+    CModule *ret = new CModule;
     std::string errMsg;
     OwningPtr<MemoryBuffer> buffer;
-    // FIXME: Figure out how to handle this if it is an error
     error_code ec = MemoryBuffer::getFile(filename, buffer);
+
+    if(buffer.get() == NULL){
+      ret->isError = 1;
+      ret->errMsg = strdup(ec.message().c_str());
+      return ret;
+    }
+
     LLVMContext ctxt;
     Module *m = ParseBitcodeFile(buffer.get(), ctxt, &errMsg);
-    CModule *ret = new CModule;
+
+    if(m == NULL) {
+      ret->isError = 1;
+      ret->errMsg = strdup(errMsg.c_str());
+      return ret;
+    }
 
     ret->moduleIdentifier = strdup(m->getModuleIdentifier().c_str());
     ret->moduleDataLayout = strdup(m->getDataLayout().c_str());
@@ -1195,44 +1252,55 @@ extern "C" {
     ret->valueMap = new unordered_map<const Value*, CValue*>();
     ret->original = m;
 
-    std::vector<CValue*> globalVariables;
-    for(Module::const_global_iterator it = m->global_begin(),
-          ed = m->global_end(); it != ed; ++it)
+    try
     {
-      const GlobalVariable *globalVar = dynamic_cast<const GlobalVariable*>(&*it);
-      assert(globalVar && "Not a global FIXME: change to exception");
-      CValue *gv = translateGlobalVariable(ret, globalVar);
-      globalVariables.push_back(gv);
+      std::vector<CValue*> globalVariables;
+      for(Module::const_global_iterator it = m->global_begin(),
+            ed = m->global_end(); it != ed; ++it)
+      {
+        const GlobalVariable *globalVar = dynamic_cast<const GlobalVariable*>(&*it);
+        if(!globalVar) throw "Not a global";
+
+        CValue *gv = translateGlobalVariable(ret, globalVar);
+        globalVariables.push_back(gv);
+      }
+
+      ret->globalVariables = new CValue*[globalVariables.size()];
+      std::copy(globalVariables.begin(), globalVariables.end(), ret->globalVariables);
+
+      std::vector<CValue*> functions;
+      for(Module::const_iterator it = m->begin(),
+            ed = m->end(); it != ed; ++it)
+      {
+        const Function *func = dynamic_cast<const Function*>(&*it);
+        if(!func) throw "Not a function";
+
+        CValue *f = translateFunction(ret, func);
+        functions.push_back(f);
+      }
+
+      ret->functions = new CValue*[functions.size()];
+      std::copy(functions.begin(), functions.end(), ret->functions);
+
+      std::vector<CValue*> globalAliases;
+      for(Module::const_alias_iterator it = m->alias_begin(),
+            ed = m->alias_end(); it != ed; ++it)
+      {
+        const GlobalAlias *globalAlias = dynamic_cast<const GlobalAlias*>(&*it);
+        if(!globalAlias) throw "Not a global alias";
+
+        CValue *ga = translateGlobalAlias(ret, globalAlias);
+        globalAliases.push_back(ga);
+      }
+
+      ret->globalAliases = new CValue*[globalAliases.size()];
+      std::copy(globalAliases.begin(), globalAliases.end(), ret->globalAliases);
     }
-
-    ret->globalVariables = new CValue*[globalVariables.size()];
-    std::copy(globalVariables.begin(), globalVariables.end(), ret->globalVariables);
-
-    std::vector<CValue*> functions;
-    for(Module::const_iterator it = m->begin(),
-          ed = m->end(); it != ed; ++it)
+    catch(const string &msg)
     {
-      const Function *func = dynamic_cast<const Function*>(&*it);
-      assert(func && "Not a function");
-      CValue *f = translateFunction(ret, func);
-      functions.push_back(f);
+      ret->isError = 1;
+      ret->errMsg = strdup(msg.c_str());
     }
-
-    ret->functions = new CValue*[functions.size()];
-    std::copy(functions.begin(), functions.end(), ret->functions);
-
-    std::vector<CValue*> globalAliases;
-    for(Module::const_alias_iterator it = m->alias_begin(),
-          ed = m->alias_end(); it != ed; ++it)
-    {
-      const GlobalAlias *globalAlias = dynamic_cast<const GlobalAlias*>(&*it);
-      assert(globalAlias && "Not a global alias");
-      CValue *ga = translateGlobalAlias(ret, globalAlias);
-      globalAliases.push_back(ga);
-    }
-
-    ret->globalAliases = new CValue*[globalAliases.size()];
-    std::copy(globalAliases.begin(), globalAliases.end(), ret->globalAliases);
 
     return ret;
   }
