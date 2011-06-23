@@ -297,6 +297,7 @@ CType* translateType(CModule *m, const Type *t) {
 }
 
 CValue* translateValue(CModule *m, const Value *v);
+CValue* translateBasicBlock(CModule *m, const BasicBlock *bb);
 
 CValue* translateConstant(CModule *m, const Constant *c) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(c);
@@ -377,6 +378,84 @@ void buildRetInst(CModule *m, CValue *v, const ReturnInst *ri) {
   // Otherwise, the data fields default to 0 as intended
 }
 
+void buildBranchInst(CModule *m, CValue *v, const BranchInst *bi) {
+  v->valueType = translateType(m, bi->getType());
+
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
+
+  if(bi->isConditional())
+  {
+    v->valueTag = VAL_CBRANCHINST;
+    ii->numOperands = 3;
+    ii->operands = new CValue*[ii->numOperands];
+    ii->operands[0] = translateValue(m, bi->getCondition());
+    ii->operands[1] = translateValue(m, bi->getSuccessor(0));
+    ii->operands[2] = translateValue(m, bi->getSuccessor(1));
+  }
+  else
+  {
+    v->valueTag = VAL_UBRANCHINST;
+    ii->numOperands = 1;
+    ii->operands = new CValue*[ii->numOperands];
+    ii->operands[0] = translateValue(m, bi->getSuccessor(0));
+  }
+}
+
+void buildSimpleInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst) {
+  v->valueTag = t;
+  v->valueType = translateType(m, inst->getType());
+
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
+
+  ii->numOperands = inst->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+
+  for(size_t i = 0; i < inst->getNumOperands(); ++i) {
+    ii->operands[i] = translateValue(m, inst->getOperand(i));
+  }
+}
+
+void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
+  v->valueTag = VAL_INVOKEINST;
+  v->valueType = translateType(m, ii->getType());
+  if(ii->hasName())
+    v->name = strdup(ii->getNameStr().c_str());
+
+  CCallInfo *ci = new CCallInfo;
+  ci->calledValue = translateValue(m, ii->getCalledValue());
+  ci->callingConvention = decodeCallingConvention(ii->getCallingConv());
+  ci->hasSRet = ii->hasStructRetAttr();
+  ci->normalDest = translateBasicBlock(m, ii->getNormalDest());
+  ci->unwindDest = translateBasicBlock(m, ii->getUnwindDest());
+  ci->argListLen = ii->getNumArgOperands();
+  ci->arguments = new CValue*[ci->argListLen];
+
+  for(unsigned i = 0; i < ii->getNumArgOperands(); ++i) {
+    ci->arguments[i] = translateValue(m, ii->getArgOperand(i));
+  }
+}
+
+void buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
+  v->valueTag = VAL_CALLINST;
+  v->valueType = translateType(m, ii->getType());
+  if(ii->hasName())
+    v->name = strdup(ii->getNameStr().c_str());
+
+  CCallInfo *ci = new CCallInfo;
+  ci->calledValue = translateValue(m, ii->getCalledValue());
+  ci->callingConvention = decodeCallingConvention(ii->getCallingConv());
+  ci->hasSRet = ii->hasStructRetAttr();
+  ci->isTail = ii->isTailCall();
+  ci->argListLen = ii->getNumArgOperands();
+  ci->arguments = new CValue*[ci->argListLen];
+
+  for(unsigned i = 0; i < ii->getNumArgOperands(); ++i) {
+    ci->arguments[i] = translateValue(m, ii->getArgOperand(i));
+  }
+}
+
 CValue* translateInstruction(CModule *m, const Instruction *i) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(i);
   if(it != m->valueMap->end())
@@ -389,7 +468,27 @@ CValue* translateInstruction(CModule *m, const Instruction *i) {
   case Instruction::Ret:
     buildRetInst(m, v, dynamic_cast<const ReturnInst*>(i));
     break;
-
+  case Instruction::Br:
+    buildBranchInst(m, v, dynamic_cast<const BranchInst*>(i));
+    break;
+  case Instruction::Switch:
+    buildSimpleInst(m, v, VAL_SWITCHINST, i);
+    break;
+  case Instruction::IndirectBr:
+    buildSimpleInst(m, v, VAL_INDIRECTBRINST, i);
+    break;
+  case Instruction::Invoke:
+    buildInvokeInst(m, v, dynamic_cast<const InvokeInst*>(i));
+    break;
+  case Instruction::Unwind:
+    buildSimpleInst(m, v, VAL_UNWINDINST, i);
+    break;
+  case Instruction::Unreachable:
+    buildSimpleInst(m, v, VAL_UNREACHABLEINST, i);
+    break;
+  case Instruction::Call:
+    buildCallInst(m, v, dynamic_cast<const CallInst*>(i));
+    break;
   }
 
   return v;

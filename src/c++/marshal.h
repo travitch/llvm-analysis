@@ -76,7 +76,16 @@ enum ValueTag {
   VAL_UNDEFVALUE,
   VAL_CONSTANTEXPR,
   // Insts
-  VAL_RETINST,
+  VAL_RETINST,     // 0 or 1 operand
+  VAL_UBRANCHINST, // 1 operand
+  VAL_CBRANCHINST, // 3 operands
+  VAL_SWITCHINST,  // op[0] = switchval, op[1] = default dest, op[2n]
+                   // = value to match, op[2n+1] = dest for match
+  VAL_INDIRECTBRINST, // op[0] = address, rest are possible dests
+  VAL_INVOKEINST,
+  VAL_CALLINST,
+  VAL_UNWINDINST,
+  VAL_UNREACHABLEINST,
   // Globals
   VAL_FUNCTION,
   VAL_GLOBALVARIABLE,
@@ -161,6 +170,22 @@ struct CGlobalInfo {
 struct CInstructionInfo {
   CValue **operands;
   int numOperands;
+};
+
+// Also for invoke
+struct CCallInfo {
+  CValue *calledValue;
+  CValue **arguments;
+  int argListLen;
+  CallingConvention callingConvention;
+  int hasSRet;
+  int isTail;
+
+  // FIXME: Add attributes
+
+  // Invoke only
+  CValue *normalDest;
+  CValue *unwindDest;
 };
 
 struct CValue {
