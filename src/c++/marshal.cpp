@@ -56,8 +56,68 @@ struct CModule {
   unordered_map<const Value*, CValue*> *valueMap;
 };
 
+static ValueTag decodeOpcode(unsigned opcode) {
+  switch(opcode) {
+  case Instruction::Ret: return VAL_RETINST;
+  case Instruction::Br: return VAL_BRANCHINST;
+  case Instruction::Switch: return VAL_SWITCHINST;
+  case Instruction::IndirectBr: return VAL_INDIRECTBRINST;
+  case Instruction::Invoke: return VAL_INVOKEINST;
+  case Instruction::Unwind: return VAL_UNWINDINST;
+  case Instruction::Unreachable: return VAL_UNREACHABLEINST;
+  case Instruction::Add: return VAL_ADDINST;
+  case Instruction::FAdd: return VAL_FADDINST;
+  case Instruction::Sub: return VAL_SUBINST;
+  case Instruction::FSub: return VAL_FSUBINST;
+  case Instruction::Mul: return VAL_MULINST;
+  case Instruction::FMul: return VAL_FMULINST;
+  case Instruction::UDiv: return VAL_UDIVINST;
+  case Instruction::SDiv: return VAL_SDIVINST;
+  case Instruction::FDiv: return VAL_FDIVINST;
+  case Instruction::URem: return VAL_UREMINST;
+  case Instruction::SRem: return VAL_SREMINST;
+  case Instruction::FRem: return VAL_FREMINST;
+  case Instruction::Shl: return VAL_SHLINST;
+  case Instruction::LShr: return VAL_LSHRINST;
+  case Instruction::AShr: return VAL_ASHRINST;
+  case Instruction::And: return VAL_ANDINST;
+  case Instruction::Or: return VAL_ORINST;
+  case Instruction::Xor: return VAL_XORINST;
+  case Instruction::Alloca: return VAL_ALLOCAINST;
+  case Instruction::Load: return VAL_LOADINST;
+  case Instruction::Store: return VAL_STOREINST;
+  case Instruction::GetElementPtr: return VAL_GETELEMENTPTRINST;
+  case Instruction::Trunc: return VAL_TRUNCINST;
+  case Instruction::ZExt: return VAL_ZEXTINST;
+  case Instruction::SExt: return VAL_SEXTINST;
+  case Instruction::FPToUI: return VAL_FPTOUIINST;
+  case Instruction::FPToSI: return VAL_FPTOSIINST;
+  case Instruction::UIToFP: return VAL_UITOFPINST;
+  case Instruction::SIToFP: return VAL_SITOFPINST;
+  case Instruction::FPTrunc: return VAL_FPTRUNCINST;
+  case Instruction::FPExt: return VAL_FPEXTINST;
+  case Instruction::PtrToInt: return VAL_PTRTOINTINST;
+  case Instruction::IntToPtr: return VAL_INTTOPTRINST;
+  case Instruction::BitCast: return VAL_BITCASTINST;
+  case Instruction::ICmp: return VAL_ICMPINST;
+  case Instruction::FCmp: return VAL_FCMPINST;
+  case Instruction::PHI: return VAL_PHINODE;
+  case Instruction::Call: return VAL_CALLINST;
+  case Instruction::Select: return VAL_SELECTINST;
+  case Instruction::VAArg: return VAL_VAARGINST;
+  case Instruction::ExtractElement: return VAL_EXTRACTELEMENTINST;
+  case Instruction::InsertElement: return VAL_INSERTELEMENTINST;
+  case Instruction::ShuffleVector: return VAL_SHUFFLEVECTORINST;
+  case Instruction::ExtractValue: return VAL_EXTRACTVALUEINST;
+  case Instruction::InsertValue: return VAL_INSERTVALUEINST;
+  }
 
-CmpPredicate decodePredicate(CmpInst::Predicate p) {
+  ostringstream os;
+  os << "Unhandled instruction type in opcode translator: " << opcode;
+  throw os.str();
+}
+
+static CmpPredicate decodePredicate(CmpInst::Predicate p) {
   switch(p) {
   case CmpInst::FCMP_FALSE: return FCMP_FALSE;
   case CmpInst::FCMP_OEQ: return FCMP_OEQ;
@@ -92,7 +152,7 @@ CmpPredicate decodePredicate(CmpInst::Predicate p) {
   throw os.str();
 }
 
-TypeTag decodeTypeTag(Type::TypeID t) {
+static TypeTag decodeTypeTag(Type::TypeID t) {
   switch(t) {
   case Type::VoidTyID: return TYPE_VOID;
   case Type::FloatTyID: return TYPE_FLOAT;
@@ -117,7 +177,7 @@ TypeTag decodeTypeTag(Type::TypeID t) {
   throw os.str();
 }
 
-LinkageType decodeLinkage(const GlobalValue *gv) {
+static LinkageType decodeLinkage(const GlobalValue *gv) {
   switch(gv->getLinkage()) {
   case GlobalValue::ExternalLinkage: return ExternalLinkage;
   case GlobalValue::AvailableExternallyLinkage: return AvailableExternallyLinkage;
@@ -142,7 +202,7 @@ LinkageType decodeLinkage(const GlobalValue *gv) {
   throw os.str();
 }
 
-VisibilityType decodeVisibility(const GlobalValue *gv) {
+static VisibilityType decodeVisibility(const GlobalValue *gv) {
   switch(gv->getVisibility()) {
   case GlobalValue::DefaultVisibility: return DefaultVisibility;
   case GlobalValue::HiddenVisibility: return HiddenVisibility;
@@ -154,7 +214,7 @@ VisibilityType decodeVisibility(const GlobalValue *gv) {
   throw os.str();
 }
 
-CallingConvention decodeCallingConvention(CallingConv::ID cc) {
+static CallingConvention decodeCallingConvention(CallingConv::ID cc) {
   switch(cc) {
   case CallingConv::C: return CC_C;
   case CallingConv::Fast: return CC_FAST;
@@ -178,7 +238,7 @@ CallingConvention decodeCallingConvention(CallingConv::ID cc) {
   throw os.str();
 }
 
-void disposeCType(CType *ct) {
+static void disposeCType(CType *ct) {
   if(ct->innerType)
     disposeCType(ct->innerType);
   free(ct->name);
@@ -194,7 +254,7 @@ void disposeCType(CType *ct) {
 
 // Have to do the delete in this function since the pointer must be
 // cast to the correct type.
-void disposeData(ValueTag t, void* data) {
+static void disposeData(ValueTag t, void* data) {
   switch(t) {
   case VAL_ARGUMENT:
   {
@@ -248,8 +308,7 @@ void disposeData(ValueTag t, void* data) {
   }
 
   case VAL_RETINST:
-  case VAL_UBRANCHINST:
-  case VAL_CBRANCHINST:
+  case VAL_BRANCHINST:
   case VAL_SWITCHINST:
   case VAL_INDIRECTBRINST:
   {
@@ -418,6 +477,14 @@ void disposeData(ValueTag t, void* data) {
     return;
   }
 
+  case VAL_CONSTANTEXPR:
+  {
+    CConstExprInfo *ce = (CConstExprInfo*)data;
+    delete[] ce->operands;
+    delete ce;
+    return;
+  }
+
   }
 
   ostringstream os;
@@ -425,7 +492,7 @@ void disposeData(ValueTag t, void* data) {
   throw os.str();
 }
 
-void disposeCValue(CValue *v) {
+static void disposeCValue(CValue *v) {
   // Do not dispose the type - that is taken care of in bulk in the
   // CModule disposal.  Same for MD.  Free local constant operands.
   free(v->name);
@@ -444,7 +511,7 @@ void disposeCValue(CValue *v) {
 
 // FIXME: Add in named types to help break cycles.  This information
 // is kind of available from the module.
-CType* translateType(CModule *m, const Type *t) {
+static CType* translateType(CModule *m, const Type *t) {
   unordered_map<const Type*,CType*>::const_iterator it = m->typeMap->find(t);
   if(it != m->typeMap->end())
     return it->second;
@@ -530,11 +597,11 @@ CType* translateType(CModule *m, const Type *t) {
   return nt;
 }
 
-CValue* translateConstant(CModule *m, const Constant *c);
-CValue* translateValue(CModule *m, const Value *v);
-CValue* translateBasicBlock(CModule *m, const BasicBlock *bb);
+static CValue* translateConstant(CModule *m, const Constant *c);
+static CValue* translateValue(CModule *m, const Value *v);
+static CValue* translateBasicBlock(CModule *m, const BasicBlock *bb);
 
-CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
+static CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(ga);
   if(it != m->valueMap->end())
     return it->second;
@@ -563,7 +630,7 @@ CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
   return v;
 }
 
-CValue* translateArgument(CModule *m, const Argument *a) {
+static CValue* translateArgument(CModule *m, const Argument *a) {
   // Arguments are translated before instructions, so we don't really
   // need to check to see if the argument exists already (it won't).
   CValue *v = new CValue;
@@ -587,7 +654,7 @@ CValue* translateArgument(CModule *m, const Argument *a) {
   return v;
 }
 
-void buildRetInst(CModule *m, CValue *v, const ReturnInst *ri) {
+static void buildRetInst(CModule *m, CValue *v, const ReturnInst *ri) {
   v->valueTag = VAL_RETINST;
   v->valueType = translateType(m, ri->getType());
   // Never has a name
@@ -605,31 +672,7 @@ void buildRetInst(CModule *m, CValue *v, const ReturnInst *ri) {
   // Otherwise, the data fields default to 0 as intended
 }
 
-void buildBranchInst(CModule *m, CValue *v, const BranchInst *bi) {
-  v->valueType = translateType(m, bi->getType());
-
-  CInstructionInfo *ii = new CInstructionInfo;
-  v->data = (void*)ii;
-
-  if(bi->isConditional())
-  {
-    v->valueTag = VAL_CBRANCHINST;
-    ii->numOperands = 3;
-    ii->operands = new CValue*[ii->numOperands];
-    ii->operands[0] = translateValue(m, bi->getCondition());
-    ii->operands[1] = translateValue(m, bi->getSuccessor(0));
-    ii->operands[2] = translateValue(m, bi->getSuccessor(1));
-  }
-  else
-  {
-    v->valueTag = VAL_UBRANCHINST;
-    ii->numOperands = 1;
-    ii->operands = new CValue*[ii->numOperands];
-    ii->operands[0] = translateValue(m, bi->getSuccessor(0));
-  }
-}
-
-void buildSimpleInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst) {
+static void buildSimpleInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst) {
   v->valueTag = t;
   v->valueType = translateType(m, inst->getType());
 
@@ -644,7 +687,7 @@ void buildSimpleInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst)
   }
 }
 
-void buildBinaryInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst) {
+static void buildBinaryInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst) {
   const BinaryOperator *bi = dynamic_cast<const BinaryOperator*>(inst);
   assert(bi);
 
@@ -663,7 +706,7 @@ void buildBinaryInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst)
     ii->flags += 2;
 }
 
-void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
+static void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
   v->valueTag = VAL_INVOKEINST;
   v->valueType = translateType(m, ii->getType());
   if(ii->hasName())
@@ -685,7 +728,7 @@ void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
   }
 }
 
-void buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
+static void buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
   v->valueTag = VAL_CALLINST;
   v->valueType = translateType(m, ii->getType());
   if(ii->hasName())
@@ -706,7 +749,7 @@ void buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
   }
 }
 
-void buildAllocaInst(CModule *m, CValue *v, const AllocaInst *ai) {
+static void buildAllocaInst(CModule *m, CValue *v, const AllocaInst *ai) {
   v->valueTag = VAL_ALLOCAINST;
   v->valueType = translateType(m, ai->getType());
   if(ai->hasName())
@@ -719,7 +762,7 @@ void buildAllocaInst(CModule *m, CValue *v, const AllocaInst *ai) {
   io->align = ai->getAlignment();
 }
 
-void buildLoadInst(CModule *m, CValue *v, const LoadInst *li) {
+static void buildLoadInst(CModule *m, CValue *v, const LoadInst *li) {
   v->valueTag = VAL_LOADINST;
   v->valueType = translateType(m, li->getType());
   if(li->hasName())
@@ -734,7 +777,7 @@ void buildLoadInst(CModule *m, CValue *v, const LoadInst *li) {
   io->addrSpace = li->getPointerAddressSpace();
 }
 
-void buildStoreInst(CModule *m, CValue *v, const StoreInst *si) {
+static void buildStoreInst(CModule *m, CValue *v, const StoreInst *si) {
   v->valueTag = VAL_STOREINST;
   v->valueType = translateType(m, si->getType());
   if(si->hasName())
@@ -750,7 +793,7 @@ void buildStoreInst(CModule *m, CValue *v, const StoreInst *si) {
   i->isVolatile = si->isVolatile();
 }
 
-void buildGEPInst(CModule *m, CValue *v, const GetElementPtrInst *i) {
+static void buildGEPInst(CModule *m, CValue *v, const GetElementPtrInst *i) {
   v->valueTag = VAL_GETELEMENTPTRINST;
   v->valueType = translateType(m, i->getType());
   if(i->hasName())
@@ -772,7 +815,7 @@ void buildGEPInst(CModule *m, CValue *v, const GetElementPtrInst *i) {
   }
 }
 
-void buildCastInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
+static void buildCastInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
   const CastInst *ci = dynamic_cast<const CastInst*>(i);
   v->valueTag = t;
   v->valueType = translateType(m, ci->getType());
@@ -785,7 +828,7 @@ void buildCastInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
   ui->val = translateValue(m, ci->getOperand(0));
 }
 
-void buildCmpInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
+static void buildCmpInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
   const CmpInst *ci = dynamic_cast<const CmpInst*>(i);
   v->valueTag = t;
   v->valueType = translateType(m, ci->getType());
@@ -800,7 +843,7 @@ void buildCmpInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
   cmp->pred = decodePredicate(ci->getPredicate());
 }
 
-void buildPHINode(CModule *m, CValue *v, const PHINode* n) {
+static void buildPHINode(CModule *m, CValue *v, const PHINode* n) {
   v->valueTag = VAL_PHINODE;
   v->valueType = translateType(m, n->getType());
   if(n->hasName())
@@ -819,7 +862,7 @@ void buildPHINode(CModule *m, CValue *v, const PHINode* n) {
   }
 }
 
-void buildVAArgInst(CModule *m, CValue *v, const VAArgInst *vi) {
+static void buildVAArgInst(CModule *m, CValue *v, const VAArgInst *vi) {
   v->valueTag = VAL_VAARGINST;
   v->valueType = translateType(m, vi->getType());
   if(vi->hasName())
@@ -831,7 +874,7 @@ void buildVAArgInst(CModule *m, CValue *v, const VAArgInst *vi) {
   ui->val = translateValue(m, vi->getPointerOperand());
 }
 
-void buildExtractValueInst(CModule *m, CValue *v, const ExtractValueInst *ei) {
+static void buildExtractValueInst(CModule *m, CValue *v, const ExtractValueInst *ei) {
   v->valueTag = VAL_EXTRACTVALUEINST;
   v->valueType = translateType(m, ei->getType());
   if(ei->hasName())
@@ -847,7 +890,7 @@ void buildExtractValueInst(CModule *m, CValue *v, const ExtractValueInst *ei) {
   std::copy(ei->idx_begin(), ei->idx_end(), vi->indices);
 }
 
-void buildInsertValueInst(CModule *m, CValue *v, const InsertValueInst *ii) {
+static void buildInsertValueInst(CModule *m, CValue *v, const InsertValueInst *ii) {
   v->valueTag = VAL_INSERTVALUEINST;
   v->valueType = translateType(m, ii->getType());
   if(ii->hasName())
@@ -864,7 +907,7 @@ void buildInsertValueInst(CModule *m, CValue *v, const InsertValueInst *ii) {
   std::copy(ii->idx_begin(), ii->idx_end(), vi->indices);
 }
 
-CValue* translateInstruction(CModule *m, const Instruction *i) {
+static CValue* translateInstruction(CModule *m, const Instruction *i) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(i);
   if(it != m->valueMap->end())
     return it->second;
@@ -880,7 +923,7 @@ CValue* translateInstruction(CModule *m, const Instruction *i) {
     buildRetInst(m, v, dynamic_cast<const ReturnInst*>(i));
     break;
   case Instruction::Br:
-    buildBranchInst(m, v, dynamic_cast<const BranchInst*>(i));
+    buildSimpleInst(m, v, VAL_BRANCHINST, i);
     break;
   case Instruction::Switch:
     buildSimpleInst(m, v, VAL_SWITCHINST, i);
@@ -1076,7 +1119,7 @@ CValue* translateInstruction(CModule *m, const Instruction *i) {
   return v;
 }
 
-CValue* translateBasicBlock(CModule *m, const BasicBlock *bb) {
+static CValue* translateBasicBlock(CModule *m, const BasicBlock *bb) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(bb);
   if(it != m->valueMap->end())
     return it->second;
@@ -1106,7 +1149,7 @@ CValue* translateBasicBlock(CModule *m, const BasicBlock *bb) {
   return v;
 }
 
-CValue* translateFunction(CModule *m, const Function *f) {
+static CValue* translateFunction(CModule *m, const Function *f) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(f);
   if(it != m->valueMap->end())
     return it->second;
@@ -1154,7 +1197,7 @@ CValue* translateFunction(CModule *m, const Function *f) {
   return v;
 }
 
-CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
+static CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(gv);
   if(it != m->valueMap->end())
     return it->second;
@@ -1187,7 +1230,7 @@ CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   return v;
 }
 
-CValue* translateInlineAsm(CModule *m, const InlineAsm* a) {
+static CValue* translateInlineAsm(CModule *m, const InlineAsm* a) {
   CValue *v = new CValue;
   (*m->valueMap)[a] = v;
 
@@ -1205,7 +1248,7 @@ CValue* translateInlineAsm(CModule *m, const InlineAsm* a) {
   return v;
 }
 
-CValue* translateGlobalValue(CModule *m, const GlobalValue *gv) {
+static CValue* translateGlobalValue(CModule *m, const GlobalValue *gv) {
   if(const Function *f = dynamic_cast<const Function*>(gv)) {
     return translateFunction(m, f);
   }
@@ -1225,7 +1268,7 @@ CValue* translateGlobalValue(CModule *m, const GlobalValue *gv) {
   throw os.str();
 }
 
-CValue* translateEmptyConstant(CModule *m, ValueTag t, const Constant *p) {
+static CValue* translateEmptyConstant(CModule *m, ValueTag t, const Constant *p) {
   CValue *v = new CValue;
   (*m->valueMap)[p] = v;
 
@@ -1237,7 +1280,7 @@ CValue* translateEmptyConstant(CModule *m, ValueTag t, const Constant *p) {
   return v;
 }
 
-CValue* translateConstantInt(CModule *m, const ConstantInt* i) {
+static CValue* translateConstantInt(CModule *m, const ConstantInt* i) {
   CValue *v = new CValue;
   (*m->valueMap)[i] = v;
 
@@ -1254,7 +1297,7 @@ CValue* translateConstantInt(CModule *m, const ConstantInt* i) {
   return v;
 }
 
-CValue* translateConstantFP(CModule *m, const ConstantFP *fp) {
+static CValue* translateConstantFP(CModule *m, const ConstantFP *fp) {
   CValue *v = new CValue;
   (*m->valueMap)[fp] = v;
 
@@ -1271,7 +1314,7 @@ CValue* translateConstantFP(CModule *m, const ConstantFP *fp) {
   return v;
 }
 
-CValue* translateBlockAddress(CModule *m, const BlockAddress *ba) {
+static CValue* translateBlockAddress(CModule *m, const BlockAddress *ba) {
   CValue *v = new CValue;
   (*m->valueMap)[ba] = v;
 
@@ -1289,7 +1332,7 @@ CValue* translateBlockAddress(CModule *m, const BlockAddress *ba) {
   return v;
 }
 
-CValue* translateConstantAggregate(CModule *m, ValueTag t, const Constant *ca) {
+static CValue* translateConstantAggregate(CModule *m, ValueTag t, const Constant *ca) {
   CValue *v = new CValue;
   (*m->valueMap)[ca] = v;
 
@@ -1314,7 +1357,31 @@ CValue* translateConstantAggregate(CModule *m, ValueTag t, const Constant *ca) {
   return v;
 }
 
-CValue* translateConstant(CModule *m, const Constant *c) {
+static CValue* translateConstantExpr(CModule *m, const ConstantExpr *ce) {
+  CValue *v = new CValue;
+  v->valueTag = VAL_CONSTANTEXPR;
+  v->valueType = translateType(m, ce->getType());
+  if(ce->hasName())
+    v->name = strdup(ce->getNameStr().c_str());
+
+  CConstExprInfo *ci = new CConstExprInfo;
+  v->data = (void*)ci;
+
+  ci->instrType = decodeOpcode(ce->getOpcode());
+  ci->numOperands = ce->getNumOperands();
+  ci->operands = new CValue*[ci->numOperands];
+
+  int idx = 0;
+  for(User::const_op_iterator it = ce->op_begin(),
+        ed = ce->op_end(); it != ed; ++it)
+  {
+    ci->operands[idx++] = translateValue(m, it->get());
+  }
+
+  return v;
+}
+
+static CValue* translateConstant(CModule *m, const Constant *c) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(c);
   if(it != m->valueMap->end())
     return it->second;
@@ -1328,8 +1395,24 @@ CValue* translateConstant(CModule *m, const Constant *c) {
     return translateEmptyConstant(m, VAL_CONSTANTPOINTERNULL, pn);
   }
 
+  if(const ConstantExpr *ce = dynamic_cast<const ConstantExpr*>(c)) {
+    return translateConstantExpr(m, ce);
+  }
+
   if(const GlobalValue *gv = dynamic_cast<const GlobalValue*>(c)) {
     return translateGlobalValue(m, gv);
+  }
+
+  if(const ConstantArray *ca = dynamic_cast<const ConstantArray*>(c)) {
+    return translateConstantAggregate(m, VAL_CONSTANTARRAY, ca);
+  }
+
+  if(const ConstantVector *cv = dynamic_cast<const ConstantVector*>(c)) {
+    return translateConstantAggregate(m, VAL_CONSTANTVECTOR, cv);
+  }
+
+  if(const ConstantStruct *cs = dynamic_cast<const ConstantStruct*>(c)) {
+    return translateConstantAggregate(m, VAL_CONSTANTSTRUCT, cs);
   }
 
   if(const ConstantFP *fp = dynamic_cast<const ConstantFP*>(c)) {
@@ -1348,18 +1431,6 @@ CValue* translateConstant(CModule *m, const Constant *c) {
     return translateBlockAddress(m, ba);
   }
 
-  if(const ConstantArray *ca = dynamic_cast<const ConstantArray*>(c)) {
-    return translateConstantAggregate(m, VAL_CONSTANTARRAY, ca);
-  }
-
-  if(const ConstantVector *cv = dynamic_cast<const ConstantVector*>(c)) {
-    return translateConstantAggregate(m, VAL_CONSTANTVECTOR, cv);
-  }
-
-  if(const ConstantStruct *cs = dynamic_cast<const ConstantStruct*>(c)) {
-    return translateConstantAggregate(m, VAL_CONSTANTSTRUCT, cs);
-  }
-
 
   string msg;
   raw_string_ostream os(msg);
@@ -1368,7 +1439,7 @@ CValue* translateConstant(CModule *m, const Constant *c) {
   throw os.str();
 }
 
-CValue* translateValue(CModule *m, const Value *v) {
+static CValue* translateValue(CModule *m, const Value *v) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(v);
   if(it != m->valueMap->end())
     return it->second;

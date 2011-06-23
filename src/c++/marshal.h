@@ -105,8 +105,7 @@ enum ValueTag {
   VAL_CONSTANTEXPR,
   // Insts
   VAL_RETINST,     // 0 or 1 operand
-  VAL_UBRANCHINST, // 1 operand
-  VAL_CBRANCHINST, // 3 operands
+  VAL_BRANCHINST, // 1 or 3 operands
   VAL_SWITCHINST,  // op[0] = switchval, op[1] = default dest, op[2n]
                    // = value to match, op[2n+1] = dest for match
   VAL_INDIRECTBRINST, // op[0] = address, rest are possible dests
@@ -336,6 +335,12 @@ struct CConstFP {
 struct CConstAggregate {
   CValue **constants;
   int numElements;
+};
+
+struct CConstExprInfo {
+  CValue **operands;
+  int numOperands;
+  ValueTag instrType;
 };
 
 struct CValue {
