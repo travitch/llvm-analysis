@@ -86,6 +86,24 @@ enum ValueTag {
   VAL_CALLINST,
   VAL_UNWINDINST,
   VAL_UNREACHABLEINST,
+  VAL_ADDINST,
+  VAL_FADDINST,
+  VAL_SUBINST,
+  VAL_FSUBINST,
+  VAL_MULINST,
+  VAL_FMULINST,
+  VAL_UDIVINST,
+  VAL_SDIVINST,
+  VAL_FDIVINST,
+  VAL_UREMINST,
+  VAL_SREMINST,
+  VAL_FREMINST,
+  VAL_SHLINST,
+  VAL_LSHRINST,
+  VAL_ASHRINST,
+  VAL_ANDINST,
+  VAL_ORINST,
+  VAL_XORINST,
   // Globals
   VAL_FUNCTION,
   VAL_GLOBALVARIABLE,
@@ -170,6 +188,16 @@ struct CGlobalInfo {
 struct CInstructionInfo {
   CValue **operands;
   int numOperands;
+};
+
+struct CBinaryOpInfo {
+  CValue *lhs;
+  CValue *rhs;
+  // 0 == no flags
+  // 1 == hasNoUnsignedWrap
+  // 2 == hasNoSignedWrap
+  // 3 == both
+  int flags;
 };
 
 // Also for invoke

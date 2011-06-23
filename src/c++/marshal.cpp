@@ -417,6 +417,25 @@ void buildSimpleInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst)
   }
 }
 
+void buildBinaryInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst) {
+  const BinaryOperator *bi = dynamic_cast<const BinaryOperator*>(inst);
+  assert(bi);
+
+  v->valueTag = t;
+  v->valueType = translateType(m, bi->getType());
+
+  CBinaryOpInfo *ii = new CBinaryOpInfo;
+  v->data = (void*)ii;
+
+  ii->lhs = translateValue(m, bi->getOperand(0));
+  ii->rhs = translateValue(m, bi->getOperand(1));
+  ii->flags = 0;
+  if(bi->hasNoUnsignedWrap())
+    ii->flags += 1;
+  if(bi->hasNoSignedWrap())
+    ii->flags += 2;
+}
+
 void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
   v->valueTag = VAL_INVOKEINST;
   v->valueType = translateType(m, ii->getType());
@@ -465,6 +484,7 @@ CValue* translateInstruction(CModule *m, const Instruction *i) {
   (*m->valueMap)[i] = v;
 
   switch(i->getOpcode()) {
+    // Terminator instructions
   case Instruction::Ret:
     buildRetInst(m, v, dynamic_cast<const ReturnInst*>(i));
     break;
@@ -486,6 +506,70 @@ CValue* translateInstruction(CModule *m, const Instruction *i) {
   case Instruction::Unreachable:
     buildSimpleInst(m, v, VAL_UNREACHABLEINST, i);
     break;
+
+    // Binary instructions
+  case Instruction::Add:
+    buildBinaryInst(m, v, VAL_ADDINST, i);
+    break;
+  case Instruction::FAdd:
+    buildBinaryInst(m, v, VAL_FADDINST, i);
+    break;
+  case Instruction::Sub:
+    buildBinaryInst(m, v, VAL_SUBINST, i);
+    break;
+  case Instruction::FSub:
+    buildBinaryInst(m, v, VAL_FSUBINST, i);
+    break;
+  case Instruction::Mul:
+    buildBinaryInst(m, v, VAL_MULINST, i);
+    break;
+  case Instruction::FMul:
+    buildBinaryInst(m, v, VAL_FMULINST, i);
+    break;
+  case Instruction::UDiv:
+    buildBinaryInst(m, v, VAL_UDIVINST, i);
+    break;
+  case Instruction::SDiv:
+    buildBinaryInst(m, v, VAL_SDIVINST, i);
+    break;
+  case Instruction::FDiv:
+    buildBinaryInst(m, v, VAL_FDIVINST, i);
+    break;
+  case Instruction::URem:
+    buildBinaryInst(m, v, VAL_UREMINST, i);
+    break;
+  case Instruction::SRem:
+    buildBinaryInst(m, v, VAL_SREMINST, i);
+    break;
+  case Instruction::FRem:
+    buildBinaryInst(m, v, VAL_FREMINST, i);
+    break;
+  case Instruction::Shl:
+    buildBinaryInst(m, v, VAL_SHLINST, i);
+    break;
+  case Instruction::LShr:
+    buildBinaryInst(m, v, VAL_LSHRINST, i);
+    break;
+  case Instruction::AShr:
+    buildBinaryInst(m, v, VAL_ASHRINST, i);
+    break;
+  case Instruction::And:
+    buildBinaryInst(m, v, VAL_ANDINST, i);
+    break;
+  case Instruction::Or:
+    buildBinaryInst(m, v, VAL_ORINST, i);
+    break;
+  case Instruction::Xor:
+    buildBinaryInst(m, v, VAL_XORINST, i);
+    break;
+
+    // Memory operations
+    //case Instruction::Alloca:
+
+
+    // Casts
+
+    // Other instructions
   case Instruction::Call:
     buildCallInst(m, v, dynamic_cast<const CallInst*>(i));
     break;
