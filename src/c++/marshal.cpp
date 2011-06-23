@@ -386,6 +386,38 @@ void disposeData(ValueTag t, void* data) {
     return;
   }
 
+  case VAL_CONSTANTINT:
+  {
+    CConstInt *d = (CConstInt*)data;
+    delete d;
+    return;
+  }
+
+  case VAL_CONSTANTFP:
+  {
+    CConstFP *d = (CConstFP*)data;
+    delete d;
+    return;
+  }
+
+  case VAL_CONSTANTPOINTERNULL:
+  case VAL_CONSTANTAGGREGATEZERO:
+  case VAL_UNDEFVALUE:
+  {
+    // No data
+    return;
+  }
+
+  case VAL_CONSTANTSTRUCT:
+  case VAL_CONSTANTVECTOR:
+  case VAL_CONSTANTARRAY:
+  {
+    CConstAggregate *c = (CConstAggregate*)data;
+    delete[] c->constants;
+    delete c;
+    return;
+  }
+
   }
 
   ostringstream os;
@@ -1173,12 +1205,167 @@ CValue* translateInlineAsm(CModule *m, const InlineAsm* a) {
   return v;
 }
 
+CValue* translateGlobalValue(CModule *m, const GlobalValue *gv) {
+  if(const Function *f = dynamic_cast<const Function*>(gv)) {
+    return translateFunction(m, f);
+  }
+
+  if(const GlobalVariable *v = dynamic_cast<const GlobalVariable*>(gv)) {
+    return translateGlobalVariable(m, v);
+  }
+
+  if(const GlobalAlias *a = dynamic_cast<const GlobalAlias*>(gv)) {
+    return translateGlobalAlias(m, a);
+  }
+
+  string msg;
+  raw_string_ostream os(msg);
+  os << "Non-global constant: ";
+  gv->print(os);
+  throw os.str();
+}
+
+CValue* translateEmptyConstant(CModule *m, ValueTag t, const Constant *p) {
+  CValue *v = new CValue;
+  (*m->valueMap)[p] = v;
+
+  v->valueTag = t;
+  v->valueType = translateType(m, p->getType());
+
+  // No data or metadata
+
+  return v;
+}
+
+CValue* translateConstantInt(CModule *m, const ConstantInt* i) {
+  CValue *v = new CValue;
+  (*m->valueMap)[i] = v;
+
+  v->valueTag = VAL_CONSTANTINT;
+  v->valueType = translateType(m, i->getType());
+
+  // No name
+
+  CConstInt *d = new CConstInt;
+  v->data = (void*)d;
+
+  d->val = i->getSExtValue();
+
+  return v;
+}
+
+CValue* translateConstantFP(CModule *m, const ConstantFP *fp) {
+  CValue *v = new CValue;
+  (*m->valueMap)[fp] = v;
+
+  v->valueTag = VAL_CONSTANTFP;
+  v->valueType = translateType(m, fp->getType());
+
+  // No name
+
+  CConstFP *d = new CConstFP;
+  v->data = (void*)d;
+
+  d->val = fp->getValueAPF().convertToDouble();
+
+  return v;
+}
+
+CValue* translateBlockAddress(CModule *m, const BlockAddress *ba) {
+  CValue *v = new CValue;
+  (*m->valueMap)[ba] = v;
+
+  v->valueTag = VAL_BLOCKADDRESS;
+  v->valueType = translateType(m, ba->getType());
+  if(ba->hasName())
+    v->name = strdup(ba->getNameStr().c_str());
+
+  CBlockAddrInfo *i = new CBlockAddrInfo;
+  v->data = (void*)i;
+
+  i->func = translateValue(m, ba->getFunction());
+  i->block = translateValue(m, ba->getBasicBlock());
+
+  return v;
+}
+
+CValue* translateConstantAggregate(CModule *m, ValueTag t, const Constant *ca) {
+  CValue *v = new CValue;
+  (*m->valueMap)[ca] = v;
+
+  v->valueTag = t;
+  v->valueType = translateType(m, ca->getType());
+  if(ca->hasName())
+    v->name = strdup(ca->getNameStr().c_str());
+
+  CConstAggregate *a = new CConstAggregate;
+  v->data = (void*)a;
+
+  a->numElements = ca->getNumOperands();
+  a->constants = new CValue*[a->numElements];
+
+  int idx = 0;
+  for(User::const_op_iterator it = ca->op_begin(),
+        ed = ca->op_end(); it != ed; ++it)
+  {
+    a->constants[idx++] = translateValue(m, it->get());
+  }
+
+  return v;
+}
+
 CValue* translateConstant(CModule *m, const Constant *c) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(c);
   if(it != m->valueMap->end())
     return it->second;
 
-  return NULL;
+  // Order these in order of frequency
+  if(const ConstantInt *ci = dynamic_cast<const ConstantInt*>(c)) {
+    return translateConstantInt(m, ci);
+  }
+
+  if(const ConstantPointerNull *pn = dynamic_cast<const ConstantPointerNull*>(c)) {
+    return translateEmptyConstant(m, VAL_CONSTANTPOINTERNULL, pn);
+  }
+
+  if(const GlobalValue *gv = dynamic_cast<const GlobalValue*>(c)) {
+    return translateGlobalValue(m, gv);
+  }
+
+  if(const ConstantFP *fp = dynamic_cast<const ConstantFP*>(c)) {
+    return translateConstantFP(m, fp);
+  }
+
+  if(const ConstantAggregateZero *az = dynamic_cast<const ConstantAggregateZero*>(c)) {
+    return translateEmptyConstant(m, VAL_CONSTANTAGGREGATEZERO, az);
+  }
+
+  if(const UndefValue *uv = dynamic_cast<const UndefValue*>(c)) {
+    return translateEmptyConstant(m, VAL_UNDEFVALUE, uv);
+  }
+
+  if(const BlockAddress *ba = dynamic_cast<const BlockAddress*>(c)) {
+    return translateBlockAddress(m, ba);
+  }
+
+  if(const ConstantArray *ca = dynamic_cast<const ConstantArray*>(c)) {
+    return translateConstantAggregate(m, VAL_CONSTANTARRAY, ca);
+  }
+
+  if(const ConstantVector *cv = dynamic_cast<const ConstantVector*>(c)) {
+    return translateConstantAggregate(m, VAL_CONSTANTVECTOR, cv);
+  }
+
+  if(const ConstantStruct *cs = dynamic_cast<const ConstantStruct*>(c)) {
+    return translateConstantAggregate(m, VAL_CONSTANTSTRUCT, cs);
+  }
+
+
+  string msg;
+  raw_string_ostream os(msg);
+  os << "Unhandled constant type: ";
+  c->print(os);
+  throw os.str();
 }
 
 CValue* translateValue(CModule *m, const Value *v) {
@@ -1327,10 +1514,13 @@ extern "C" {
       ret->globalAliases = new CValue*[globalAliases.size()];
       std::copy(globalAliases.begin(), globalAliases.end(), ret->globalAliases);
     }
-    catch(const string &msg)
-    {
+    catch(const string &msg) {
       ret->isError = 1;
       ret->errMsg = strdup(msg.c_str());
+    }
+    catch(...) {
+      ret->isError = 1;
+      ret->errMsg = strdup("Unknown error");
     }
 
     return ret;

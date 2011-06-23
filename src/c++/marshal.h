@@ -319,6 +319,25 @@ struct CInlineAsmInfo {
   char *constraintString;
 };
 
+struct CBlockAddrInfo {
+  CValue *func;
+  CValue *block;
+};
+
+// This is lossy but good enough for all practical purposes.
+struct CConstInt {
+  long long int val;
+};
+
+struct CConstFP {
+  double val;
+};
+
+struct CConstAggregate {
+  CValue **constants;
+  int numElements;
+};
+
 struct CValue {
   ValueTag valueTag;
   CType *valueType;
