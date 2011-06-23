@@ -256,6 +256,10 @@ instance Hashable Value where
 instance Labellable Value where
   toLabel = (Label . StrLabel) . show . valueName
 
+-- FIXME: Simplify the IR by removing redundant info (va-arg type,
+-- alloca type, typecast types) and just add accessors to derive the
+-- info.  Call/Invoke ret type, sret
+
 -- Functions have parameters if they are not external
 data ValueT = Function { functionType :: Type
                        , functionParameters :: [Value] -- A list of arguments
