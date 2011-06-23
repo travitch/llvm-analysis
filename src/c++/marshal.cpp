@@ -10,6 +10,7 @@
 #include <tr1/unordered_map>
 
 #include <llvm/CallingConv.h>
+#include <llvm/InlineAsm.h>
 #include <llvm/Instructions.h>
 #include <llvm/LLVMContext.h>
 #include <llvm/Module.h>
@@ -18,6 +19,7 @@
 #include <llvm/ADT/OwningPtr.h>
 #include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/system_error.h>
 
 #include "marshal.h"
@@ -190,12 +192,6 @@ void disposeCType(CType *ct) {
   delete ct;
 }
 
-// FIXME:
-bool isLocalConstant(CValue *v) {
-  return false;
-}
-
-// FIXME:
 // Have to do the delete in this function since the pointer must be
 // cast to the correct type.
 void disposeData(ValueTag t, void* data) {
@@ -216,6 +212,14 @@ void disposeData(ValueTag t, void* data) {
 
     delete bbi;
     return;
+  }
+
+  case VAL_INLINEASM:
+  {
+    CInlineAsmInfo *ii = (CInlineAsmInfo*)data;
+    free(ii->asmString);
+    free(ii->constraintString);
+    delete ii;
   }
 
   case VAL_ALIAS:
@@ -1151,6 +1155,24 @@ CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   return v;
 }
 
+CValue* translateInlineAsm(CModule *m, const InlineAsm* a) {
+  CValue *v = new CValue;
+  (*m->valueMap)[a] = v;
+
+  v->valueTag = VAL_INLINEASM;
+  v->valueType = translateType(m, a->getType());
+  if(a->hasName())
+    v->name = strdup(a->getNameStr().c_str());
+
+  CInlineAsmInfo *ii = new CInlineAsmInfo;
+  v->data = (void*)ii;
+
+  ii->asmString = strdup(a->getAsmString().c_str());
+  ii->constraintString = strdup(a->getConstraintString().c_str());
+
+  return v;
+}
+
 CValue* translateConstant(CModule *m, const Constant *c) {
   unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(c);
   if(it != m->valueMap->end())
@@ -1164,6 +1186,8 @@ CValue* translateValue(CModule *m, const Value *v) {
   if(it != m->valueMap->end())
     return it->second;
 
+  // This order is pretty reasonable since constants will be the most
+  // frequent un-cached values.
   if(const Constant *c = dynamic_cast<const Constant*>(v)) {
     return translateConstant(m, c);
   }
@@ -1172,17 +1196,24 @@ CValue* translateValue(CModule *m, const Value *v) {
     return translateInstruction(m, i);
   }
 
+  if(const BasicBlock *bb = dynamic_cast<const BasicBlock*>(v)) {
+    return translateBasicBlock(m, bb);
+  }
+
+  if(const InlineAsm *a = dynamic_cast<const InlineAsm*>(v)) {
+    return translateInlineAsm(m, a);
+  }
+
   if(dynamic_cast<const Argument*>(v)) {
     string msg = "Un-cached Argument passed to translateValue";
     throw msg;
   }
-  // FIXME
-  //
-  // The majority of calls to this function will be resolved by the
-  // hash table.  Most of the rest will be resolved by translating a
-  // function or a constant.
 
-  return NULL;
+  string msg;
+  raw_string_ostream os(msg);
+  os << "Unhandled value type: ";
+  v->print(os);
+  throw os.str();
 }
 
 extern "C" {

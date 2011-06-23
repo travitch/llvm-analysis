@@ -314,6 +314,11 @@ struct CCallInfo {
   CValue *unwindDest;
 };
 
+struct CInlineAsmInfo {
+  char *asmString;
+  char *constraintString;
+};
+
 struct CValue {
   ValueTag valueTag;
   CType *valueType;
