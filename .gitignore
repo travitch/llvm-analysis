@@ -3,3 +3,12 @@ dist/
 /src/Data/LLVM/AssemblyParser.hi
 /src/Data/LLVM/AssemblyParser.o
 /cabal-dev
+/tests/cabal-dev/cabal.config
+/tests/cabal-dev/packages-7.0.3.conf/package.cache
+/tests/cabal-dev/packages/00-index.tar
+/llvm.buildinfo
+/config.log
+/config.status
+/autom4te.cache/output.0
+/autom4te.cache/requests
+/autom4te.cache/traces.0
