@@ -4,7 +4,10 @@ module Data.LLVM.Private.Unmarshal where
 #include "c++/marshal.h"
 
 import Control.Applicative
+import Control.Monad.State
 import Data.Array.Storable
+import Data.HashMap.Strict ( HashMap )
+import qualified Data.HashMap.Strict as M
 import Foreign.C
 import Foreign.C.String
 import Foreign.C.Types
@@ -76,3 +79,15 @@ data CValue = CValue ValueTag TypePtr String (Ptr ()) (Ptr ())
 {#fun marshalLLVM { `String' } -> `ModulePtr' id #}
 {#fun disposeCModule { id `ModulePtr' } -> `()' #}
 
+data KnotState = KnotState { valueMap :: HashMap Int Int }
+
+translate bitcodefile = do
+  m <- marshalLLVM bitcodefile
+
+  let initialState = KnotState { valueMap = M.empty }
+  (ir, finalState) <- evalStateT (mfix (tieKnot m)) initialState
+
+  disposeCModule m
+  return ir
+
+tieKnot m (_, finalState) = return (undefined, finalState)
