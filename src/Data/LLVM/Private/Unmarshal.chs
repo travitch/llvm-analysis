@@ -14,7 +14,9 @@ import Foreign.C.Types
 import Foreign.ForeignPtr
 import Foreign.Ptr
 import Foreign.Storable
+
 import Data.LLVM.Private.C2HS
+import Data.LLVM.Types
 
 {#enum CmpPredicate {underscoreToCase} deriving (Show, Eq) #}
 {#enum CallingConvention {} deriving (Show, Eq) #}
@@ -81,13 +83,26 @@ data CValue = CValue ValueTag TypePtr String (Ptr ()) (Ptr ())
 
 data KnotState = KnotState { valueMap :: HashMap Int Int }
 
+translate :: FilePath -> IO (Either String Module)
 translate bitcodefile = do
   m <- marshalLLVM bitcodefile
-
   let initialState = KnotState { valueMap = M.empty }
-  (ir, finalState) <- evalStateT (mfix (tieKnot m)) initialState
 
-  disposeCModule m
-  return ir
+  hasError <- cModuleHasError m
+  case hasError of
+    True -> do
+      err <- cModuleErrorMessage m
+      disposeCModule m
+      return $! Left err
+    False -> do
+      (ir, _) <- evalStateT (mfix (tieKnot m)) initialState
 
-tieKnot m (_, finalState) = return (undefined, finalState)
+      disposeCModule m
+      return $! Right ir
+
+type KnotMonad = StateT KnotState IO
+
+tieKnot :: ModulePtr -> (Module, KnotState) -> KnotMonad (Module, KnotState)
+tieKnot m (_, finalState) = do
+  s <- get
+  return (undefined, s)
