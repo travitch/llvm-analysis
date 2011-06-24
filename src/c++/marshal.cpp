@@ -1532,7 +1532,7 @@ extern "C" {
     error_code ec = MemoryBuffer::getFile(filename, buffer);
 
     if(buffer.get() == NULL){
-      ret->isError = 1;
+      ret->hasError = 1;
       ret->errMsg = strdup(ec.message().c_str());
       return ret;
     }
@@ -1541,7 +1541,7 @@ extern "C" {
     Module *m = ParseBitcodeFile(buffer.get(), ctxt, &errMsg);
 
     if(m == NULL) {
-      ret->isError = 1;
+      ret->hasError = 1;
       ret->errMsg = strdup(errMsg.c_str());
       return ret;
     }
@@ -1603,11 +1603,11 @@ extern "C" {
       std::copy(globalAliases.begin(), globalAliases.end(), ret->globalAliases);
     }
     catch(const string &msg) {
-      ret->isError = 1;
+      ret->hasError = 1;
       ret->errMsg = strdup(msg.c_str());
     }
     catch(...) {
-      ret->isError = 1;
+      ret->hasError = 1;
       ret->errMsg = strdup("Unknown error");
     }
 

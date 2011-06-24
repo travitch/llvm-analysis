@@ -369,7 +369,7 @@ typedef struct {
   CValue **functions;
   int numFunctions;
 
-  int isError;
+  int hasError;
   char *errMsg;
 
   void *privateData;
