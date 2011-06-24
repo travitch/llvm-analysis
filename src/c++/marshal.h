@@ -350,6 +350,7 @@ struct CValue_t {
   CType *valueType;
   char *name;
   CMetadata **md;
+  int numMetadata;
 
   void *data;
 };

@@ -34,7 +34,7 @@ import Data.LLVM.Types
 -- collected, this function runs 'deepseq' over the resulting 'Module'
 -- to ensure all thunks are fully evaluated.
 tieKnot :: ParserOptions -> O.Module -> Module
-tieKnot opts (O.Module layout triple decls) = m `deepseq` m
+tieKnot opts (O.Module layout triple decls) = undefined {- m `deepseq` m
   where
     m = Module { moduleDataLayout = layout
                , moduleTarget = triple
@@ -45,7 +45,7 @@ tieKnot opts (O.Module layout triple decls) = m `deepseq` m
     moduleAsm = extractModuleAssembly decls
     globalValues :: [Value]
     globalValues = completeGraph opts typeMapper decls
-
+-}
 -- FIXME: Could do something with the named metadata.  There seem to
 -- be two entries that don't really give much information: the lists
 -- of defined globals.
