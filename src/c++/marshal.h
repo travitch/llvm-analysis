@@ -354,24 +354,32 @@ struct CValue_t {
   void *data;
 };
 
-typedef struct CModule_t CModule;
+typedef struct {
+  char *moduleIdentifier;
+  char *moduleDataLayout;
+  char *targetTriple;
+  int littleEndian;
+  int pointerSize;
+  char *moduleInlineAsm;
+
+  CValue **globalVariables;
+  int numGlobalVariables;
+  CValue **globalAliases;
+  int numGlobalAliases;
+  CValue **functions;
+  int numFunctions;
+
+  int isError;
+  char *errMsg;
+
+  void *privateData;
+} CModule;
 
 #if defined(__cplusplus)
 extern "C" {
 #endif
   void disposeCModule(CModule *m);
   CModule* marshalLLVM(const char *filename);
-  int cmoduleIsError(CModule *m);
-  const char* cmoduleErrMsg(CModule *m);
-  const char* cmoduleDataLayout(CModule *m);
-  const char* cmoduleIdentifier(CModule *m);
-  const char* cmoduleTargetTriple(CModule *m);
-  const char* cmoduleInlineAsm(CModule *m);
-  int cmoduleIsLittleEndian(CModule *m);
-  int cmodulePointerSize(CModule *m);
-  CValue** cmoduleGlobalVariables(CModule *m);
-  CValue** cmoduleGlobalAliases(CModule *m);
-  CValue** cmoduleFunctions(CModule *m);
 #if defined(__cplusplus)
 }
 #endif

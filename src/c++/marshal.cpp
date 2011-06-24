@@ -29,21 +29,7 @@ using std::ostringstream;
 using std::string;
 using std::tr1::unordered_map;
 
-struct CModule_t {
-  char *moduleIdentifier;
-  char *moduleDataLayout;
-  char *targetTriple;
-  int littleEndian;
-  int pointerSize;
-  char *moduleInlineAsm;
-
-  CValue **globalVariables;
-  CValue **globalAliases;
-  CValue **functions;
-
-  int isError;
-  char *errMsg;
-
+struct PrivateData {
   // Foreign callers do not need to access below this point.
   Module* original;
 
@@ -52,8 +38,8 @@ struct CModule_t {
   // translated once to a heap-allocated CType.  On the Haskell side,
   // each CType needs to be translated once (mapping the address of
   // the CType to the translated version).
-  unordered_map<const Type*, CType*> *typeMap;
-  unordered_map<const Value*, CValue*> *valueMap;
+  unordered_map<const Type*, CType*> typeMap;
+  unordered_map<const Value*, CValue*> valueMap;
 };
 
 static ValueTag decodeOpcode(unsigned opcode) {
@@ -520,8 +506,9 @@ static void disposeCValue(CValue *v) {
 // FIXME: Add in named types to help break cycles.  This information
 // is kind of available from the module.
 static CType* translateType(CModule *m, const Type *t) {
-  unordered_map<const Type*,CType*>::const_iterator it = m->typeMap->find(t);
-  if(it != m->typeMap->end())
+  PrivateData *pd = (PrivateData*)m->privateData;
+  unordered_map<const Type*,CType*>::const_iterator it = pd->typeMap.find(t);
+  if(it != pd->typeMap.end())
     return it->second;
 
   CType *nt = new CType;
@@ -529,7 +516,7 @@ static CType* translateType(CModule *m, const Type *t) {
 
   // Need to put this in the table before making any recursive calls,
   // otherwise it might never terminate.
-  (*m->typeMap)[t] = nt;
+  pd->typeMap[t] = nt;
 
   switch(t->getTypeID()) {
     // Primitives don't require any work
@@ -610,12 +597,13 @@ static CValue* translateValue(CModule *m, const Value *v);
 static CValue* translateBasicBlock(CModule *m, const BasicBlock *bb);
 
 static CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
-  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(ga);
-  if(it != m->valueMap->end())
+  PrivateData *pd = (PrivateData*)m->privateData;
+  unordered_map<const Value*, CValue*>::iterator it = pd->valueMap.find(ga);
+  if(it != pd->valueMap.end())
     return it->second;
 
   CValue *v = new CValue;
-  (*m->valueMap)[ga] = v;
+  pd->valueMap[ga] = v;
 
   v->valueTag = VAL_ALIAS;
   v->valueType = translateType(m, ga->getType());
@@ -639,10 +627,11 @@ static CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
 }
 
 static CValue* translateArgument(CModule *m, const Argument *a) {
+  PrivateData *pd = (PrivateData*)m->privateData;
   // Arguments are translated before instructions, so we don't really
   // need to check to see if the argument exists already (it won't).
   CValue *v = new CValue;
-  (*m->valueMap)[a] = v;
+  pd->valueMap[a] = v;
 
   v->valueTag = VAL_ARGUMENT;
   v->valueType = translateType(m, a->getType());
@@ -916,12 +905,13 @@ static void buildInsertValueInst(CModule *m, CValue *v, const InsertValueInst *i
 }
 
 static CValue* translateInstruction(CModule *m, const Instruction *i) {
-  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(i);
-  if(it != m->valueMap->end())
+  PrivateData *pd = (PrivateData*)m->privateData;
+  unordered_map<const Value*, CValue*>::iterator it = pd->valueMap.find(i);
+  if(it != pd->valueMap.end())
     return it->second;
 
   CValue *v = new CValue;
-  (*m->valueMap)[i] = v;
+  pd->valueMap[i] = v;
 
   // FIXME: Handle metadata here
 
@@ -1128,12 +1118,13 @@ static CValue* translateInstruction(CModule *m, const Instruction *i) {
 }
 
 static CValue* translateBasicBlock(CModule *m, const BasicBlock *bb) {
-  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(bb);
-  if(it != m->valueMap->end())
+  PrivateData *pd = (PrivateData*)m->privateData;
+  unordered_map<const Value*, CValue*>::iterator it = pd->valueMap.find(bb);
+  if(it != pd->valueMap.end())
     return it->second;
 
   CValue *v = new CValue;
-  (*m->valueMap)[bb] = v;
+  pd->valueMap[bb] = v;
 
   v->valueTag = VAL_BASICBLOCK;
   v->valueType = translateType(m, bb->getType());
@@ -1158,12 +1149,13 @@ static CValue* translateBasicBlock(CModule *m, const BasicBlock *bb) {
 }
 
 static CValue* translateFunction(CModule *m, const Function *f) {
-  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(f);
-  if(it != m->valueMap->end())
+  PrivateData *pd = (PrivateData*)m->privateData;
+  unordered_map<const Value*, CValue*>::iterator it = pd->valueMap.find(f);
+  if(it != pd->valueMap.end())
     return it->second;
 
   CValue *v = new CValue;
-  (*m->valueMap)[f] = v;
+  pd->valueMap[f] = v;
 
   v->valueTag = VAL_FUNCTION;
   v->valueType = translateType(m, f->getFunctionType());
@@ -1206,12 +1198,13 @@ static CValue* translateFunction(CModule *m, const Function *f) {
 }
 
 static CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
-  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(gv);
-  if(it != m->valueMap->end())
+  PrivateData *pd = (PrivateData*)m->privateData;
+  unordered_map<const Value*, CValue*>::iterator it = pd->valueMap.find(gv);
+  if(it != pd->valueMap.end())
     return it->second;
 
   CValue *v = new CValue;
-  (*m->valueMap)[gv] = v;
+  pd->valueMap[gv] = v;
 
   v->valueTag = VAL_GLOBALVARIABLE;
   v->valueType = translateType(m, gv->getType());
@@ -1239,8 +1232,9 @@ static CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
 }
 
 static CValue* translateInlineAsm(CModule *m, const InlineAsm* a) {
+  PrivateData *pd = (PrivateData*)m->privateData;
   CValue *v = new CValue;
-  (*m->valueMap)[a] = v;
+  pd->valueMap[a] = v;
 
   v->valueTag = VAL_INLINEASM;
   v->valueType = translateType(m, a->getType());
@@ -1277,8 +1271,9 @@ static CValue* translateGlobalValue(CModule *m, const GlobalValue *gv) {
 }
 
 static CValue* translateEmptyConstant(CModule *m, ValueTag t, const Constant *p) {
+  PrivateData *pd = (PrivateData*)m->privateData;
   CValue *v = new CValue;
-  (*m->valueMap)[p] = v;
+  pd->valueMap[p] = v;
 
   v->valueTag = t;
   v->valueType = translateType(m, p->getType());
@@ -1289,8 +1284,9 @@ static CValue* translateEmptyConstant(CModule *m, ValueTag t, const Constant *p)
 }
 
 static CValue* translateConstantInt(CModule *m, const ConstantInt* i) {
+  PrivateData *pd = (PrivateData*)m->privateData;
   CValue *v = new CValue;
-  (*m->valueMap)[i] = v;
+  pd->valueMap[i] = v;
 
   v->valueTag = VAL_CONSTANTINT;
   v->valueType = translateType(m, i->getType());
@@ -1306,8 +1302,9 @@ static CValue* translateConstantInt(CModule *m, const ConstantInt* i) {
 }
 
 static CValue* translateConstantFP(CModule *m, const ConstantFP *fp) {
+  PrivateData *pd = (PrivateData*)m->privateData;
   CValue *v = new CValue;
-  (*m->valueMap)[fp] = v;
+  pd->valueMap[fp] = v;
 
   v->valueTag = VAL_CONSTANTFP;
   v->valueType = translateType(m, fp->getType());
@@ -1323,8 +1320,9 @@ static CValue* translateConstantFP(CModule *m, const ConstantFP *fp) {
 }
 
 static CValue* translateBlockAddress(CModule *m, const BlockAddress *ba) {
+  PrivateData *pd = (PrivateData*)m->privateData;
   CValue *v = new CValue;
-  (*m->valueMap)[ba] = v;
+  pd->valueMap[ba] = v;
 
   v->valueTag = VAL_BLOCKADDRESS;
   v->valueType = translateType(m, ba->getType());
@@ -1341,8 +1339,9 @@ static CValue* translateBlockAddress(CModule *m, const BlockAddress *ba) {
 }
 
 static CValue* translateConstantAggregate(CModule *m, ValueTag t, const Constant *ca) {
+  PrivateData *pd = (PrivateData*)m->privateData;
   CValue *v = new CValue;
-  (*m->valueMap)[ca] = v;
+  pd->valueMap[ca] = v;
 
   v->valueTag = t;
   v->valueType = translateType(m, ca->getType());
@@ -1366,7 +1365,10 @@ static CValue* translateConstantAggregate(CModule *m, ValueTag t, const Constant
 }
 
 static CValue* translateConstantExpr(CModule *m, const ConstantExpr *ce) {
+  PrivateData *pd = (PrivateData*)m->privateData;
   CValue *v = new CValue;
+  pd->valueMap[ce] = v;
+
   v->valueTag = VAL_CONSTANTEXPR;
   v->valueType = translateType(m, ce->getType());
   if(ce->hasName())
@@ -1390,8 +1392,9 @@ static CValue* translateConstantExpr(CModule *m, const ConstantExpr *ce) {
 }
 
 static CValue* translateConstant(CModule *m, const Constant *c) {
-  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(c);
-  if(it != m->valueMap->end())
+  PrivateData *pd = (PrivateData*)m->privateData;
+  unordered_map<const Value*, CValue*>::iterator it = pd->valueMap.find(c);
+  if(it != pd->valueMap.end())
     return it->second;
 
   // Order these in order of frequency
@@ -1448,8 +1451,9 @@ static CValue* translateConstant(CModule *m, const Constant *c) {
 }
 
 static CValue* translateValue(CModule *m, const Value *v) {
-  unordered_map<const Value*, CValue*>::iterator it = m->valueMap->find(v);
-  if(it != m->valueMap->end())
+  PrivateData *pd = (PrivateData*)m->privateData;
+  unordered_map<const Value*, CValue*>::iterator it = pd->valueMap.find(v);
+  if(it != pd->valueMap.end())
     return it->second;
 
   // This order is pretty reasonable since constants will be the most
@@ -1501,22 +1505,23 @@ extern "C" {
     delete[] m->globalAliases;
     delete[] m->functions;
 
-    for(unordered_map<const Type*,CType*>::iterator it = m->typeMap->begin(),
-          ed = m->typeMap->end(); it != ed; ++it)
+    PrivateData *pd = (PrivateData*)m->privateData;
+
+    for(unordered_map<const Type*,CType*>::iterator it = pd->typeMap.begin(),
+          ed = pd->typeMap.end(); it != ed; ++it)
     {
       disposeCType(it->second);
     }
 
-    delete m->typeMap;
-
-    for(unordered_map<const Value*,CValue*>::iterator it = m->valueMap->begin(),
-          ed = m->valueMap->end(); it != ed; ++it)
+    for(unordered_map<const Value*,CValue*>::iterator it = pd->valueMap.begin(),
+          ed = pd->valueMap.end(); it != ed; ++it)
     {
       disposeCValue(it->second);
     }
-    delete m->valueMap;
 
-    delete m->original;
+
+    delete pd->original;
+    delete pd;
     delete m;
   }
 
@@ -1545,9 +1550,10 @@ extern "C" {
     ret->moduleDataLayout = strdup(m->getDataLayout().c_str());
     ret->targetTriple = strdup(m->getTargetTriple().c_str());
     ret->moduleInlineAsm = strdup(m->getModuleInlineAsm().c_str());
-    ret->typeMap = new unordered_map<const Type*, CType*>();
-    ret->valueMap = new unordered_map<const Value*, CValue*>();
-    ret->original = m;
+
+    PrivateData *pd = new PrivateData;
+    pd->original = m;
+    ret->privateData = (void*)pd;
 
     try
     {
@@ -1562,7 +1568,8 @@ extern "C" {
         globalVariables.push_back(gv);
       }
 
-      ret->globalVariables = new CValue*[globalVariables.size()];
+      ret->numGlobalVariables = globalVariables.size();
+      ret->globalVariables = new CValue*[ret->numGlobalVariables];
       std::copy(globalVariables.begin(), globalVariables.end(), ret->globalVariables);
 
       std::vector<CValue*> functions;
@@ -1576,7 +1583,8 @@ extern "C" {
         functions.push_back(f);
       }
 
-      ret->functions = new CValue*[functions.size()];
+      ret->numFunctions = functions.size();
+      ret->functions = new CValue*[ret->numFunctions];
       std::copy(functions.begin(), functions.end(), ret->functions);
 
       std::vector<CValue*> globalAliases;
@@ -1590,7 +1598,8 @@ extern "C" {
         globalAliases.push_back(ga);
       }
 
-      ret->globalAliases = new CValue*[globalAliases.size()];
+      ret->numGlobalAliases = globalAliases.size();
+      ret->globalAliases = new CValue*[ret->numGlobalAliases];
       std::copy(globalAliases.begin(), globalAliases.end(), ret->globalAliases);
     }
     catch(const string &msg) {
@@ -1604,78 +1613,4 @@ extern "C" {
 
     return ret;
   }
-
-  int cmoduleIsError(CModule *m) {
-    return m->isError;
-  }
-
-  const char* cmoduleErrMsg(CModule *m) {
-    return m->errMsg;
-  }
-
-  const char* cmoduleDataLayout(CModule *m) {
-    return m->moduleDataLayout;
-  }
-
-  const char* cmoduleIdentifier(CModule *m) {
-    return m->moduleIdentifier;
-  }
-
-  const char* cmoduleTargetTriple(CModule *m) {
-    return m->targetTriple;
-  }
-
-  int cmoduleIsLittleEndian(CModule *m) {
-    return m->littleEndian;
-  }
-
-  int cmodulePointerSize(CModule *m) {
-    return m->pointerSize;
-  }
-
-  const char* cmoduleInlineAsm(CModule *m) {
-    return m->moduleInlineAsm;
-  }
-
-  CValue** cmoduleGlobalVariables(CModule *m) {
-    return m->globalVariables;
-  }
-
-  CValue** cmoduleGlobalAliases(CModule *m) {
-    return m->globalAliases;
-  }
-
-  CValue** cmoduleFunctions(CModule *m) {
-    return m->functions;
-  }
 }
-
-/*
-struct CModule {
-  char *moduleIdentifier;
-  char *moduleDataLayout;
-  char *targetTriple;
-  int littleEndian;
-  int pointerSize;
-  char *moduleInlineAsm;
-
-  CValue **globalVariables;
-  CValue **globalAliases;
-  CValue **functions;
-
-  int isError;
-  char *errMsg;
-
-  // Foreign callers do not need to access below this point.
-  Module* original;
-
-  // This map is actually state only for this translation code.  Since
-  // types have pointer equality in LLVM, every type will just be
-  // translated once to a heap-allocated CType.  On the Haskell side,
-  // each CType needs to be translated once (mapping the address of
-  // the CType to the translated version).
-  unordered_map<const Type*, CType*> *typeMap;
-  unordered_map<const Value*, CValue*> *valueMap;
-};
-
- */
