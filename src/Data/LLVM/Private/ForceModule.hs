@@ -161,7 +161,7 @@ forceValueT c =
                                  , insertValueValue c
                                  ]
       insertValueIndices c `deepseq` c `seq` return ()
-    AllocaInst _ v i -> do
+    AllocaInst v i -> do
       forceValueIfConstant v
       i `seq` c `seq` return ()
     LoadInst b v i -> do

@@ -562,9 +562,9 @@ printValue Value { valueContent =
           , intercalate ", " $ map show indices
           ]
 
-printValue Value { valueContent = AllocaInst ty elems align
+printValue Value { valueContent = AllocaInst elems align
                  , valueName = name
-                 , valueType = _
+                 , valueType = TypePointer ty
                  , valueMetadata = _
                  } =
   compose [ printInstNamePrefix name
@@ -754,7 +754,7 @@ printValue Value { valueContent =
                       CallInst { callIsTail = isTail
                                , callConvention = cc
                                , callParamAttrs = pattrs
-                               , callRetType = rtype
+--                               , callRetType = rtype
                                , callFunction = f
                                , callArguments = args
                                , callAttrs = cattrs
@@ -776,11 +776,12 @@ printValue Value { valueContent =
           , ")"
           , unwords $ map show cattrs
           ]
+  where
+    TypeFunction rtype _ _ = valueType f
 
 printValue Value { valueContent =
                       InvokeInst { invokeConvention = cc
                                  , invokeParamAttrs = pattrs
-                                 , invokeRetType = _
                                  , invokeFunction = f
                                  , invokeArguments = args
                                  , invokeAttrs = attrs
@@ -984,11 +985,11 @@ printTypecast inst name val newType _ =
 printInBounds :: Bool -> String
 printInBounds inBounds = if inBounds then "inbounds" else ""
 
-printFlaggedBinaryOp :: String -> Maybe Identifier -> [ArithFlags] ->
+printFlaggedBinaryOp :: String -> Maybe Identifier -> ArithFlags ->
                         Type -> Value -> Value -> Maybe Metadata -> String
 printFlaggedBinaryOp inst name flags t v1 v2 _ =
   compose [ printInstNamePrefix name, inst
-          , unwords $ map show flags
+          , show flags
           , printType t
           , printConstOrNameNoType v1, ","
           , printConstOrNameNoType v2

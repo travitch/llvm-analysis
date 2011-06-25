@@ -30,6 +30,7 @@ import Data.LLVM.Types -- hiding ( LinkageType, CallingConvention, VisibilitySty
 data TranslationException = TooManyReturnValues
                           | InvalidBranchInst
                           | InvalidSwitchLayout
+                          | InvalidIndirectBranchOperands
                           | KnotTyingFailure
                           deriving (Show, Typeable)
 instance Exception TranslationException
@@ -234,6 +235,44 @@ data CInstructionInfo
 cInstructionOperands :: InstInfoPtr -> IO [ValuePtr]
 cInstructionOperands i =
   peekArray i {#get CInstructionInfo->operands#} {#get CInstructionInfo->numOperands#}
+
+data CBinaryOpInfo
+{#pointer *CBinaryOpInfo as BinaryInfoPtr -> CBinaryOpInfo #}
+cBinaryOpLHS :: BinaryInfoPtr -> IO ValuePtr
+cBinaryOpLHS = {#get CBinaryOpInfo->lhs #}
+cBinaryOpRHS :: BinaryInfoPtr -> IO ValuePtr
+cBinaryOpRHS = {#get CBinaryOpInfo->rhs #}
+cBinaryOpFlags :: BinaryInfoPtr -> IO ArithFlags
+cBinaryOpFlags o = cToEnum <$> {#get CBinaryOpInfo->flags#} o
+
+data CUnaryOpInfo
+{#pointer *CUnaryOpInfo as UnaryInfoPtr -> CUnaryOpInfo #}
+cUnaryOpOperand :: UnaryInfoPtr -> IO ValuePtr
+cUnaryOpOperand = {#get CUnaryOpInfo->val#}
+cUnaryOpAlign :: UnaryInfoPtr -> IO Int64
+cUnaryOpAlign u = cIntConv <$> {#get CUnaryOpInfo->align#} u
+cUnaryOpIsVolatile :: UnaryInfoPtr -> IO Bool
+cUnaryOpIsVolatile u = cToBool <$> {#get CUnaryOpInfo->isVolatile#} u
+cUnaryOpAddrSpace :: UnaryInfoPtr -> IO Int
+cUnaryOpAddrSpace u = cIntConv <$> {#get CUnaryOpInfo->addrSpace#} u
+
+data CCallInfo
+{#pointer *CCallInfo as CallInfoPtr -> CCallInfo #}
+cCallValue :: CallInfoPtr -> IO ValuePtr
+cCallValue = {#get CCallInfo->calledValue #}
+cCallArguments :: CallInfoPtr -> IO [ValuePtr]
+cCallArguments c =
+  peekArray c {#get CCallInfo->arguments#} {#get CCallInfo->argListLen#}
+cCallConvention :: CallInfoPtr -> IO CallingConvention
+cCallConvention c = cToEnum <$> {#get CCallInfo->callingConvention#} c
+cCallHasSRet :: CallInfoPtr -> IO Bool
+cCallHasSRet c = cToBool <$> {#get CCallInfo->hasSRet#} c
+cCallIsTail :: CallInfoPtr -> IO Bool
+cCallIsTail c = cToBool <$> {#get CCallInfo->isTail#} c
+cCallUnwindDest :: CallInfoPtr -> IO ValuePtr
+cCallUnwindDest = {#get CCallInfo->unwindDest#}
+cCallNormalDest :: CallInfoPtr -> IO ValuePtr
+cCallNormalDest = {#get CCallInfo->normalDest#}
 
 -- | Parse the named file into an FFI-friendly representation of an
 -- LLVM module.
@@ -480,6 +519,29 @@ translateValue finalState vp = do
     ValBranchinst -> translateBranchInst finalState (castPtr dataPtr)
     ValSwitchinst -> translateSwitchInst finalState (castPtr dataPtr)
     ValIndirectbrinst -> translateIndirectBrInst finalState (castPtr dataPtr)
+    ValInvokeinst -> translateInvokeInst finalState (castPtr dataPtr)
+    ValUnwindinst -> return UnwindInst
+    ValUnreachableinst -> return UnreachableInst
+    ValAddinst -> translateFlaggedBinaryOp finalState AddInst (castPtr dataPtr)
+    ValFaddinst -> translateFlaggedBinaryOp finalState AddInst (castPtr dataPtr)
+    ValSubinst -> translateFlaggedBinaryOp finalState SubInst (castPtr dataPtr)
+    ValFsubinst -> translateFlaggedBinaryOp finalState SubInst (castPtr dataPtr)
+    ValMulinst ->  translateFlaggedBinaryOp finalState MulInst (castPtr dataPtr)
+    ValFmulinst ->  translateFlaggedBinaryOp finalState MulInst (castPtr dataPtr)
+    ValUdivinst -> translateBinaryOp finalState DivInst (castPtr dataPtr)
+    ValSdivinst -> translateBinaryOp finalState DivInst (castPtr dataPtr)
+    ValFdivinst -> translateBinaryOp finalState DivInst (castPtr dataPtr)
+    ValUreminst -> translateBinaryOp finalState RemInst (castPtr dataPtr)
+    ValSreminst -> translateBinaryOp finalState RemInst (castPtr dataPtr)
+    ValFreminst -> translateBinaryOp finalState RemInst (castPtr dataPtr)
+    ValShlinst -> translateBinaryOp finalState ShlInst (castPtr dataPtr)
+    ValLshrinst -> translateBinaryOp finalState LshrInst (castPtr dataPtr)
+    ValAshrinst -> translateBinaryOp finalState AshrInst (castPtr dataPtr)
+    ValAndinst -> translateBinaryOp finalState AndInst (castPtr dataPtr)
+    ValOrinst -> translateBinaryOp finalState OrInst (castPtr dataPtr)
+    ValXorinst -> translateBinaryOp finalState XorInst (castPtr dataPtr)
+    ValAllocainst -> translateAllocaInst finalState (castPtr dataPtr)
+    ValLoadinst -> translateLoadInst finalState (castPtr dataPtr)
 
   uid <- nextId
 
@@ -630,3 +692,70 @@ translateIndirectBrInst finalState dataPtr = do
       return $! IndirectBranchInst { indirectBranchAddress = addr'
                                    , indirectBranchTargets = targets'
                                    }
+    _ -> throw InvalidIndirectBranchOperands
+
+translateInvokeInst :: KnotState -> CallInfoPtr -> KnotMonad ValueT
+translateInvokeInst finalState dataPtr = do
+  func <- liftIO $ cCallValue dataPtr
+  args <- liftIO $ cCallArguments dataPtr
+  cc <- liftIO $ cCallConvention dataPtr
+  hasSRet <- liftIO $ cCallHasSRet dataPtr
+  ndest <- liftIO $ cCallNormalDest dataPtr
+  udest <- liftIO $ cCallUnwindDest dataPtr
+
+  f' <- translateConstOrRef finalState func
+  args' <- mapM (translateConstOrRef finalState) args
+  n' <- translateConstOrRef finalState ndest
+  u' <- translateConstOrRef finalState udest
+
+  return $! InvokeInst { invokeConvention = cc
+                       , invokeParamAttrs = [] -- FIXME
+                       , invokeFunction = f'
+                       , invokeArguments = zip args' (repeat []) -- FIXME
+                       , invokeAttrs = [] -- FIXME
+                       , invokeNormalLabel = n'
+                       , invokeUnwindLabel = u'
+                       , invokeHasSRet = hasSRet
+                       }
+
+translateFlaggedBinaryOp :: KnotState -> (ArithFlags -> Value -> Value -> ValueT) ->
+                            BinaryInfoPtr -> KnotMonad ValueT
+translateFlaggedBinaryOp finalState constructor dataPtr = do
+  lhs <- liftIO $ cBinaryOpLHS dataPtr
+  rhs <- liftIO $ cBinaryOpRHS dataPtr
+  flags <- liftIO $ cBinaryOpFlags dataPtr
+
+  lhs' <- translateConstOrRef finalState lhs
+  rhs' <- translateConstOrRef finalState rhs
+
+  return $! constructor flags lhs' rhs'
+
+translateBinaryOp :: KnotState -> (Value -> Value -> ValueT) ->
+                     BinaryInfoPtr -> KnotMonad ValueT
+translateBinaryOp finalState constructor dataPtr = do
+  lhs <- liftIO $ cBinaryOpLHS dataPtr
+  rhs <- liftIO $ cBinaryOpRHS dataPtr
+
+  lhs' <- translateConstOrRef finalState lhs
+  rhs' <- translateConstOrRef finalState rhs
+
+  return $! constructor lhs' rhs'
+
+translateAllocaInst :: KnotState -> UnaryInfoPtr -> KnotMonad ValueT
+translateAllocaInst finalState dataPtr = do
+  vptr <- liftIO $ cUnaryOpOperand dataPtr
+  align <- liftIO $ cUnaryOpAlign dataPtr
+
+  val <- translateConstOrRef finalState vptr
+
+  return $! AllocaInst val align
+
+translateLoadInst :: KnotState -> UnaryInfoPtr -> KnotMonad ValueT
+translateLoadInst finalState dataPtr = do
+  addrptr <- liftIO $ cUnaryOpOperand dataPtr
+  align <- liftIO $ cUnaryOpAlign dataPtr
+  volFlag <- liftIO $ cUnaryOpIsVolatile dataPtr
+
+  addr <- translateConstOrRef finalState addrptr
+
+  return $! LoadInst volFlag addr align

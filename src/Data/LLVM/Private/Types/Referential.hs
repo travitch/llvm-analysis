@@ -12,15 +12,12 @@ module Data.LLVM.Private.Types.Referential (
   llvmDebugVersion
   ) where
 
-import Control.DeepSeq
 import Data.ByteString.Char8 ( ByteString )
 import Data.Dwarf
 import Data.GraphViz
 import Data.Hashable
 import Data.Int
 import Text.Printf
-
-import Foreign.Ptr
 
 import Data.LLVM.Private.Types.Attributes
 import Data.LLVM.Private.Types.CAttributes
@@ -262,20 +259,14 @@ instance Hashable Value where
 instance Labellable Value where
   toLabel = (Label . StrLabel) . show . valueName
 
--- FIXME: Simplify the IR by removing redundant info (va-arg type,
--- alloca type, typecast types) and just add accessors to derive the
--- info.  Call/Invoke ret type, sret
-
 -- Functions have parameters if they are not external
-data ValueT = Function { -- functionType :: Type
-                       functionParameters :: [Value] -- A list of arguments
+data ValueT = Function { functionParameters :: [Value] -- A list of arguments
                        , functionBody :: [Value] -- A list of basic blocks
                        , functionLinkage :: !LinkageType
                        , functionVisibility :: !VisibilityStyle
                        , functionCC :: !CallingConvention
                        , functionRetAttrs :: [ParamAttribute]
                        , functionAttrs :: [FunctionAttribute]
---                       , functionName :: !Identifier
                        , functionSection :: !(Maybe ByteString)
                        , functionAlign :: !Int64
                        , functionGCName :: !(Maybe GCName)
@@ -315,9 +306,9 @@ data ValueT = Function { -- functionType :: Type
                                  }
             | UnwindInst
             | UnreachableInst
-            | AddInst [ArithFlags] Value Value
-            | SubInst [ArithFlags] Value Value
-            | MulInst [ArithFlags] Value Value
+            | AddInst !ArithFlags Value Value
+            | SubInst !ArithFlags Value Value
+            | MulInst !ArithFlags Value Value
             | DivInst Value Value -- Does not encode the exact flag of sdiv.  Convince me to
             | RemInst Value Value
             | ShlInst Value Value
@@ -344,7 +335,7 @@ data ValueT = Function { -- functionType :: Type
                               , insertValueValue :: Value
                               , insertValueIndices :: [Integer]
                               }
-            | AllocaInst Type Value !Int64
+            | AllocaInst Value !Int64
               -- ^ Type being allocated, number of elements, alignment
             | LoadInst !Bool Value !Int64
               -- ^ Volatile flag, address being loaded, alignment
@@ -387,7 +378,6 @@ data ValueT = Function { -- functionType :: Type
             | CallInst { callIsTail :: !Bool
                        , callConvention :: !CallingConvention
                        , callParamAttrs :: [ParamAttribute]
-                       , callRetType :: Type
                        , callFunction :: Value
                        , callArguments :: [(Value, [ParamAttribute])]
                        , callAttrs :: [FunctionAttribute]
@@ -395,7 +385,6 @@ data ValueT = Function { -- functionType :: Type
                        }
             | InvokeInst { invokeConvention :: !CallingConvention
                          , invokeParamAttrs :: [ParamAttribute]
-                         , invokeRetType :: Type
                          , invokeFunction :: Value
                          , invokeArguments :: [(Value, [ParamAttribute])]
                          , invokeAttrs :: [FunctionAttribute]

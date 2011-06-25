@@ -163,7 +163,7 @@ extractValueFacts (storeValToDst, loadValFromLoc, initialRef) v =
         GlobalDeclaration {} -> assertFact initialRef [ LLVMValue loc, MemLoc loc ]
         Function {} -> assertFact initialRef [ LLVMValue loc, MemLoc loc ]
         _ -> return ()
-    AllocaInst _ _ _ -> do
+    AllocaInst _ _ -> do
       assertFact initialRef [ LLVMValue v, MemLoc v ]
     _ -> return ()
 
