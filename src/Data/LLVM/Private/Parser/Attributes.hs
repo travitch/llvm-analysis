@@ -35,6 +35,7 @@ import Text.Parsec
 import Data.LLVM.Private.Lexer
 import Data.LLVM.Private.Parser.Primitive
 import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.CAttributes
 import Data.LLVM.Private.Types.Identifiers
 import Data.LLVM.Private.Types.Placeholder
 
@@ -76,16 +77,16 @@ functionAttributeP = tokenAs matcher
             _ -> Nothing
 
 visibilityStyleP :: AssemblyParser VisibilityStyle
-visibilityStyleP = option VisibilityDefault $ tokenAs matcher
+visibilityStyleP = undefined {- option VisibilityDefault $ tokenAs matcher
   where matcher x =
           case x of
             TVisDefault -> Just VisibilityDefault
             TVisHidden -> Just VisibilityHidden
             TVisProtected -> Just VisibilityProtected
             _ -> Nothing
-
+-}
 linkageTypeP :: AssemblyParser LinkageType
-linkageTypeP = option LTExtern $ tokenAs matcher
+linkageTypeP = undefined {-option LTExtern $ tokenAs matcher
   where matcher x =
           case x of
             TPrivate -> Just LTPrivate
@@ -105,10 +106,10 @@ linkageTypeP = option LTExtern $ tokenAs matcher
             TDLLExport -> Just LTDLLExport
             TExternal -> Just LTExtern
             _ -> Nothing
-
+-}
 
 callingConventionP :: AssemblyParser CallingConvention
-callingConventionP = option CCC $ tokenAs matcher
+callingConventionP = undefined {-option CCC $ tokenAs matcher
   where matcher x =
           case x of
             TCCN n -> Just (CCN n)
@@ -117,6 +118,7 @@ callingConventionP = option CCC $ tokenAs matcher
             TCCColdCC -> Just CCColdCC
             TCCGHC -> Just CCGHC
             _ -> Nothing
+-}
 
 gcNameP :: AssemblyParser GCName
 gcNameP = consumeToken TGC >> (GCName <$> parseString)
@@ -191,8 +193,8 @@ inBoundsP = option False $ tokenAs matcher
             TInbounds -> Just True
             _ -> Nothing
 
-icmpConditionP :: AssemblyParser ICmpCondition
-icmpConditionP = tokenAs matcher
+icmpConditionP :: AssemblyParser CmpPredicate
+icmpConditionP = undefined {-tokenAs matcher
   where matcher x =
           case x of
             Teq -> Just ICmpEq
@@ -206,9 +208,9 @@ icmpConditionP = tokenAs matcher
             Tslt -> Just ICmpSlt
             Tsle -> Just ICmpSle
             _ -> Nothing
-
-fcmpConditionP :: AssemblyParser FCmpCondition
-fcmpConditionP = tokenAs matcher
+-}
+fcmpConditionP :: AssemblyParser CmpPredicate
+fcmpConditionP = undefined {-tokenAs matcher
   where matcher x =
           case x of
             TFalseLit -> Just FCmpFalse
@@ -228,7 +230,7 @@ fcmpConditionP = tokenAs matcher
             Tuno -> Just FCmpUno
             TTrueLit -> Just FCmpTrue
             _ -> Nothing
-
+-}
 volatileFlag :: AssemblyParser Bool
 volatileFlag = tokenAs matcher
   where matcher x =
@@ -292,10 +294,11 @@ remInst = tokenAs matcher
             TFrem -> Just ()
             _ -> Nothing
 
-arithFlagP :: AssemblyParser ArithFlag
-arithFlagP = tokenAs matcher
+arithFlagP :: AssemblyParser ArithFlags
+arithFlagP = undefined {-tokenAs matcher
   where matcher x =
           case x of
             TNSW -> Just AFNSW
             TNUW -> Just AFNUW
             _ -> Nothing
+-}

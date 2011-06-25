@@ -214,7 +214,7 @@ typedef enum {
   VisibilityDefault,
   VisibilityHidden,
   VisibilityProtected
-} VisibilityType;
+} VisibilityStyle;
 
 typedef struct CValue_t CValue;
 
@@ -234,7 +234,7 @@ typedef struct {
 typedef struct {
   int isExternal; // Declaration
   int alignment;
-  VisibilityType visibility;
+  VisibilityStyle visibility;
   LinkageType linkage;
   char *section;
 
@@ -251,7 +251,7 @@ typedef struct {
 typedef struct {
   int isExternal; // Declaration
   int alignment;
-  VisibilityType visibility;
+  VisibilityStyle visibility;
   LinkageType linkage;
   char *section;
 

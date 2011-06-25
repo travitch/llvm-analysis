@@ -188,7 +188,7 @@ static LinkageType decodeLinkage(const GlobalValue *gv) {
   throw os.str();
 }
 
-static VisibilityType decodeVisibility(const GlobalValue *gv) {
+static VisibilityStyle decodeVisibility(const GlobalValue *gv) {
   switch(gv->getVisibility()) {
   case GlobalValue::DefaultVisibility: return VisibilityDefault;
   case GlobalValue::HiddenVisibility: return VisibilityHidden;
@@ -698,11 +698,11 @@ static void buildBinaryInst(CModule *m, CValue *v, ValueTag t, const Instruction
   ii->rhs = translateValue(m, bi->getOperand(1));
   ii->flags = ArithNone;
   if(bi->hasNoUnsignedWrap() && bi->hasNoSignedWrap())
-    li->flags = ArithBoth;
+    ii->flags = ArithBoth;
   else if(bi->hasNoUnsignedWrap())
-    li->flags = ArithNUW;
-  else if if(bi->hasNoSignedWrap())
-    ii->flags = ArithNSW
+    ii->flags = ArithNUW;
+  else if(bi->hasNoSignedWrap())
+    ii->flags = ArithNSW;
 }
 
 static void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {

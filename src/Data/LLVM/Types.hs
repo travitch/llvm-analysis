@@ -4,6 +4,7 @@ module Data.LLVM.Types (
   moduleGlobals,
   module Data.LLVM.Private.Types.Referential,
   module Data.LLVM.Private.Types.Attributes,
+  module Data.LLVM.Private.Types.CAttributes,
   module Data.LLVM.Private.Types.Identifiers,
   ) where
 
@@ -16,6 +17,7 @@ import Data.ByteString.Char8 ( ByteString )
 import Data.LLVM.Private.ForceModule
 import Data.LLVM.Private.Printers
 import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.CAttributes
 import Data.LLVM.Private.Types.Identifiers
 import Data.LLVM.Private.Types.Referential
 

@@ -23,6 +23,7 @@ import Text.Printf
 import Foreign.Ptr
 
 import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.CAttributes
 import Data.LLVM.Private.Types.Dwarf
 import Data.LLVM.Private.Types.Identifiers
 
@@ -214,9 +215,7 @@ data MetadataT =
 -- 'Value's and 'Metadata`, despite the cycles in the object graph.
 -- These ids are typically used as hash keys and give objects of these
 -- types identity.
-type UniqueId = IntPtr
--- These are already strict
-instance NFData UniqueId
+type UniqueId = Int
 
 -- | A wrapper for 'Metadata' values that tracks an Identifier and a
 -- unique identifier (similar to the 'Value' wrapper).  Almost all
@@ -316,9 +315,9 @@ data ValueT = Function { -- functionType :: Type
                                  }
             | UnwindInst
             | UnreachableInst
-            | AddInst [ArithFlag] Value Value
-            | SubInst [ArithFlag] Value Value
-            | MulInst [ArithFlag] Value Value
+            | AddInst [ArithFlags] Value Value
+            | SubInst [ArithFlags] Value Value
+            | MulInst [ArithFlags] Value Value
             | DivInst Value Value -- Does not encode the exact flag of sdiv.  Convince me to
             | RemInst Value Value
             | ShlInst Value Value
@@ -375,9 +374,9 @@ data ValueT = Function { -- functionType :: Type
               -- ^ Value being truncated, result type
             | BitcastInst Value Type
               -- ^ Value being truncated, result type
-            | ICmpInst !ICmpCondition Value Value
+            | ICmpInst !CmpPredicate Value Value
               -- ^ Type of comparison, values being compared
-            | FCmpInst !FCmpCondition Value Value
+            | FCmpInst !CmpPredicate Value Value
               -- ^ Type of comparison, values being compared
             | PhiNode [(Value, Value)]
             | SelectInst Value Value Value

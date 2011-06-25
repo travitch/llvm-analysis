@@ -12,6 +12,7 @@ import Data.Monoid
 import Data.ByteString.Char8 ( ByteString, unpack )
 
 import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.CAttributes
 import Data.LLVM.Private.Types.Identifiers
 import Data.LLVM.Private.Types.Referential
 
@@ -983,7 +984,7 @@ printTypecast inst name val newType _ =
 printInBounds :: Bool -> String
 printInBounds inBounds = if inBounds then "inbounds" else ""
 
-printFlaggedBinaryOp :: String -> Maybe Identifier -> [ArithFlag] ->
+printFlaggedBinaryOp :: String -> Maybe Identifier -> [ArithFlags] ->
                         Type -> Value -> Value -> Maybe Metadata -> String
 printFlaggedBinaryOp inst name flags t v1 v2 _ =
   compose [ printInstNamePrefix name, inst

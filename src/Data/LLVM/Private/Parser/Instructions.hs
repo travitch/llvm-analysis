@@ -11,6 +11,7 @@ import Data.LLVM.Private.Parser.Constants
 import Data.LLVM.Private.Parser.Primitive
 import Data.LLVM.Private.Parser.Types
 import Data.LLVM.Private.Types.Attributes
+import Data.LLVM.Private.Types.CAttributes
 import Data.LLVM.Private.Types.Identifiers
 import Data.LLVM.Private.Types.Placeholder
 
@@ -344,7 +345,7 @@ conversionInstP tok cons name = do
 
 -- | Parse the flagged binary instructions (add, sub, mul)
 binaryFlagInstP :: LexerToken ->
-                   ([ArithFlag] -> Constant -> Constant -> InstructionT) ->
+                   ([ArithFlags] -> Constant -> Constant -> InstructionT) ->
                    Identifier ->
                    AssemblyParser Instruction
 binaryFlagInstP tok cons name = do
