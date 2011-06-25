@@ -170,40 +170,40 @@ forceValueT c =
     StoreInst b v1 v2 i -> do
       mapM_ forceValueIfConstant [ v1, v2 ]
       b `seq` i `seq` c `seq` return ()
-    TruncInst v _ -> do
+    TruncInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    ZExtInst v _ -> do
+    ZExtInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    SExtInst v _ -> do
+    SExtInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    FPTruncInst v _ -> do
+    FPTruncInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    FPExtInst v _ -> do
+    FPExtInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    FPToUIInst v _ -> do
+    FPToUIInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    FPToSIInst v _ -> do
+    FPToSIInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    UIToFPInst v _ -> do
+    UIToFPInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    SIToFPInst v _ -> do
+    SIToFPInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    PtrToIntInst v _ -> do
+    PtrToIntInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    IntToPtrInst v _ -> do
+    IntToPtrInst v -> do
       forceValueIfConstant v
       c `seq` return ()
-    BitcastInst v _ -> do
+    BitcastInst v -> do
       forceValueIfConstant v
       c `seq` return ()
     ICmpInst cond v1 v2 -> do

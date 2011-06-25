@@ -601,73 +601,73 @@ printValue Value { valueContent = StoreInst volatile val dest align
           , printAlignment align
           ]
 
-printValue Value { valueContent = TruncInst v ty
+printValue Value { valueContent = TruncInst v@Value { valueType = ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "trunc" name v ty md
 
-printValue Value { valueContent = ZExtInst v ty
+printValue Value { valueContent = ZExtInst v@Value { valueType =  ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "zext" name v ty md
 
-printValue Value { valueContent = SExtInst v ty
+printValue Value { valueContent = SExtInst v@Value { valueType =  ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "sext" name v ty md
 
-printValue Value { valueContent = FPTruncInst v ty
+printValue Value { valueContent = FPTruncInst v@Value { valueType =  ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "fptrunc" name v ty md
 
-printValue Value { valueContent = FPExtInst v ty
+printValue Value { valueContent = FPExtInst v@Value { valueType = ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "fpext" name v ty md
 
-printValue Value { valueContent = FPToUIInst v ty
+printValue Value { valueContent = FPToUIInst v@Value { valueType = ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "fptoui" name v ty md
 
-printValue Value { valueContent = FPToSIInst v ty
+printValue Value { valueContent = FPToSIInst v@Value { valueType = ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "fptosi" name v ty md
 
-printValue Value { valueContent = UIToFPInst v ty
+printValue Value { valueContent = UIToFPInst v@Value { valueType = ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "uitofp" name v ty md
 
-printValue Value { valueContent = SIToFPInst v ty
+printValue Value { valueContent = SIToFPInst v@Value { valueType = ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "sitofp" name v ty md
 
-printValue Value { valueContent = PtrToIntInst v ty
+printValue Value { valueContent = PtrToIntInst v@Value { valueType = ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "ptrtoint" name v ty md
 
-printValue Value { valueContent = IntToPtrInst v ty
+printValue Value { valueContent = IntToPtrInst v@Value { valueType = ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
   printTypecast "inttoptr" name v ty md
 
-printValue Value { valueContent = BitcastInst v ty
+printValue Value { valueContent = BitcastInst v@Value { valueType = ty }
                  , valueName = name
                  , valueMetadata = md
                  } =
@@ -859,18 +859,18 @@ printArgument (v, atts) =
 
 printConstExp :: ValueT -> String
 printConstExp valT = case valT of
-  TruncInst v t -> printTypecastConst "trunc" v t
-  ZExtInst v t -> printTypecastConst "zext" v t
-  SExtInst v t -> printTypecastConst "sext" v t
-  FPTruncInst v t -> printTypecastConst "fptrunc" v t
-  FPExtInst v t -> printTypecastConst "fpext" v t
-  FPToUIInst v t -> printTypecastConst "fptoui" v t
-  FPToSIInst v t -> printTypecastConst "fptosi" v t
-  UIToFPInst v t -> printTypecastConst "uitofp" v t
-  SIToFPInst v t -> printTypecastConst "sitofp" v t
-  PtrToIntInst v t -> printTypecastConst "ptrtoint" v t
-  IntToPtrInst v t -> printTypecastConst "inttoptr" v t
-  BitcastInst v t -> printTypecastConst "bitcast" v t
+  TruncInst v@Value { valueType = t } -> printTypecastConst "trunc" v t
+  ZExtInst v@Value { valueType =  t } -> printTypecastConst "zext" v t
+  SExtInst v@Value { valueType =  t } -> printTypecastConst "sext" v t
+  FPTruncInst v@Value { valueType =  t } -> printTypecastConst "fptrunc" v t
+  FPExtInst v@Value { valueType =  t } -> printTypecastConst "fpext" v t
+  FPToUIInst v@Value { valueType =  t } -> printTypecastConst "fptoui" v t
+  FPToSIInst v@Value { valueType =  t } -> printTypecastConst "fptosi" v t
+  UIToFPInst v@Value { valueType =  t } -> printTypecastConst "uitofp" v t
+  SIToFPInst v@Value { valueType =  t } -> printTypecastConst "sitofp" v t
+  PtrToIntInst v@Value { valueType =  t } -> printTypecastConst "ptrtoint" v t
+  IntToPtrInst v@Value { valueType =  t } -> printTypecastConst "inttoptr" v t
+  BitcastInst v@Value { valueType =  t } -> printTypecastConst "bitcast" v t
   GetElementPtrInst { getElementPtrInBounds = inBounds
                     , getElementPtrValue = val
                     , getElementPtrIndices = indices

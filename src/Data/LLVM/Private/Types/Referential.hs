@@ -341,29 +341,29 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
               -- ^ Volatile flag, address being loaded, alignment
             | StoreInst !Bool Value Value !Int64
               -- ^ Volatile flag, value being stored, address of the destination, alignment
-            | TruncInst Value Type
+            | TruncInst Value
               -- ^ Value being truncated, result type
-            | ZExtInst Value Type
+            | ZExtInst Value
               -- ^ Value being truncated, result type
-            | SExtInst Value Type
+            | SExtInst Value
               -- ^ Value being truncated, result type
-            | FPTruncInst Value Type
+            | FPTruncInst Value
               -- ^ Value being truncated, result type
-            | FPExtInst Value Type
+            | FPExtInst Value
               -- ^ Value being truncated, result type
-            | FPToUIInst Value Type
+            | FPToUIInst Value
               -- ^ Value being truncated, result type
-            | FPToSIInst Value Type
+            | FPToSIInst Value
               -- ^ Value being truncated, result type
-            | UIToFPInst Value Type
+            | UIToFPInst Value
               -- ^ Value being truncated, result type
-            | SIToFPInst Value Type
+            | SIToFPInst Value
               -- ^ Value being truncated, result type
-            | PtrToIntInst Value Type
+            | PtrToIntInst Value
               -- ^ Value being truncated, result type
-            | IntToPtrInst Value Type
+            | IntToPtrInst Value
               -- ^ Value being truncated, result type
-            | BitcastInst Value Type
+            | BitcastInst Value
               -- ^ Value being truncated, result type
             | ICmpInst !CmpPredicate Value Value
               -- ^ Type of comparison, values being compared

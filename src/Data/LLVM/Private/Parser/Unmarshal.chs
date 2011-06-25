@@ -256,6 +256,31 @@ cUnaryOpIsVolatile u = cToBool <$> {#get CUnaryOpInfo->isVolatile#} u
 cUnaryOpAddrSpace :: UnaryInfoPtr -> IO Int
 cUnaryOpAddrSpace u = cIntConv <$> {#get CUnaryOpInfo->addrSpace#} u
 
+data CStoreInfo
+{#pointer *CStoreInfo as StoreInfoPtr -> CStoreInfo #}
+cStoreValue :: StoreInfoPtr -> IO ValuePtr
+cStoreValue = {#get CStoreInfo->value#}
+cStorePointer :: StoreInfoPtr -> IO ValuePtr
+cStorePointer = {#get CStoreInfo->pointer#}
+cStoreAddrSpace :: StoreInfoPtr -> IO Int
+cStoreAddrSpace s = cIntConv <$> {#get CStoreInfo->addrSpace#} s
+cStoreAlign :: StoreInfoPtr -> IO Int64
+cStoreAlign s = cIntConv <$> {#get CStoreInfo->align#} s
+cStoreIsVolatile :: StoreInfoPtr -> IO Bool
+cStoreIsVolatile s = cToBool <$> {#get CStoreInfo->isVolatile#} s
+
+data CGEPInfo
+{#pointer *CGEPInfo as GEPInfoPtr -> CGEPInfo #}
+cGEPOperand :: GEPInfoPtr -> IO ValuePtr
+cGEPOperand = {#get CGEPInfo->operand#}
+cGEPIndices :: GEPInfoPtr -> IO [ValuePtr]
+cGEPIndices g =
+  peekArray g {#get CGEPInfo->indices#} {#get CGEPInfo->indexListLen#}
+cGEPInBounds :: GEPInfoPtr -> IO Bool
+cGEPInBounds g = cToBool <$> {#get CGEPInfo->inBounds#} g
+cGEPAddrSpace :: GEPInfoPtr -> IO Int
+cGEPAddrSpace g = cIntConv <$> {#get CGEPInfo->addrSpace#} g
+
 data CCallInfo
 {#pointer *CCallInfo as CallInfoPtr -> CCallInfo #}
 cCallValue :: CallInfoPtr -> IO ValuePtr
@@ -542,6 +567,20 @@ translateValue finalState vp = do
     ValXorinst -> translateBinaryOp finalState XorInst (castPtr dataPtr)
     ValAllocainst -> translateAllocaInst finalState (castPtr dataPtr)
     ValLoadinst -> translateLoadInst finalState (castPtr dataPtr)
+    ValStoreinst -> translateStoreInst finalState (castPtr dataPtr)
+    ValGetelementptrinst -> translateGEPInst finalState (castPtr dataPtr)
+    ValTruncinst -> translateCastInst finalState TruncInst (castPtr dataPtr)
+    ValZextinst -> translateCastInst finalState ZExtInst (castPtr dataPtr)
+    ValSextinst -> translateCastInst finalState SExtInst (castPtr dataPtr)
+    ValFptruncinst -> translateCastInst finalState FPTruncInst (castPtr dataPtr)
+    ValFpextinst -> translateCastInst finalState FPExtInst (castPtr dataPtr)
+    ValFptouiinst -> translateCastInst finalState FPToUIInst (castPtr dataPtr)
+    ValFptosiinst -> translateCastInst finalState FPToSIInst (castPtr dataPtr)
+    ValUitofpinst -> translateCastInst finalState UIToFPInst (castPtr dataPtr)
+    ValSitofpinst -> translateCastInst finalState SIToFPInst (castPtr dataPtr)
+    ValPtrtointinst -> translateCastInst finalState PtrToIntInst (castPtr dataPtr)
+    ValInttoptrinst -> translateCastInst finalState IntToPtrInst (castPtr dataPtr)
+    ValBitcastinst -> translateCastInst finalState BitcastInst (castPtr dataPtr)
 
   uid <- nextId
 
@@ -759,3 +798,38 @@ translateLoadInst finalState dataPtr = do
   addr <- translateConstOrRef finalState addrptr
 
   return $! LoadInst volFlag addr align
+
+translateStoreInst :: KnotState -> StoreInfoPtr -> KnotMonad ValueT
+translateStoreInst finalState dataPtr = do
+  vptr <- liftIO $ cStoreValue dataPtr
+  pptr <- liftIO $ cStorePointer dataPtr
+  addrSpace <- liftIO $ cStoreAddrSpace dataPtr
+  align <- liftIO $ cStoreAlign dataPtr
+  isVol <- liftIO $ cStoreIsVolatile dataPtr
+
+  val' <- translateConstOrRef finalState vptr
+  ptr' <- translateConstOrRef finalState pptr
+
+  return $! StoreInst isVol val' ptr' align
+
+translateGEPInst :: KnotState -> GEPInfoPtr -> KnotMonad ValueT
+translateGEPInst finalState dataPtr = do
+  vptr <- liftIO $ cGEPOperand dataPtr
+  iptrs <- liftIO $ cGEPIndices dataPtr
+  inBounds <- liftIO $ cGEPInBounds dataPtr
+  addrSpace <- liftIO $ cGEPAddrSpace dataPtr
+
+  oper <- translateConstOrRef finalState vptr
+  is <- mapM (translateConstOrRef finalState) iptrs
+
+  return $! GetElementPtrInst { getElementPtrInBounds = inBounds
+                              , getElementPtrValue = oper
+                              , getElementPtrIndices = is
+                              }
+
+translateCastInst :: KnotState -> (Value -> ValueT) -> UnaryInfoPtr -> KnotMonad ValueT
+translateCastInst finalState constructor dataPtr = do
+  vptr <- liftIO $ cUnaryOpOperand dataPtr
+  v <- translateConstOrRef finalState vptr
+  return $! constructor v
+
