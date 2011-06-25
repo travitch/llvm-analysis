@@ -31,41 +31,24 @@ library
                    Data.LLVM.CallGraph,
                    Data.LLVM.CFG,
                    Data.LLVM.Types,
-                   Data.LLVM.Visualization,
-                   Data.LLVM.Private.Testing.Parser,
-                   Data.LLVM.Private.Testing.Types
+                   Data.LLVM.Visualization
+                   -- Data.LLVM.Private.Testing.Parser,
+                   -- Data.LLVM.Private.Testing.Types
   other-modules: Data.LLVM.Private.C2HS,
                  Data.LLVM.Private.ForceModule,
-                 Data.LLVM.Private.Lexer,
-                 Data.LLVM.Private.Parser,
-                 Data.LLVM.Private.Parser.Attributes,
-                 Data.LLVM.Private.Parser.Constants,
-                 Data.LLVM.Private.Parser.Instructions,
                  Data.LLVM.Private.Parser.Options,
-                 Data.LLVM.Private.Parser.Primitive,
-                 Data.LLVM.Private.Parser.Run,
-                 Data.LLVM.Private.Parser.Types,
+                 Data.LLVM.Private.Parser.Unmarshal,
                  Data.LLVM.Private.Printers,
-                 Data.LLVM.Private.TieKnot,
-                 Data.LLVM.Private.Translators.Constants,
-                 Data.LLVM.Private.Translators.Dwarf,
-                 Data.LLVM.Private.Translators.Functions,
-                 Data.LLVM.Private.Translators.Instructions,
-                 Data.LLVM.Private.Translators.Metadata,
-                 Data.LLVM.Private.Translators.Types,
                  Data.LLVM.Private.Types.Attributes,
                  Data.LLVM.Private.Types.CAttributes,
                  Data.LLVM.Private.Types.Dwarf,
                  Data.LLVM.Private.Types.Identifiers,
                  Data.LLVM.Private.Types.InternalMap,
-                 Data.LLVM.Private.Types.Placeholder,
-                 Data.LLVM.Private.Types.Referential,
-                 Data.LLVM.Private.UniqueId,
-                 Data.LLVM.Private.Unmarshal
+                 Data.LLVM.Private.Types.Referential
 
   C-sources: src/c++/marshal.cpp
 
-  build-tools: alex >= 2 && < 3, c2hs
+  build-tools: c2hs
   default-extensions: OverloadedStrings
   ghc-options: -Wall -O -funbox-strict-fields
   ghc-prof-options: -auto-all

@@ -1,9 +1,10 @@
 {-# LANGUAGE ForeignFunctionInterface, DeriveDataTypeable, RankNTypes #-}
-module Data.LLVM.Private.Unmarshal where
+module Data.LLVM.Private.Parser.Unmarshal ( parseBitcode ) where
 
 #include "c++/marshal.h"
 
 import Control.Applicative
+import Control.DeepSeq
 import Control.Exception
 import Control.Monad.State
 import Data.Array.Storable
@@ -23,6 +24,7 @@ import Foreign.Ptr
 import Foreign.Storable
 
 import Data.LLVM.Private.C2HS
+import Data.LLVM.Private.Parser.Options
 import Data.LLVM.Types -- hiding ( LinkageType, CallingConvention, VisibilityStyle )
 
 data TranslationException = TooManyReturnValues
@@ -262,8 +264,8 @@ nextId = do
 
   return thisId
 
-translate :: FilePath -> IO (Either String Module)
-translate bitcodefile = do
+parseBitcode :: ParserOptions -> FilePath -> IO (Either String Module)
+parseBitcode _ bitcodefile = do
   m <- marshalLLVM bitcodefile
 
   hasError <- cModuleHasError m
@@ -277,7 +279,7 @@ translate bitcodefile = do
       (ir, _) <- evalStateT (mfix (tieKnot m)) (emptyState ref)
 
       disposeCModule m
-      return $! Right ir
+      return $! Right (ir `deepseq` ir)
 
 
 tieKnot :: ModulePtr -> (Module, KnotState) -> KnotMonad (Module, KnotState)
