@@ -178,12 +178,11 @@ printMetadata md@Metadata { metaValueContent = MetadataUnknown } =
 -- Take all of the asm chunks, break their contents into lines,
 -- then wrap each of those lines in the 'module asm' wrapper.
 -- Combine them into a single string with newlines.
-printAsm :: [Assembly] -> String
+printAsm :: Assembly -> String
 printAsm asm = mconcat asmLines
-  where chunks = map show asm
-        block = mconcat chunks
-        asmLines = map adorn (lines block)
-        adorn s = "module asm \"" ++ s ++ "\"\n"
+  where
+    asmLines = map adorn (lines (show asm))
+    adorn s = "module asm \"" ++ s ++ "\"\n"
 
 -- When referencing a non-constant value during printing, just use
 -- this instead of printValue to avoid problems printing cyclic data.
@@ -214,20 +213,22 @@ isInteger s = case reads s :: [(Integer, String)] of
 
 printValue :: Value -> String
 printValue Value { valueContent =
-                      Function { functionType = t
-                               , functionParameters = args
+                      Function { -- functionType = t
+                                functionParameters = args
                                , functionBody = blockList
                                , functionLinkage = linkage
                                , functionVisibility = visStyle
                                , functionCC = cc
                                , functionRetAttrs = retAttrs
-                               , functionName = name
+--                               , functionName = name
                                , functionSection = section
                                , functionAlign = align
                                , functionGCName = gcname
                                , functionIsVararg = isVararg
                                , functionAttrs = fattrs
                                }
+                 , valueName = Just name
+                 , valueType = t
                  } =
   compose [ "define", show linkage, show visStyle, show cc,
             retAttrS, printType rtype, show name, "(",

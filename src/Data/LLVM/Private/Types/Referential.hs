@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module Data.LLVM.Private.Types.Referential (
   Type(..),
   UniqueId,
@@ -10,12 +12,15 @@ module Data.LLVM.Private.Types.Referential (
   llvmDebugVersion
   ) where
 
+import Control.DeepSeq
 import Data.ByteString.Char8 ( ByteString )
 import Data.Dwarf
 import Data.GraphViz
 import Data.Hashable
 import Data.Int
 import Text.Printf
+
+import Foreign.Ptr
 
 import Data.LLVM.Private.Types.Attributes
 import Data.LLVM.Private.Types.Dwarf
@@ -209,7 +214,9 @@ data MetadataT =
 -- 'Value's and 'Metadata`, despite the cycles in the object graph.
 -- These ids are typically used as hash keys and give objects of these
 -- types identity.
-type UniqueId = Int
+type UniqueId = IntPtr
+-- These are already strict
+instance NFData UniqueId
 
 -- | A wrapper for 'Metadata' values that tracks an Identifier and a
 -- unique identifier (similar to the 'Value' wrapper).  Almost all
@@ -227,7 +234,7 @@ instance Ord Metadata where
   mv1 `compare` mv2 = metaValueUniqueId mv1 `compare` metaValueUniqueId mv2
 
 instance Hashable Metadata where
-  hash md = metaValueUniqueId md
+  hash md = fromIntegral $ metaValueUniqueId md
 
 -- | A wrapper around 'ValueT' values that tracks the 'Type', name,
 -- and attached metadata. valueName is mostly informational at this
@@ -261,15 +268,15 @@ instance Labellable Value where
 -- info.  Call/Invoke ret type, sret
 
 -- Functions have parameters if they are not external
-data ValueT = Function { functionType :: Type
-                       , functionParameters :: [Value] -- A list of arguments
+data ValueT = Function { -- functionType :: Type
+                       functionParameters :: [Value] -- A list of arguments
                        , functionBody :: [Value] -- A list of basic blocks
                        , functionLinkage :: !LinkageType
                        , functionVisibility :: !VisibilityStyle
                        , functionCC :: !CallingConvention
                        , functionRetAttrs :: [ParamAttribute]
                        , functionAttrs :: [FunctionAttribute]
-                       , functionName :: !Identifier
+--                       , functionName :: !Identifier
                        , functionSection :: !(Maybe ByteString)
                        , functionAlign :: !Int64
                        , functionGCName :: !(Maybe GCName)
@@ -282,6 +289,7 @@ data ValueT = Function { functionType :: Type
                                 , globalVariableInitializer :: Maybe Value
                                 , globalVariableAlignment :: !Int64
                                 , globalVariableSection :: !(Maybe ByteString)
+                                , globalVariableIsThreadLocal :: !Bool
                                 }
             | GlobalAlias { globalAliasLinkage :: !LinkageType
                           , globalAliasVisibility :: !VisibilityStyle
@@ -415,7 +423,10 @@ data ValueT = Function { functionType :: Type
 -- | Get the instructions for a BasicBlock.
 blockInstructions :: Value -> [Value]
 blockInstructions Value { valueContent = BasicBlock is } = is
-blockInstructions v = error $ printf "Value is not a basic block: %d" (valueUniqueId v)
+blockInstructions v = error $ printf "Value is not a basic block: %d" uid
+  where
+    uid :: Integer
+    uid = fromIntegral $ valueUniqueId v
 
 -- | This simple helper tests whether or not the given 'Value' is a
 -- Function definition

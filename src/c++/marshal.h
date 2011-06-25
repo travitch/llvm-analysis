@@ -1,3 +1,16 @@
+/*!
+  Arithmetic flags
+ */
+typedef enum {
+  ArithNone,
+  ArithNUW,
+  ArithNSW,
+  ArithBoth
+} ArithFlags;
+
+/*!
+  Possible predicates for the icmp and fcmp instructions
+ */
 typedef enum {
   F_CMP_FALSE,
   F_CMP_OEQ,
@@ -27,6 +40,9 @@ typedef enum {
   I_CMP_SLE
 } CmpPredicate;
 
+/*!
+  Function calling conventions
+ */
 typedef enum {
   CC_C,
   CC_FAST,
@@ -45,6 +61,9 @@ typedef enum {
   CC_MBLAZE_SVOL
 } CallingConvention;
 
+/*!
+  Type tags
+ */
 typedef enum {
   TYPE_VOID,
   TYPE_FLOAT,
@@ -90,6 +109,9 @@ struct CType_t {
   char *name;
 };
 
+/*!
+  Value tags
+ */
 typedef enum {
   VAL_ARGUMENT,
   VAL_BASICBLOCK,
@@ -217,6 +239,7 @@ typedef struct {
   char *section;
 
   CallingConvention callingConvention;
+  int isVarArg;
   char *gcName;
   CValue **arguments;
   int argListLen;
@@ -248,11 +271,7 @@ typedef struct {
 typedef struct {
   CValue *lhs;
   CValue *rhs;
-  // 0 == no flags
-  // 1 == hasNoUnsignedWrap
-  // 2 == hasNoSignedWrap
-  // 3 == both
-  int flags;
+  ArithFlags flags;
 } CBinaryOpInfo;
 
 typedef struct {

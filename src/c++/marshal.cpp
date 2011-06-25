@@ -696,11 +696,13 @@ static void buildBinaryInst(CModule *m, CValue *v, ValueTag t, const Instruction
 
   ii->lhs = translateValue(m, bi->getOperand(0));
   ii->rhs = translateValue(m, bi->getOperand(1));
-  ii->flags = 0;
-  if(bi->hasNoUnsignedWrap())
-    ii->flags += 1;
-  if(bi->hasNoSignedWrap())
-    ii->flags += 2;
+  ii->flags = ArithNone;
+  if(bi->hasNoUnsignedWrap() && bi->hasNoSignedWrap())
+    li->flags = ArithBoth;
+  else if(bi->hasNoUnsignedWrap())
+    li->flags = ArithNUW;
+  else if if(bi->hasNoSignedWrap())
+    ii->flags = ArithNSW
 }
 
 static void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
@@ -1173,6 +1175,7 @@ static CValue* translateFunction(CModule *m, const Function *f) {
   fi->linkage = decodeLinkage(f);
   fi->isExternal = f->isDeclaration();
   fi->callingConvention = decodeCallingConvention(f->getCallingConv());
+  fi->isVarArg = f->isVarArg();
   if(f->hasGC())
     fi->gcName = strdup(f->getGC());
 

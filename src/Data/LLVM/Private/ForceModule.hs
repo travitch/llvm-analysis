@@ -245,7 +245,7 @@ forceGlobalValueT f@(Function {})= do
    --functionParameters f `deepseq`
   functionLinkage f `deepseq` functionVisibility f `deepseq`
     functionCC f `deepseq` functionRetAttrs f `deepseq`
-    functionAttrs f `deepseq` functionName f `deepseq`
+    functionAttrs f `deepseq`
     functionSection f `seq` functionGCName f `deepseq`
     functionAlign f `deepseq` functionIsVararg f `seq` f `seq` return ()
   mapM_ forceBasicBlock (functionBody f)

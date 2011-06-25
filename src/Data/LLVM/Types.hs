@@ -30,7 +30,7 @@ data Module = Module { moduleIdentifier :: ByteString
                      , moduleTarget :: TargetTriple
                        -- ^ The architecture that this module was
                        -- generated for
-                     , moduleAssembly :: [Assembly]
+                     , moduleAssembly :: Assembly
                        -- ^ Module-level assembly declarations
                      , moduleAliases :: [Value]
                      , moduleGlobalVariables :: [Value]
