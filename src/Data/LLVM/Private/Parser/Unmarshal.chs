@@ -307,6 +307,14 @@ cInsExtIndices :: InsExtPtr -> IO [Int]
 cInsExtIndices ie =
   peekArray ie {#get CInsExtValInfo->indices#} {#get CInsExtValInfo->numIndices#}
 
+data CConstExprInfo
+{#pointer *CConstExprInfo as ConstExprPtr -> CConstExprInfo #}
+cConstExprTag :: ConstExprPtr -> IO ValueTag
+cConstExprTag = {#get CConstExprInfo->instrType#}
+cConstExprOperands :: ConstExprPtr -> IO [ValuePtr]
+cConstExprOperands ce =
+  peekArray ce {#get CConstExprInfo->operands#} {#get CConstExprInfo->numOperands#}
+
 data CPHIInfo
 {#pointer *CPHIInfo as PHIInfoPtr -> CPHIInfo #}
 cPHIValues :: PHIInfoPtr -> IO [ValuePtr]
@@ -550,10 +558,21 @@ translateFunction finalState vp = do
       recordValue vp v
       return v
 
--- | Only the top-level translators should call this: Globals and BasicBlocks
--- (Or translateConstOrRef when translating constants)
+-- | This wrapper checks to see if we have translated the value yet
+-- (but not against the final state - only the internal running
+-- state).  This way we really translate it if it hasn't been seen
+-- yet, but get the translated value if we have touched it before.
 translateValue :: KnotState -> ValuePtr -> KnotMonad Value
 translateValue finalState vp = do
+  s <- get
+  case M.lookup vp (valueMap s) of
+    Nothing -> translateValue' finalState vp
+    Just v -> return v
+
+-- | Only the top-level translators should call this: Globals and BasicBlocks
+-- (Or translateConstOrRef when translating constants)
+translateValue' :: KnotState -> ValuePtr -> KnotMonad Value
+translateValue' finalState vp = do
   tag <- liftIO $ cValueTag vp
   name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
@@ -574,7 +593,6 @@ translateValue finalState vp = do
     ValConstantvector -> translateConstantAggregate finalState ConstantVector (castPtr dataPtr)
     ValConstantfp -> translateConstantFP finalState (castPtr dataPtr)
     ValConstantint -> translateConstantInt finalState (castPtr dataPtr)
-    -- ValCnstantexpr
     ValRetinst -> translateRetInst finalState (castPtr dataPtr)
     ValBranchinst -> translateBranchInst finalState (castPtr dataPtr)
     ValSwitchinst -> translateSwitchInst finalState (castPtr dataPtr)
@@ -630,6 +648,7 @@ translateValue finalState vp = do
     ValFunction -> throw InvalidFunctionInTranslateValue
     ValAlias -> throw InvalidAliasInTranslateValue
     ValGlobalvariable -> throw InvalidGlobalVarInTranslateValue
+    ValConstantexpr -> translateConstantExpr finalState (castPtr dataPtr)
 
   uid <- nextId
 
@@ -1002,3 +1021,11 @@ translateInsertValueInst finalState dataPtr = do
                             , insertValueValue = val
                             , insertValueIndices = indices
                             }
+
+translateConstantExpr :: KnotState -> ConstExprPtr -> KnotMonad ValueT
+translateConstantExpr finalState dataPtr = undefined -- do
+  -- opPtrs <- liftIO $ cConstExprOperands dataPtr
+  -- tag <- liftIO $ cConstExprTag dataPtr
+  -- ops <- mapM (translateConstOrRef finalState) opPtrs
+
+  -- case tag of
