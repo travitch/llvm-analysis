@@ -230,7 +230,7 @@ forceValueT c =
                  invokeFunction c : map fst (invokeArguments c)
       mapM_ forceValueIfConstant vs
       invokeParamAttrs c `deepseq` c `seq` return ()
-    VaArgInst v _ -> do
+    VaArgInst v -> do
       forceValueIfConstant v
       c `seq` return ()
     BlockAddress v1 v2 -> do

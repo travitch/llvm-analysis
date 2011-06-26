@@ -329,11 +329,11 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
                                 , shuffleVectorMask :: Value
                                 }
             | ExtractValueInst { extractValueAggregate :: Value
-                               , extractValueIndices :: [Integer]
+                               , extractValueIndices :: [Int]
                                }
             | InsertValueInst { insertValueAggregate :: Value
                               , insertValueValue :: Value
-                              , insertValueIndices :: [Integer]
+                              , insertValueIndices :: [Int]
                               }
             | AllocaInst Value !Int64
               -- ^ Type being allocated, number of elements, alignment
@@ -392,7 +392,7 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
                          , invokeUnwindLabel :: Value
                          , invokeHasSRet :: !Bool
                          }
-            | VaArgInst Value Type
+            | VaArgInst Value
             | UndefValue
             | BlockAddress Value Value -- Function, block -- type i8*, constant
             | ConstantAggregateZero

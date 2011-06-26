@@ -808,9 +808,9 @@ printValue Value { valueContent =
           , printConstOrName ulabel
           ]
 
-printValue Value { valueContent = VaArgInst v ty
+printValue Value { valueContent = VaArgInst v
                  , valueName = name
-                 , valueType = _
+                 , valueType = ty
                  , valueMetadata = _
                  } =
   compose [ printInstNamePrefix name
