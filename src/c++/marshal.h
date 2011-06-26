@@ -266,57 +266,34 @@ typedef struct {
 typedef struct {
   CValue **operands;
   int numOperands;
+
+  // Value insts
+  int *indices;
+  int numIndices;
+
+  // Comparisons
+  CmpPredicate cmpPred;
+
+  // Binary operators
+  ArithFlags flags;
+
+  // Misc
+  int align;
+  int addrSpace;
+
+  // Load/Store
+  int isVolatile;
+
+  // GEP
+  int inBounds;
 } CInstructionInfo;
 
-typedef struct {
-  CValue *lhs;
-  CValue *rhs;
-  ArithFlags flags;
-} CBinaryOpInfo;
-
-typedef struct {
-  CValue *val;
-  int align;
-
-  // Load
-  int isVolatile;
-  int addrSpace;
-} CUnaryOpInfo;
-
-typedef struct {
-  CValue *value;
-  CValue *pointer;
-  int addrSpace;
-  int align;
-  int isVolatile;
-} CStoreInfo;
-
-typedef struct {
-  CValue *operand;
-  CValue **indices;
-  int indexListLen;
-  int inBounds;
-  int addrSpace;
-} CGEPInfo;
-
-typedef struct {
-  CValue *op1;
-  CValue *op2;
-  CmpPredicate pred;
-} CCmpInfo;
 
 typedef struct {
   CValue **incomingValues;
   CValue **valueBlocks;
   int numIncomingValues;
 } CPHIInfo;
-
-typedef struct {
-  CValue *aggregate;
-  CValue *val; // only insert
-  int *indices;
-  int numIndices;
-} CInsExtValInfo;
 
 // Also for invoke
 typedef struct {
@@ -359,8 +336,7 @@ typedef struct {
 } CConstAggregate;
 
 typedef struct {
-  CValue **operands;
-  int numOperands;
+  CInstructionInfo *ii;
   ValueTag instrType;
 } CConstExprInfo;
 

@@ -39,6 +39,11 @@ data TranslationException = TooManyReturnValues
                           | InvalidFunctionInTranslateValue
                           | InvalidAliasInTranslateValue
                           | InvalidGlobalVarInTranslateValue
+                          | InvalidBinaryOp !Int
+                          | InvalidUnaryOp !Int
+                          | InvalidGEPInst !Int
+                          | InvalidExtractValueInst !Int
+                          | InvalidInsertValueInst !Int
                           deriving (Show, Typeable)
 instance Exception TranslationException
 
@@ -182,7 +187,6 @@ cFunctionBlocks f =
 
 data CArgInfo
 {#pointer *CArgumentInfo as ArgInfoPtr -> CArgInfo #}
-
 cArgInfoHasSRet :: ArgInfoPtr -> IO Bool
 cArgInfoHasSRet a = cToBool <$> ({#get CArgumentInfo->hasSRet#} a)
 cArgInfoHasByVal :: ArgInfoPtr -> IO Bool
@@ -241,79 +245,28 @@ data CInstructionInfo
 cInstructionOperands :: InstInfoPtr -> IO [ValuePtr]
 cInstructionOperands i =
   peekArray i {#get CInstructionInfo->operands#} {#get CInstructionInfo->numOperands#}
-
-data CBinaryOpInfo
-{#pointer *CBinaryOpInfo as BinaryInfoPtr -> CBinaryOpInfo #}
-cBinaryOpLHS :: BinaryInfoPtr -> IO ValuePtr
-cBinaryOpLHS = {#get CBinaryOpInfo->lhs #}
-cBinaryOpRHS :: BinaryInfoPtr -> IO ValuePtr
-cBinaryOpRHS = {#get CBinaryOpInfo->rhs #}
-cBinaryOpFlags :: BinaryInfoPtr -> IO ArithFlags
-cBinaryOpFlags o = cToEnum <$> {#get CBinaryOpInfo->flags#} o
-
-data CUnaryOpInfo
-{#pointer *CUnaryOpInfo as UnaryInfoPtr -> CUnaryOpInfo #}
-cUnaryOpOperand :: UnaryInfoPtr -> IO ValuePtr
-cUnaryOpOperand = {#get CUnaryOpInfo->val#}
-cUnaryOpAlign :: UnaryInfoPtr -> IO Int64
-cUnaryOpAlign u = cIntConv <$> {#get CUnaryOpInfo->align#} u
-cUnaryOpIsVolatile :: UnaryInfoPtr -> IO Bool
-cUnaryOpIsVolatile u = cToBool <$> {#get CUnaryOpInfo->isVolatile#} u
-cUnaryOpAddrSpace :: UnaryInfoPtr -> IO Int
-cUnaryOpAddrSpace u = cIntConv <$> {#get CUnaryOpInfo->addrSpace#} u
-
-data CCmpInfo
-{#pointer *CCmpInfo as CmpInfoPtr -> CCmpInfo #}
-cCmpOp1 :: CmpInfoPtr -> IO ValuePtr
-cCmpOp1 = {#get CCmpInfo->op1 #}
-cCmpOp2 :: CmpInfoPtr -> IO ValuePtr
-cCmpOp2 = {#get CCmpInfo->op2 #}
-cCmpPred :: CmpInfoPtr -> IO CmpPredicate
-cCmpPred c = cToEnum <$> {#get CCmpInfo->pred#} c
-
-
-data CStoreInfo
-{#pointer *CStoreInfo as StoreInfoPtr -> CStoreInfo #}
-cStoreValue :: StoreInfoPtr -> IO ValuePtr
-cStoreValue = {#get CStoreInfo->value#}
-cStorePointer :: StoreInfoPtr -> IO ValuePtr
-cStorePointer = {#get CStoreInfo->pointer#}
-cStoreAddrSpace :: StoreInfoPtr -> IO Int
-cStoreAddrSpace s = cIntConv <$> {#get CStoreInfo->addrSpace#} s
-cStoreAlign :: StoreInfoPtr -> IO Int64
-cStoreAlign s = cIntConv <$> {#get CStoreInfo->align#} s
-cStoreIsVolatile :: StoreInfoPtr -> IO Bool
-cStoreIsVolatile s = cToBool <$> {#get CStoreInfo->isVolatile#} s
-
-data CGEPInfo
-{#pointer *CGEPInfo as GEPInfoPtr -> CGEPInfo #}
-cGEPOperand :: GEPInfoPtr -> IO ValuePtr
-cGEPOperand = {#get CGEPInfo->operand#}
-cGEPIndices :: GEPInfoPtr -> IO [ValuePtr]
-cGEPIndices g =
-  peekArray g {#get CGEPInfo->indices#} {#get CGEPInfo->indexListLen#}
-cGEPInBounds :: GEPInfoPtr -> IO Bool
-cGEPInBounds g = cToBool <$> {#get CGEPInfo->inBounds#} g
-cGEPAddrSpace :: GEPInfoPtr -> IO Int
-cGEPAddrSpace g = cIntConv <$> {#get CGEPInfo->addrSpace#} g
-
-data CInsExtValInfo
-{#pointer *CInsExtValInfo as InsExtPtr -> CInsExtValInfo #}
-cInsExtAggregate :: InsExtPtr -> IO ValuePtr
-cInsExtAggregate = {#get CInsExtValInfo->aggregate#}
-cInsExtValue :: InsExtPtr -> IO ValuePtr
-cInsExtValue = {#get CInsExtValInfo->val#}
-cInsExtIndices :: InsExtPtr -> IO [Int]
-cInsExtIndices ie =
-  peekArray ie {#get CInsExtValInfo->indices#} {#get CInsExtValInfo->numIndices#}
+cInstructionArithFlags :: InstInfoPtr -> IO ArithFlags
+cInstructionArithFlags o = cToEnum <$> {#get CInstructionInfo->flags#} o
+cInstructionAlign :: InstInfoPtr -> IO Int64
+cInstructionAlign u = cIntConv <$> {#get CInstructionInfo->align#} u
+cInstructionIsVolatile :: InstInfoPtr -> IO Bool
+cInstructionIsVolatile u = cToBool <$> {#get CInstructionInfo->isVolatile#} u
+cInstructionAddrSpace :: InstInfoPtr -> IO Int
+cInstructionAddrSpace u = cIntConv <$> {#get CInstructionInfo->addrSpace#} u
+cInstructionCmpPred :: InstInfoPtr -> IO CmpPredicate
+cInstructionCmpPred c = cToEnum <$> {#get CInstructionInfo->cmpPred#} c
+cInstructionInBounds :: InstInfoPtr -> IO Bool
+cInstructionInBounds g = cToBool <$> {#get CInstructionInfo->inBounds#} g
+cInstructionIndices :: InstInfoPtr -> IO [Int]
+cInstructionIndices i =
+  peekArray i {#get CInstructionInfo->indices#} {#get CInstructionInfo->numIndices#}
 
 data CConstExprInfo
 {#pointer *CConstExprInfo as ConstExprPtr -> CConstExprInfo #}
 cConstExprTag :: ConstExprPtr -> IO ValueTag
-cConstExprTag = {#get CConstExprInfo->instrType#}
-cConstExprOperands :: ConstExprPtr -> IO [ValuePtr]
-cConstExprOperands ce =
-  peekArray ce {#get CConstExprInfo->operands#} {#get CConstExprInfo->numOperands#}
+cConstExprTag e = cToEnum <$> {#get CConstExprInfo->instrType#} e
+cConstExprInstInfo :: ConstExprPtr -> IO InstInfoPtr
+cConstExprInstInfo = {#get CConstExprInfo->ii#}
 
 data CPHIInfo
 {#pointer *CPHIInfo as PHIInfoPtr -> CPHIInfo #}
@@ -565,7 +518,7 @@ translateFunction finalState vp = do
 translateValue :: KnotState -> ValuePtr -> KnotMonad Value
 translateValue finalState vp = do
   s <- get
-  case M.lookup vp (valueMap s) of
+  case M.lookup (ptrToIntPtr vp) (valueMap s) of
     Nothing -> translateValue' finalState vp
     Just v -> return v
 
@@ -826,92 +779,98 @@ translateInvokeInst finalState dataPtr = do
                        }
 
 translateFlaggedBinaryOp :: KnotState -> (ArithFlags -> Value -> Value -> ValueT) ->
-                            BinaryInfoPtr -> KnotMonad ValueT
+                            InstInfoPtr -> KnotMonad ValueT
 translateFlaggedBinaryOp finalState constructor dataPtr = do
-  lhs <- liftIO $ cBinaryOpLHS dataPtr
-  rhs <- liftIO $ cBinaryOpRHS dataPtr
-  flags <- liftIO $ cBinaryOpFlags dataPtr
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  flags <- liftIO $ cInstructionArithFlags dataPtr
 
-  lhs' <- translateConstOrRef finalState lhs
-  rhs' <- translateConstOrRef finalState rhs
+  ops <- mapM (translateConstOrRef finalState) opPtrs
 
-  return $! constructor flags lhs' rhs'
+  case ops of
+    [lhs, rhs] -> return $! constructor flags lhs rhs
+    _ -> throw $ InvalidBinaryOp (length ops)
 
 translateBinaryOp :: KnotState -> (Value -> Value -> ValueT) ->
-                     BinaryInfoPtr -> KnotMonad ValueT
+                     InstInfoPtr -> KnotMonad ValueT
 translateBinaryOp finalState constructor dataPtr = do
-  lhs <- liftIO $ cBinaryOpLHS dataPtr
-  rhs <- liftIO $ cBinaryOpRHS dataPtr
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  ops <- mapM (translateConstOrRef finalState) opPtrs
 
-  lhs' <- translateConstOrRef finalState lhs
-  rhs' <- translateConstOrRef finalState rhs
+  case ops of
+    [lhs, rhs] -> return $! constructor lhs rhs
+    _ -> throw $ InvalidBinaryOp (length ops)
 
-  return $! constructor lhs' rhs'
-
-translateAllocaInst :: KnotState -> UnaryInfoPtr -> KnotMonad ValueT
+translateAllocaInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateAllocaInst finalState dataPtr = do
-  vptr <- liftIO $ cUnaryOpOperand dataPtr
-  align <- liftIO $ cUnaryOpAlign dataPtr
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  align <- liftIO $ cInstructionAlign dataPtr
+  ops <- mapM (translateConstOrRef finalState) opPtrs
 
-  val <- translateConstOrRef finalState vptr
+  case ops of
+    [val] -> return $! AllocaInst val align
+    _ -> throw $ InvalidUnaryOp (length ops)
 
-  return $! AllocaInst val align
 
-translateLoadInst :: KnotState -> UnaryInfoPtr -> KnotMonad ValueT
+translateLoadInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateLoadInst finalState dataPtr = do
-  addrptr <- liftIO $ cUnaryOpOperand dataPtr
-  align <- liftIO $ cUnaryOpAlign dataPtr
-  volFlag <- liftIO $ cUnaryOpIsVolatile dataPtr
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  align <- liftIO $ cInstructionAlign dataPtr
+  vol <- liftIO $ cInstructionIsVolatile dataPtr
 
-  addr <- translateConstOrRef finalState addrptr
+  ops <- mapM (translateConstOrRef finalState) opPtrs
 
-  return $! LoadInst volFlag addr align
+  case ops of
+    [addr] -> return $! LoadInst vol addr align
+    _ -> throw $ InvalidUnaryOp (length ops)
 
-translateStoreInst :: KnotState -> StoreInfoPtr -> KnotMonad ValueT
+translateStoreInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateStoreInst finalState dataPtr = do
-  vptr <- liftIO $ cStoreValue dataPtr
-  pptr <- liftIO $ cStorePointer dataPtr
-  addrSpace <- liftIO $ cStoreAddrSpace dataPtr
-  align <- liftIO $ cStoreAlign dataPtr
-  isVol <- liftIO $ cStoreIsVolatile dataPtr
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  addrSpace <- liftIO $ cInstructionAddrSpace dataPtr
+  align <- liftIO $ cInstructionAlign dataPtr
+  isVol <- liftIO $ cInstructionIsVolatile dataPtr
 
-  val' <- translateConstOrRef finalState vptr
-  ptr' <- translateConstOrRef finalState pptr
+  ops <- mapM (translateConstOrRef finalState) opPtrs
 
-  return $! StoreInst isVol val' ptr' align
+  case ops of
+    [val, ptr] -> return $! StoreInst isVol val ptr align
+    _ -> throw $ InvalidBinaryOp (length ops)
 
-translateGEPInst :: KnotState -> GEPInfoPtr -> KnotMonad ValueT
+translateGEPInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateGEPInst finalState dataPtr = do
-  vptr <- liftIO $ cGEPOperand dataPtr
-  iptrs <- liftIO $ cGEPIndices dataPtr
-  inBounds <- liftIO $ cGEPInBounds dataPtr
-  addrSpace <- liftIO $ cGEPAddrSpace dataPtr
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  inBounds <- liftIO $ cInstructionInBounds dataPtr
+  addrSpace <- liftIO $ cInstructionAddrSpace dataPtr
 
-  oper <- translateConstOrRef finalState vptr
-  is <- mapM (translateConstOrRef finalState) iptrs
+  ops <- mapM (translateConstOrRef finalState) opPtrs
 
-  return $! GetElementPtrInst { getElementPtrInBounds = inBounds
-                              , getElementPtrValue = oper
-                              , getElementPtrIndices = is
-                              }
+  case ops of
+    (val:indices) -> return $! GetElementPtrInst { getElementPtrInBounds = inBounds
+                                                 , getElementPtrValue = val
+                                                 , getElementPtrIndices = indices
+                                                 }
+    _ -> throw $ InvalidGEPInst (length ops)
 
-translateCastInst :: KnotState -> (Value -> ValueT) -> UnaryInfoPtr -> KnotMonad ValueT
+translateCastInst :: KnotState -> (Value -> ValueT) -> InstInfoPtr -> KnotMonad ValueT
 translateCastInst finalState constructor dataPtr = do
-  vptr <- liftIO $ cUnaryOpOperand dataPtr
-  v <- translateConstOrRef finalState vptr
-  return $! constructor v
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  ops <- mapM (translateConstOrRef finalState) opPtrs
+
+  case ops of
+    [v] -> return $! constructor v
+    _ -> throw $ InvalidUnaryOp (length ops)
 
 translateCmpInst :: KnotState -> (CmpPredicate -> Value -> Value -> ValueT) ->
-                    CmpInfoPtr -> KnotMonad ValueT
+                    InstInfoPtr -> KnotMonad ValueT
 translateCmpInst finalState constructor dataPtr = do
-  op1ptr <- liftIO $ cCmpOp1 dataPtr
-  op2ptr <- liftIO $ cCmpOp2 dataPtr
-  predicate <- liftIO $ cCmpPred dataPtr
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  predicate <- liftIO $ cInstructionCmpPred dataPtr
 
-  op1 <- translateConstOrRef finalState op1ptr
-  op2 <- translateConstOrRef finalState op2ptr
+  ops <- mapM (translateConstOrRef finalState) opPtrs
 
-  return $! constructor predicate op1 op2
+  case ops of
+    [op1, op2] -> return $! constructor predicate op1 op2
+    _ -> throw $ InvalidBinaryOp (length ops)
 
 translatePhiNode :: KnotState -> PHIInfoPtr -> KnotMonad ValueT
 translatePhiNode finalState dataPtr = do
@@ -952,11 +911,13 @@ translateSelectInst finalState dataPtr = do
       return $! SelectInst cond trueval falseval
     _ -> throw $ InvalidSelectArgs (length ops)
 
-translateVarArgInst :: KnotState -> UnaryInfoPtr -> KnotMonad ValueT
+translateVarArgInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateVarArgInst finalState dataPtr = do
-  opptr <- liftIO $ cUnaryOpOperand dataPtr
-  op <- translateConstOrRef finalState opptr
-  return $! VaArgInst op
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  ops <- mapM (translateConstOrRef finalState) opPtrs
+  case ops of
+    [op] -> return $! VaArgInst op
+    _ -> throw $ InvalidUnaryOp (length ops)
 
 translateExtractElementInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateExtractElementInst finalState dataPtr = do
@@ -992,40 +953,74 @@ translateShuffleVectorInst finalState dataPtr = do
                                   , shuffleVectorMask = vecMask
                                   }
     _ -> throw $ InvalidShuffleVectorInst (length ops)
-{-
-cInsExtAggregate :: InsExtPtr -> IO ValuePtr
-cInsExtValue :: InsExtPtr -> IO ValuePtr
-cInsExtIndices :: InsExtPtr -> IO [Int]
--}
-translateExtractValueInst :: KnotState -> InsExtPtr -> KnotMonad ValueT
+
+translateExtractValueInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateExtractValueInst finalState dataPtr = do
-  aggPtr <- liftIO $ cInsExtAggregate dataPtr
-  indices <- liftIO $ cInsExtIndices dataPtr
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  indices <- liftIO $ cInstructionIndices dataPtr
+  ops <- mapM (translateConstOrRef finalState) opPtrs
+  case ops of
+    [agg] -> return $! ExtractValueInst { extractValueAggregate = agg
+                                        , extractValueIndices = indices
+                                        }
+    _ -> throw $ InvalidExtractValueInst (length ops)
 
-  agg <- translateConstOrRef finalState aggPtr
-
-  return $! ExtractValueInst { extractValueAggregate = agg
-                             , extractValueIndices = indices
-                             }
-
-translateInsertValueInst :: KnotState -> InsExtPtr -> KnotMonad ValueT
+translateInsertValueInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateInsertValueInst finalState dataPtr = do
-  aggPtr <- liftIO $ cInsExtAggregate dataPtr
-  valPtr <- liftIO $ cInsExtValue dataPtr
-  indices <- liftIO $ cInsExtIndices dataPtr
-
-  agg <- translateConstOrRef finalState aggPtr
-  val <- translateConstOrRef finalState valPtr
-
-  return $! InsertValueInst { insertValueAggregate = agg
-                            , insertValueValue = val
-                            , insertValueIndices = indices
-                            }
+  opPtrs <- liftIO $ cInstructionOperands dataPtr
+  indices <- liftIO $ cInstructionIndices dataPtr
+  ops <- mapM (translateConstOrRef finalState) opPtrs
+  case ops of
+    [agg, val] ->
+      return $! InsertValueInst { insertValueAggregate = agg
+                                , insertValueValue = val
+                                , insertValueIndices = indices
+                                }
+    _ -> throw $ InvalidInsertValueInst (length ops)
 
 translateConstantExpr :: KnotState -> ConstExprPtr -> KnotMonad ValueT
-translateConstantExpr finalState dataPtr = undefined -- do
-  -- opPtrs <- liftIO $ cConstExprOperands dataPtr
-  -- tag <- liftIO $ cConstExprTag dataPtr
-  -- ops <- mapM (translateConstOrRef finalState) opPtrs
-
-  -- case tag of
+translateConstantExpr finalState dataPtr = do
+  ii <- liftIO $ cConstExprInstInfo dataPtr
+  tag <- liftIO $ cConstExprTag dataPtr
+  vt <- case tag of
+    ValAddinst -> translateFlaggedBinaryOp finalState AddInst ii
+    ValFaddinst -> translateFlaggedBinaryOp finalState AddInst ii
+    ValSubinst -> translateFlaggedBinaryOp finalState SubInst ii
+    ValFsubinst -> translateFlaggedBinaryOp finalState SubInst ii
+    ValMulinst ->  translateFlaggedBinaryOp finalState MulInst ii
+    ValFmulinst ->  translateFlaggedBinaryOp finalState MulInst ii
+    ValUdivinst -> translateBinaryOp finalState DivInst ii
+    ValSdivinst -> translateBinaryOp finalState DivInst ii
+    ValFdivinst -> translateBinaryOp finalState DivInst ii
+    ValUreminst -> translateBinaryOp finalState RemInst ii
+    ValSreminst -> translateBinaryOp finalState RemInst ii
+    ValFreminst -> translateBinaryOp finalState RemInst ii
+    ValShlinst -> translateBinaryOp finalState ShlInst ii
+    ValLshrinst -> translateBinaryOp finalState LshrInst ii
+    ValAshrinst -> translateBinaryOp finalState AshrInst ii
+    ValAndinst -> translateBinaryOp finalState AndInst ii
+    ValOrinst -> translateBinaryOp finalState OrInst ii
+    ValXorinst -> translateBinaryOp finalState XorInst ii
+    ValGetelementptrinst -> translateGEPInst finalState ii
+    ValTruncinst -> translateCastInst finalState TruncInst ii
+    ValZextinst -> translateCastInst finalState ZExtInst ii
+    ValSextinst -> translateCastInst finalState SExtInst ii
+    ValFptruncinst -> translateCastInst finalState FPTruncInst ii
+    ValFpextinst -> translateCastInst finalState FPExtInst ii
+    ValFptouiinst -> translateCastInst finalState FPToUIInst ii
+    ValFptosiinst -> translateCastInst finalState FPToSIInst ii
+    ValUitofpinst -> translateCastInst finalState UIToFPInst ii
+    ValSitofpinst -> translateCastInst finalState SIToFPInst ii
+    ValPtrtointinst -> translateCastInst finalState PtrToIntInst ii
+    ValInttoptrinst -> translateCastInst finalState IntToPtrInst ii
+    ValBitcastinst -> translateCastInst finalState BitcastInst ii
+    ValIcmpinst -> translateCmpInst finalState ICmpInst ii
+    ValFcmpinst -> translateCmpInst finalState FCmpInst ii
+    ValSelectinst -> translateSelectInst finalState ii
+    ValVaarginst -> translateVarArgInst finalState ii
+    ValExtractelementinst -> translateExtractElementInst finalState ii
+    ValInsertelementinst -> translateInsertElementInst finalState ii
+    ValShufflevectorinst -> translateShuffleVectorInst finalState ii
+    ValExtractvalueinst -> translateExtractValueInst finalState ii
+    ValInsertvalueinst -> translateInsertValueInst finalState ii
+  return $! ConstantValue vt

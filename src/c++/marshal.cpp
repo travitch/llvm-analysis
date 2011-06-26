@@ -293,17 +293,6 @@ static void disposeData(ValueTag t, void* data) {
     return;
   }
 
-  case VAL_RETINST:
-  case VAL_BRANCHINST:
-  case VAL_SWITCHINST:
-  case VAL_INDIRECTBRINST:
-  {
-    CInstructionInfo *ii = (CInstructionInfo*)data;
-    delete[] ii->operands;
-    delete ii;
-    return;
-  }
-
   case VAL_UNWINDINST:
   case VAL_UNREACHABLEINST:
   {
@@ -321,6 +310,23 @@ static void disposeData(ValueTag t, void* data) {
     return;
   }
 
+  case VAL_PHINODE:
+  {
+    CPHIInfo *pi = (CPHIInfo*)data;
+    delete[] pi->incomingValues;
+    delete[] pi->valueBlocks;
+    delete pi;
+    return;
+  }
+
+  case VAL_RETINST:
+  case VAL_BRANCHINST:
+  case VAL_SWITCHINST:
+  case VAL_INDIRECTBRINST:
+  case VAL_GETELEMENTPTRINST:
+  case VAL_STOREINST:
+  case VAL_ALLOCAINST:
+  case VAL_LOADINST:
   case VAL_ADDINST:
   case VAL_FADDINST:
   case VAL_SUBINST:
@@ -339,36 +345,6 @@ static void disposeData(ValueTag t, void* data) {
   case VAL_ANDINST:
   case VAL_ORINST:
   case VAL_XORINST:
-  {
-    CBinaryOpInfo *bi = (CBinaryOpInfo*)data;
-    delete bi;
-    return;
-  }
-
-  case VAL_ALLOCAINST:
-  case VAL_LOADINST:
-  {
-    CUnaryOpInfo *ui = (CUnaryOpInfo*)data;
-    delete ui;
-    return;
-  }
-
-  case VAL_STOREINST:
-  {
-    CStoreInfo *si = (CStoreInfo*)data;
-    delete si;
-    return;
-  }
-
-  case VAL_GETELEMENTPTRINST:
-  {
-    CGEPInfo *gi = (CGEPInfo*)data;
-    delete[] gi->indices;
-    delete gi;
-    return;
-  }
-
-
   case VAL_TRUNCINST:
   case VAL_ZEXTINST:
   case VAL_SEXTINST:
@@ -381,60 +357,19 @@ static void disposeData(ValueTag t, void* data) {
   case VAL_PTRTOINTINST:
   case VAL_INTTOPTRINST:
   case VAL_BITCASTINST:
-  {
-    CUnaryOpInfo *ui = (CUnaryOpInfo*)data;
-    delete ui;
-    return;
-  }
-
   case VAL_ICMPINST:
   case VAL_FCMPINST:
-  {
-    CCmpInfo *ci = (CCmpInfo*)data;
-    delete ci;
-    return;
-  }
-
-  case VAL_PHINODE:
-  {
-    CPHIInfo *pi = (CPHIInfo*)data;
-    delete[] pi->incomingValues;
-    delete[] pi->valueBlocks;
-    delete pi;
-    return;
-  }
-
-  case VAL_SELECTINST:
-  {
-    CInstructionInfo *ii = (CInstructionInfo*)data;
-    delete[] ii->operands;
-    delete ii;
-    return;
-  }
-
   case VAL_VAARGINST:
-  {
-    CUnaryOpInfo *ui = (CUnaryOpInfo*)data;
-    delete ui;
-    return;
-  }
-
+  case VAL_SELECTINST:
   case VAL_EXTRACTELEMENTINST:
   case VAL_INSERTELEMENTINST:
   case VAL_SHUFFLEVECTORINST:
+  case VAL_EXTRACTVALUEINST:
+  case VAL_INSERTVALUEINST:
   {
     CInstructionInfo *ii = (CInstructionInfo*)data;
     delete[] ii->operands;
     delete ii;
-    return;
-  }
-
-  case VAL_EXTRACTVALUEINST:
-  case VAL_INSERTVALUEINST:
-  {
-    CInsExtValInfo *vi = (CInsExtValInfo*)data;
-    delete[] vi->indices;
-    delete vi;
     return;
   }
 
@@ -480,7 +415,8 @@ static void disposeData(ValueTag t, void* data) {
   case VAL_CONSTANTEXPR:
   {
     CConstExprInfo *ce = (CConstExprInfo*)data;
-    delete[] ce->operands;
+    delete[] ce->ii->operands;
+    delete ce->ii;
     delete ce;
     return;
   }
@@ -691,11 +627,15 @@ static void buildBinaryInst(CModule *m, CValue *v, ValueTag t, const Instruction
   v->valueTag = t;
   v->valueType = translateType(m, bi->getType());
 
-  CBinaryOpInfo *ii = new CBinaryOpInfo;
+  CInstructionInfo *ii = new CInstructionInfo;
   v->data = (void*)ii;
 
-  ii->lhs = translateValue(m, bi->getOperand(0));
-  ii->rhs = translateValue(m, bi->getOperand(1));
+  ii->numOperands = inst->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, inst->getOperand(i));
+  }
+
   ii->flags = ArithNone;
   if(bi->hasNoUnsignedWrap() && bi->hasNoSignedWrap())
     ii->flags = ArithBoth;
@@ -754,11 +694,16 @@ static void buildAllocaInst(CModule *m, CValue *v, const AllocaInst *ai) {
   if(ai->hasName())
     v->name = strdup(ai->getNameStr().c_str());
 
-  CUnaryOpInfo *io = new CUnaryOpInfo;
-  v->data = (void*)io;
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
 
-  io->val = translateValue(m, ai->getArraySize());
-  io->align = ai->getAlignment();
+  ii->numOperands = ai->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, ai->getOperand(i));
+  }
+
+  ii->align = ai->getAlignment();
 }
 
 static void buildLoadInst(CModule *m, CValue *v, const LoadInst *li) {
@@ -767,13 +712,18 @@ static void buildLoadInst(CModule *m, CValue *v, const LoadInst *li) {
   if(li->hasName())
     v->name = strdup(li->getNameStr().c_str());
 
-  CUnaryOpInfo *io = new CUnaryOpInfo;
-  v->data = (void*)io;
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
 
-  io->val = translateValue(m, li->getPointerOperand());
-  io->isVolatile = li->isVolatile();
-  io->align = li->getAlignment();
-  io->addrSpace = li->getPointerAddressSpace();
+  ii->numOperands = li->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, li->getOperand(i));
+  }
+
+  ii->isVolatile = li->isVolatile();
+  ii->align = li->getAlignment();
+  ii->addrSpace = li->getPointerAddressSpace();
 }
 
 static void buildStoreInst(CModule *m, CValue *v, const StoreInst *si) {
@@ -782,64 +732,76 @@ static void buildStoreInst(CModule *m, CValue *v, const StoreInst *si) {
   if(si->hasName())
     v->name = strdup(si->getNameStr().c_str());
 
-  CStoreInfo *i = new CStoreInfo;
-  v->data = (void*)i;
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
 
-  i->value = translateValue(m, si->getValueOperand());
-  i->pointer = translateValue(m, si->getPointerOperand());
-  i->addrSpace = si->getPointerAddressSpace();
-  i->align = si->getAlignment();
-  i->isVolatile = si->isVolatile();
+
+  ii->numOperands = si->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, si->getOperand(i));
+  }
+
+  ii->addrSpace = si->getPointerAddressSpace();
+  ii->align = si->getAlignment();
+  ii->isVolatile = si->isVolatile();
 }
 
-static void buildGEPInst(CModule *m, CValue *v, const GetElementPtrInst *i) {
+static void buildGEPInst(CModule *m, CValue *v, const GetElementPtrInst *gi) {
   v->valueTag = VAL_GETELEMENTPTRINST;
-  v->valueType = translateType(m, i->getType());
-  if(i->hasName())
-    v->name = strdup(i->getNameStr().c_str());
+  v->valueType = translateType(m, gi->getType());
+  if(gi->hasName())
+    v->name = strdup(gi->getNameStr().c_str());
 
-  CGEPInfo *gi = new CGEPInfo;
-  v->data = (void*)gi;
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
 
-  gi->operand = translateValue(m, i->getPointerOperand());
-  gi->indexListLen = i->getNumIndices();
-  gi->indices = new CValue*[gi->indexListLen];
-  gi->inBounds = i->isInBounds();
-  gi->addrSpace = i->getPointerAddressSpace();
 
-  size_t idx = 0;
-  for(GetElementPtrInst::const_op_iterator it = i->idx_begin(),
-        ed = i->idx_end(); it != ed; ++it) {
-    gi->indices[idx++] = translateValue(m, it->get());
+  ii->numOperands = gi->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, gi->getOperand(i));
+  }
+
+  ii->inBounds = gi->isInBounds();
+  ii->addrSpace = gi->getPointerAddressSpace();
+}
+
+static void buildCastInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst) {
+  const CastInst *ci = dynamic_cast<const CastInst*>(inst);
+  v->valueTag = t;
+  v->valueType = translateType(m, ci->getType());
+  if(ci->hasName())
+    v->name = strdup(ci->getNameStr().c_str());
+
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
+
+
+  ii->numOperands = ci->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, ci->getOperand(i));
   }
 }
 
-static void buildCastInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
-  const CastInst *ci = dynamic_cast<const CastInst*>(i);
+static void buildCmpInst(CModule *m, CValue *v, ValueTag t, const Instruction *inst) {
+  const CmpInst *ci = dynamic_cast<const CmpInst*>(inst);
   v->valueTag = t;
   v->valueType = translateType(m, ci->getType());
   if(ci->hasName())
     v->name = strdup(ci->getNameStr().c_str());
 
-  CUnaryOpInfo *ui = new CUnaryOpInfo;
-  v->data = (void*)ui;
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
 
-  ui->val = translateValue(m, ci->getOperand(0));
-}
+  ii->numOperands = ci->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, ci->getOperand(i));
+  }
 
-static void buildCmpInst(CModule *m, CValue *v, ValueTag t, const Instruction *i) {
-  const CmpInst *ci = dynamic_cast<const CmpInst*>(i);
-  v->valueTag = t;
-  v->valueType = translateType(m, ci->getType());
-  if(ci->hasName())
-    v->name = strdup(ci->getNameStr().c_str());
-
-  CCmpInfo *cmp = new CCmpInfo;
-  v->data = (void*)cmp;
-
-  cmp->op1 = translateValue(m, ci->getOperand(0));
-  cmp->op2 = translateValue(m, ci->getOperand(1));
-  cmp->pred = decodePredicate(ci->getPredicate());
+  ii->cmpPred = decodePredicate(ci->getPredicate());
 }
 
 static void buildPHINode(CModule *m, CValue *v, const PHINode* n) {
@@ -867,10 +829,14 @@ static void buildVAArgInst(CModule *m, CValue *v, const VAArgInst *vi) {
   if(vi->hasName())
     v->name = strdup(vi->getNameStr().c_str());
 
-  CUnaryOpInfo *ui = new CUnaryOpInfo;
-  v->data = (void*)ui;
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
 
-  ui->val = translateValue(m, vi->getPointerOperand());
+  ii->numOperands = vi->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, vi->getOperand(i));
+  }
 }
 
 static void buildExtractValueInst(CModule *m, CValue *v, const ExtractValueInst *ei) {
@@ -879,31 +845,41 @@ static void buildExtractValueInst(CModule *m, CValue *v, const ExtractValueInst 
   if(ei->hasName())
     v->name = strdup(ei->getNameStr().c_str());
 
-  CInsExtValInfo *vi = new CInsExtValInfo;
-  v->data = (void*)vi;
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
 
-  vi->aggregate = translateValue(m, ei->getAggregateOperand());
-  vi->numIndices = ei->getNumIndices();
-  vi->indices = new int[vi->numIndices];
 
-  std::copy(ei->idx_begin(), ei->idx_end(), vi->indices);
+  ii->numOperands = ei->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, ei->getOperand(i));
+  }
+
+  ii->numIndices = ei->getNumIndices();
+  ii->indices = new int[ii->numIndices];
+
+  std::copy(ei->idx_begin(), ei->idx_end(), ii->indices);
 }
 
-static void buildInsertValueInst(CModule *m, CValue *v, const InsertValueInst *ii) {
+static void buildInsertValueInst(CModule *m, CValue *v, const InsertValueInst *ei) {
   v->valueTag = VAL_INSERTVALUEINST;
-  v->valueType = translateType(m, ii->getType());
-  if(ii->hasName())
-    v->name = strdup(ii->getNameStr().c_str());
+  v->valueType = translateType(m, ei->getType());
+  if(ei->hasName())
+    v->name = strdup(ei->getNameStr().c_str());
 
-  CInsExtValInfo *vi = new CInsExtValInfo;
-  v->data = (void*)vi;
+  CInstructionInfo *ii = new CInstructionInfo;
+  v->data = (void*)ii;
 
-  vi->aggregate = translateValue(m, ii->getAggregateOperand());
-  vi->val = translateValue(m, ii->getInsertedValueOperand());
-  vi->numIndices = ii->getNumIndices();
-  vi->indices = new int[vi->numIndices];
+  ii->numOperands = ei->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
+  for(int i = 0; i < ii->numOperands; ++i) {
+    ii->operands[i] = translateValue(m, ei->getOperand(i));
+  }
 
-  std::copy(ii->idx_begin(), ii->idx_end(), vi->indices);
+  ii->numIndices = ei->getNumIndices();
+  ii->indices = new int[ii->numIndices];
+
+  std::copy(ei->idx_begin(), ei->idx_end(), ii->indices);
 }
 
 static CValue* translateInstruction(CModule *m, const Instruction *i) {
@@ -1378,17 +1354,19 @@ static CValue* translateConstantExpr(CModule *m, const ConstantExpr *ce) {
     v->name = strdup(ce->getNameStr().c_str());
 
   CConstExprInfo *ci = new CConstExprInfo;
+  CInstructionInfo *ii = new CInstructionInfo;
   v->data = (void*)ci;
+  ci->ii = ii;
 
   ci->instrType = decodeOpcode(ce->getOpcode());
-  ci->numOperands = ce->getNumOperands();
-  ci->operands = new CValue*[ci->numOperands];
+  ii->numOperands = ce->getNumOperands();
+  ii->operands = new CValue*[ii->numOperands];
 
   int idx = 0;
   for(User::const_op_iterator it = ce->op_begin(),
         ed = ce->op_end(); it != ed; ++it)
   {
-    ci->operands[idx++] = translateValue(m, it->get());
+    ii->operands[idx++] = translateValue(m, it->get());
   }
 
   return v;
