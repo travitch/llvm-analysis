@@ -31,8 +31,8 @@ data TranslationException = TooManyReturnValues
                           | InvalidBranchInst
                           | InvalidSwitchLayout
                           | InvalidIndirectBranchOperands
-                          | KnotTyingFailure
-                          | TypeKnotTyingFailure
+                          | KnotTyingFailure ValueTag
+                          | TypeKnotTyingFailure TypeTag
                           | InvalidSelectArgs !Int
                           | InvalidExtractElementInst !Int
                           | InvalidInsertElementInst !Int
@@ -375,7 +375,6 @@ parseLLVMBitcodeFile _ bitcodefile = do
       case result res of
         Just r -> return $ Right (r `deepseq` r)
         Nothing -> return $ Left "No module in result"
---      return $ Right (fromJust $ result res) -- (ir `deepseq` ir)
 
 
 tieKnot :: ModulePtr -> KnotState -> KnotMonad KnotState
@@ -435,9 +434,9 @@ translateTypeRec finalState tp = do
       case (S.member ip (visitedTypes s), tag) of
         -- This is a cyclic reference - look it up in the final result
         (_, TYPE_NAMED) ->
-          return $ M.findWithDefault (throw TypeKnotTyingFailure) ip (typeMap finalState)
+          return $ M.findWithDefault (throw (TypeKnotTyingFailure tag)) ip (typeMap finalState)
         (True, _) ->
-          return $ M.findWithDefault (throw TypeKnotTyingFailure) ip (typeMap finalState)
+          return $ M.findWithDefault (throw (TypeKnotTyingFailure tag)) ip (typeMap finalState)
         _ -> translateType' finalState tp
 
 translateType' :: KnotState -> TypePtr -> KnotMonad Type
@@ -730,7 +729,7 @@ translateValue' finalState vp = do
     ValFunction -> throw InvalidFunctionInTranslateValue
     ValAlias -> throw InvalidAliasInTranslateValue
     ValGlobalvariable -> throw InvalidGlobalVarInTranslateValue
-    ValConstantexpr -> translateConstantExpr finalState (castPtr dataPtr)
+    ValConstantexpr -> return UnwindInst -- translateConstantExpr finalState (castPtr dataPtr)
 
   uid <- nextId
 
@@ -757,23 +756,18 @@ isConstant vt = case vt of
   ValUndefvalue -> True
   ValConstantexpr -> True
   ValBlockaddress -> True
+  ValInlineasm -> True
   _ -> False
 
 translateConstOrRef :: KnotState -> ValuePtr -> KnotMonad Value
-translateConstOrRef finalState vp = return Value { valueName = Nothing
-                                                 , valueContent = UnreachableInst
-                                                 , valueMetadata = Nothing
-                                                 , valueUniqueId = 1
-                                                 , valueType = TypeFloat
-                                                 }
-  {-do
+translateConstOrRef finalState vp = do
   tag <- liftIO $ cValueTag vp
-  if isConstant tag
-    then translateValue finalState vp
-    else case M.lookup (ptrToIntPtr vp) (valueMap finalState) of
-      Just v -> return v
-      Nothing -> throw KnotTyingFailure
--}
+  let ip = ptrToIntPtr vp
+  case isConstant tag of
+    True -> translateValue finalState vp
+    False ->
+      return $ M.findWithDefault (throw (KnotTyingFailure tag)) ip (valueMap finalState)
+
 
 translateArgument :: KnotState -> ArgInfoPtr -> KnotMonad ValueT
 translateArgument _ dataPtr = do
