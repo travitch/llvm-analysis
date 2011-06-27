@@ -35,10 +35,8 @@ library
                  Data.LLVM.Private.Parser.Unmarshal,
                  Data.LLVM.Private.Printers,
                  Data.LLVM.Private.Types.Attributes,
-                 Data.LLVM.Private.Types.CAttributes,
                  Data.LLVM.Private.Types.Dwarf,
                  Data.LLVM.Private.Types.Identifiers,
-                 Data.LLVM.Private.Types.InternalMap,
                  Data.LLVM.Private.Types.Referential
 
   C-sources: src/c++/marshal.cpp

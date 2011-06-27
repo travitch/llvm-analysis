@@ -147,7 +147,9 @@ extractValueFacts (storeValToDst, loadValFromLoc, initialRef) v =
   case valueContent v of
     -- Stores must have the value be of a pointer type, otherwise it
     -- is a store of a scalar and not interesting
-    StoreInst _ val dst@Value { valueType = TypePointer _ _ } _ -> do
+    StoreInst { storeValue = val
+              , storeAddress = dst@Value { valueType = TypePointer _ _ }
+              }-> do
       assertFact storeValToDst [ LLVMValue val, LLVMValue dst ]
       case valueContent val of
         Argument _ -> assertFact initialRef [ LLVMValue val, MemLoc val ]
@@ -156,7 +158,7 @@ extractValueFacts (storeValToDst, loadValFromLoc, initialRef) v =
         _ -> return ()
     -- Likewise, loads must be of type T** (at least), or it isn't
     -- interesting.
-    LoadInst _ loc@Value { valueType = TypePointer _ _ } _ -> do
+    LoadInst { loadAddress = loc@Value { valueType = TypePointer _ _ } } -> do
       assertFact loadValFromLoc [ LLVMValue v, LLVMValue loc ]
       case valueContent loc of
         Argument _ -> assertFact initialRef [ LLVMValue loc, MemLoc loc ]

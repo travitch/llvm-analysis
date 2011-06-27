@@ -201,14 +201,14 @@ cFunctionIsVarArg :: FunctionInfoPtr -> IO Bool
 cFunctionIsVarArg f = toBool <$> {#get CFunctionInfo->isVarArg#} f
 cFunctionCallingConvention :: FunctionInfoPtr -> IO CallingConvention
 cFunctionCallingConvention f = toEnum . fromIntegral <$> {#get CFunctionInfo->callingConvention#} f
-cFunctionGCName :: FunctionInfoPtr -> IO (Maybe GCName)
+cFunctionGCName :: FunctionInfoPtr -> IO (Maybe ByteString)
 cFunctionGCName f = do
   s <- {#get CFunctionInfo->gcName#} f
   case s == nullPtr of
     True -> return Nothing
     False -> do
       bs <- BS.packCString s
-      return $! Just (GCName bs)
+      return $! Just bs
 cFunctionArguments :: FunctionInfoPtr -> IO [ValuePtr]
 cFunctionArguments f =
   peekArray f {#get CFunctionInfo->arguments#} {#get CFunctionInfo->argListLen#}
@@ -359,6 +359,9 @@ nextId = do
 
   return thisId
 
+-- | Parse the named LLVM bitcode file into the LLVM form of the IR (a
+-- 'Module').  In the case of an error, a descriptive string will be
+-- returned.
 parseLLVMBitcodeFile :: ParserOptions -> FilePath -> IO (Either String Module)
 parseLLVMBitcodeFile _ bitcodefile = do
   m <- marshalLLVM bitcodefile
@@ -955,7 +958,10 @@ translateLoadInst finalState dataPtr = do
   ops <- mapM (translateConstOrRef finalState) opPtrs
 
   case ops of
-    [addr] -> return $ LoadInst vol addr align
+    [addr] -> return $ LoadInst { loadIsVolatile = vol
+                                , loadAddress = addr
+                                , loadAlignment = align
+                                }
     _ -> throw $ InvalidUnaryOp (length ops)
 
 translateStoreInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
@@ -968,7 +974,12 @@ translateStoreInst finalState dataPtr = do
   ops <- mapM (translateConstOrRef finalState) opPtrs
 
   case ops of
-    [val, ptr] -> return $ StoreInst isVol val ptr align
+    [val, ptr] -> return $ StoreInst { storeIsVolatile = isVol
+                                     , storeValue = val
+                                     , storeAddress = ptr
+                                     , storeAlignment = align
+                                     , storeAddrSpace = addrSpace
+                                     }
     _ -> throw $ InvalidBinaryOp (length ops)
 
 translateGEPInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
@@ -983,6 +994,7 @@ translateGEPInst finalState dataPtr = do
     (val:indices) -> return $ GetElementPtrInst { getElementPtrInBounds = inBounds
                                                 , getElementPtrValue = val
                                                 , getElementPtrIndices = indices
+                                                , getElementPtrAddrSpace = addrSpace
                                                 }
     _ -> throw $ InvalidGEPInst (length ops)
 

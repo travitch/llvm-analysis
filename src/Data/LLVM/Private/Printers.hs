@@ -12,7 +12,6 @@ import Data.Monoid
 import Data.ByteString.Char8 ( ByteString, unpack )
 
 import Data.LLVM.Private.Types.Attributes
-import Data.LLVM.Private.Types.CAttributes
 import Data.LLVM.Private.Types.Identifiers
 import Data.LLVM.Private.Types.Referential
 
@@ -576,7 +575,11 @@ printValue Value { valueContent = AllocaInst elems align
           Value { valueContent = ConstantInt 1 } -> ""
           _ -> ", " ++ printConstOrName elems
 
-printValue Value { valueContent = LoadInst volatile src align
+printValue Value { valueContent =
+                      LoadInst { loadIsVolatile = volatile
+                               , loadAddress = src
+                               , loadAlignment = align
+                               }
                  , valueName = name
                  , valueType = _
                  , valueMetadata = _
@@ -588,7 +591,12 @@ printValue Value { valueContent = LoadInst volatile src align
           , printAlignment align
           ]
 
-printValue Value { valueContent = StoreInst volatile val dest align
+printValue Value { valueContent =
+                      StoreInst { storeIsVolatile = volatile
+                                , storeValue = val
+                                , storeAddress = dest
+                                , storeAlignment = align
+                                }
                  , valueName = _
                  , valueType = _
                  , valueMetadata = _

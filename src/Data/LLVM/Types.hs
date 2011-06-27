@@ -4,7 +4,6 @@ module Data.LLVM.Types (
   moduleGlobals,
   module Data.LLVM.Private.Types.Referential,
   module Data.LLVM.Private.Types.Attributes,
-  module Data.LLVM.Private.Types.CAttributes,
   module Data.LLVM.Private.Types.Identifiers,
   ) where
 
@@ -17,7 +16,6 @@ import Data.ByteString.Char8 ( ByteString )
 import Data.LLVM.Private.ForceModule
 import Data.LLVM.Private.Printers
 import Data.LLVM.Private.Types.Attributes
-import Data.LLVM.Private.Types.CAttributes
 import Data.LLVM.Private.Types.Identifiers
 import Data.LLVM.Private.Types.Referential
 
@@ -37,16 +35,8 @@ data Module = Module { moduleIdentifier :: ByteString
                      , moduleAliases :: [Value]
                      , moduleGlobalVariables :: [Value]
                      , moduleFunctions :: [Value]
---                     , moduleGlobals :: [Value]
-                       -- ^ Global values (functions, constants,
-                       -- variables, and external references)
                      }
 
--- | This helper extracts just the function definitions from the
--- 'Module'
--- moduleFunctions :: Module -> [Value]
--- moduleFunctions Module { moduleGlobals = globals } =
---   filter valueIsFunction globals
 
 -- | Implementation of the Show instance
 printModule :: Module -> String
@@ -69,6 +59,8 @@ printModule Module { moduleIdentifier = ident
     varS = intercalate "\n\n" $ map printValue vars
     funcS = intercalate "\n\n" $ map printValue funcs
 
+-- | Get a list of all types of globals in the Module (functions,
+-- aliases, and global variables)
 moduleGlobals :: Module -> [Value]
 moduleGlobals m = concat [ moduleAliases m
                          , moduleGlobalVariables m
@@ -89,5 +81,4 @@ forceModule m = do
   mapM_ forceGlobal (moduleAliases m)
   mapM_ forceGlobal (moduleGlobalVariables m)
   mapM_ forceGlobal (moduleFunctions m)
-  return $ {-moduleDataLayout m `deepseq` moduleTarget m `deepseq`-}
-            moduleAssembly m `deepseq` m `seq` m
+  return $ moduleAssembly m `deepseq` m `seq` m

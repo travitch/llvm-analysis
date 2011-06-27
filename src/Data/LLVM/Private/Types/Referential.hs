@@ -20,7 +20,6 @@ import Data.Int
 import Text.Printf
 
 import Data.LLVM.Private.Types.Attributes
-import Data.LLVM.Private.Types.CAttributes
 import Data.LLVM.Private.Types.Dwarf
 import Data.LLVM.Private.Types.Identifiers
 
@@ -264,7 +263,7 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
                        , functionAttrs :: [FunctionAttribute]
                        , functionSection :: !(Maybe ByteString)
                        , functionAlign :: !Int64
-                       , functionGCName :: !(Maybe GCName)
+                       , functionGCName :: !(Maybe ByteString)
                        , functionIsVararg :: !Bool
                        }
             | GlobalDeclaration { globalVariableLinkage :: !LinkageType
@@ -331,10 +330,18 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
                               }
             | AllocaInst Value !Int64
               -- ^ Type being allocated, number of elements, alignment
-            | LoadInst !Bool Value !Int64
+            | LoadInst { loadIsVolatile :: !Bool
+                       , loadAddress :: Value
+                       , loadAlignment :: !Int64
+                       }
               -- ^ Volatile flag, address being loaded, alignment
-            | StoreInst !Bool Value Value !Int64
-              -- ^ Volatile flag, value being stored, address of the destination, alignment
+            | StoreInst { storeIsVolatile :: !Bool
+                        , storeValue :: Value
+                        , storeAddress :: Value
+                        , storeAlignment :: !Int64
+                        , storeAddrSpace :: !Int
+                        }
+              -- ^ Volatile flag, value being stored, address of the destination, alignment, addrspace
             | TruncInst Value
               -- ^ Value being truncated, result type
             | ZExtInst Value
@@ -368,6 +375,7 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
             | GetElementPtrInst { getElementPtrInBounds :: !Bool
                                 , getElementPtrValue :: Value
                                 , getElementPtrIndices :: [Value]
+                                , getElementPtrAddrSpace :: !Int
                                 }
             | CallInst { callIsTail :: !Bool
                        , callConvention :: !CallingConvention

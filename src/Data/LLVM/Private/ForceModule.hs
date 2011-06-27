@@ -164,12 +164,12 @@ forceValueT c =
     AllocaInst v i -> do
       forceValueIfConstant v
       i `seq` c `seq` return ()
-    LoadInst b v i -> do
-      forceValueIfConstant v
-      b `seq` i `seq` c `seq` return ()
-    StoreInst b v1 v2 i -> do
-      mapM_ forceValueIfConstant [ v1, v2 ]
-      b `seq` i `seq` c `seq` return ()
+    LoadInst {} -> do
+      forceValueIfConstant (loadAddress c)
+      c `seq` return ()
+    StoreInst {} -> do
+      mapM_ forceValueIfConstant [ storeValue c, storeAddress c ]
+      c `seq` return ()
     TruncInst v -> do
       forceValueIfConstant v
       c `seq` return ()
@@ -243,17 +243,12 @@ forceGlobalValueT f@(Function {})= do
   -- cyclic stuff, and the Function owns them.
 --  functionType f `deepseq` --
    --functionParameters f `deepseq`
-  functionLinkage f `deepseq` functionVisibility f `deepseq`
-    functionCC f `deepseq` functionRetAttrs f `deepseq`
-    functionAttrs f `deepseq`
-    functionSection f `seq` functionGCName f `deepseq`
-    functionAlign f `deepseq` functionIsVararg f `seq` f `seq` return ()
+  functionRetAttrs f `deepseq` functionAttrs f `deepseq`
+    functionSection f `seq` f `seq` return ()
   mapM_ forceBasicBlock (functionBody f)
   mapM_ forceValueIfConstant (functionParameters f)
 forceGlobalValueT g@(GlobalDeclaration {}) = do
-  globalVariableLinkage g `seq`
-   globalVariableAlignment g `seq`
-   globalVariableSection g `seq` g `seq` return ()
+  globalVariableSection g `seq` g `seq` return ()
   maybe (return ()) forceValueIfConstant (globalVariableInitializer g)
 forceGlobalValueT g@(GlobalAlias {}) = do
   globalAliasLinkage g `seq` globalAliasVisibility g `seq` g `seq` return ()

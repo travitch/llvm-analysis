@@ -1,26 +1,38 @@
 module Data.LLVM.Private.Types.Attributes (
   -- * Types
-  -- LinkageType(..),
-  -- CallingConvention(..),
-  -- VisibilityStyle(..),
+  ArithFlags(..),
+  CmpPredicate(..),
+  CallingConvention(..),
+  LinkageType(..),
+  VisibilityStyle(..),
   ParamAttribute(..),
   FunctionAttribute(..),
   Endian(..),
---  ArithFlag(..),
   DataLayout(..),
   TargetTriple(..),
   AlignSpec(..),
-  GCName(..),
-  -- ICmpCondition(..),
-  -- FCmpCondition(..),
-  GlobalAnnotation(..),
   Assembly(..),
   -- * Values
   defaultDataLayout
   ) where
 
+#include "c++/marshal.h"
+
 import Control.DeepSeq
 import Data.ByteString.Char8 ( ByteString, unpack )
+
+{#enum ArithFlags {} deriving (Show, Eq) #}
+{#enum CmpPredicate {underscoreToCase} deriving (Show, Eq) #}
+{#enum CallingConvention {} deriving (Show, Eq) #}
+{#enum LinkageType {} deriving (Show, Eq) #}
+{#enum VisibilityStyle {} deriving (Show, Eq) #}
+
+instance NFData ArithFlags
+instance NFData CmpPredicate
+instance NFData CallingConvention
+instance NFData LinkageType
+instance NFData VisibilityStyle
+
 
  -- Representing Assembly
 data Assembly = Assembly !ByteString
@@ -32,80 +44,6 @@ instance Show Assembly where
 instance NFData Assembly where
   rnf a@(Assembly txt) = txt `seq` a `seq` ()
 
--- Linkage Types
-
-data LinkageType = LTPrivate
-                 | LTLinkerPrivate
-                 | LTLinkerPrivateWeak
-                 | LTLinkerPrivateWeakDefAuto
-                 | LTInternal
-                 | LTAvailableExternally
-                 | LTLinkOnce
-                 | LTWeak
-                 | LTCommon
-                 | LTAppending
-                 | LTExternWeak
-                 | LTLinkOnceODR
-                 | LTWeakODR
-                 | LTExtern -- Default
-                 | LTDLLImport
-                 | LTDLLExport
-                   deriving (Eq, Ord)
-
--- Only trivial constructors so the default is fine
-instance NFData LinkageType
-
-instance Show LinkageType where
-  show LTPrivate = "private"
-  show LTLinkerPrivate = "linker_private"
-  show LTLinkerPrivateWeak = "linker_private_weak"
-  show LTLinkerPrivateWeakDefAuto = "linker_private_weak_def_auto"
-  show LTInternal = "internal"
-  show LTAvailableExternally = "available_externally"
-  show LTLinkOnce = "link_once"
-  show LTWeak = "weak"
-  show LTCommon = "common"
-  show LTAppending = "appending"
-  show LTExternWeak = "extern_weak"
-  show LTLinkOnceODR = "link_once_odr"
-  show LTWeakODR = "weak_odr"
-  show LTExtern = ""
-  show LTDLLImport = "dllimport"
-  show LTDLLExport = "dllexport"
-
--- Calling convention
-
-data CallingConvention = CCC
-                       | CCFastCC
-                       | CCColdCC
-                       | CCGHC
-                       | CCN !Int
-                       deriving (Eq, Ord)
-
-instance NFData CallingConvention
-
-instance Show CallingConvention where
-  show CCC = ""
-  show CCFastCC = "fastcc"
-  show CCColdCC = "coldcc"
-  show CCGHC = "cc 10"
-  show (CCN n) = "cc " ++ show n
-
-
--- Visibility
-
-data VisibilityStyle = VisibilityDefault
-                     | VisibilityHidden
-                     | VisibilityProtected
-                       deriving (Eq, Ord)
-
--- Again, default since there are only trivial constructors
-instance NFData VisibilityStyle
-
-instance Show VisibilityStyle where
-  show VisibilityDefault = ""
-  show VisibilityHidden = "hidden"
-  show VisibilityProtected = "protected"
 
 -- Param attributes
 
@@ -236,87 +174,3 @@ defaultDataLayout = DataLayout { endianness = EBig
                                , nativeWidths = [] -- Set.empty
                                }
 
-data GCName = GCName !ByteString deriving (Eq, Ord)
-
-instance NFData GCName where
-  rnf n@(GCName s) = s `seq` n `seq` ()
-
-instance Show GCName where
-  show (GCName t) = "gc \"" ++ unpack t ++ "\""
-
-data ICmpCondition = ICmpEq
-                   | ICmpNe
-                   | ICmpUgt
-                   | ICmpUge
-                   | ICmpUlt
-                   | ICmpUle
-                   | ICmpSgt
-                   | ICmpSge
-                   | ICmpSlt
-                   | ICmpSle
-                     deriving (Eq, Ord)
-
-instance Show ICmpCondition where
-  show ICmpEq = "eq"
-  show ICmpNe = "ne"
-  show ICmpUgt = "ugt"
-  show ICmpUge = "uge"
-  show ICmpUlt = "ult"
-  show ICmpUle = "ule"
-  show ICmpSgt = "sgt"
-  show ICmpSge = "sge"
-  show ICmpSlt = "slt"
-  show ICmpSle = "sle"
-
-data FCmpCondition = FCmpFalse
-                   | FCmpOeq
-                   | FCmpOgt
-                   | FCmpOge
-                   | FCmpOlt
-                   | FCmpOle
-                   | FCmpOne
-                   | FCmpOrd
-                   | FCmpUeq
-                   | FCmpUgt
-                   | FCmpUge
-                   | FCmpUlt
-                   | FCmpUle
-                   | FCmpUne
-                   | FCmpUno
-                   | FCmpTrue
-                     deriving (Eq, Ord)
-
-instance Show FCmpCondition where
-  show FCmpFalse = "false"
-  show FCmpOeq = "oeq"
-  show FCmpOgt = "ogt"
-  show FCmpOge = "oge"
-  show FCmpOlt = "olt"
-  show FCmpOle = "ole"
-  show FCmpOne = "one"
-  show FCmpOrd = "ord"
-  show FCmpUeq = "ueq"
-  show FCmpUgt = "ugt"
-  show FCmpUge = "uge"
-  show FCmpUlt = "ult"
-  show FCmpUle = "ule"
-  show FCmpUne = "une"
-  show FCmpUno = "uno"
-  show FCmpTrue = "true"
-
-data GlobalAnnotation = GAConstant
-                      | GAGlobal
-                        deriving (Eq, Ord)
-
-instance Show GlobalAnnotation where
-  show GAConstant = "constant"
-  show GAGlobal = "global"
-
-data ArithFlag = AFNSW | AFNUW
-               deriving (Eq, Ord)
-
-instance NFData ArithFlag
-
-instance Show ArithFlag where
-  show AFNSW = "nsw"
-  show AFNUW = "nuw"
