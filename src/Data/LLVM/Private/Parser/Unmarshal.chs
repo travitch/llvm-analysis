@@ -13,7 +13,9 @@ import qualified Data.ByteString.Char8 as BS
 import Data.Int
 import Data.IORef
 import Data.Map ( Map )
+import Data.Set ( Set )
 import qualified Data.Map as M
+import qualified Data.Set as S
 import Data.Maybe ( catMaybes )
 import Data.Typeable
 import Foreign.C
@@ -24,9 +26,6 @@ import Foreign.Storable
 
 import Data.LLVM.Private.Parser.Options
 import Data.LLVM.Types
-
-import Debug.Trace
-debug = flip trace
 
 data TranslationException = TooManyReturnValues
                           | InvalidBranchInst
@@ -339,12 +338,14 @@ data KnotState = KnotState { valueMap :: Map IntPtr Value
                            , typeMap :: Map IntPtr Type
                            , idSrc :: IORef Int
                            , result :: Maybe Module
+                           , visitedTypes :: Set IntPtr
                            }
 emptyState :: IORef Int -> KnotState
 emptyState r = KnotState { valueMap = M.empty
                          , typeMap = M.empty
                          , idSrc = r
                          , result = Nothing
+                         , visitedTypes = S.empty
                          }
 
 nextId :: KnotMonad Int
@@ -364,16 +365,15 @@ parseLLVMBitcodeFile _ bitcodefile = do
   case hasError of
     True -> do
       Just err <- cModuleErrorMessage m
---      disposeCModule m
+      disposeCModule m
       return $ Left err
     False -> do
       ref <- newIORef 0
       res <- evalStateT (mfix (tieKnot m)) (emptyState ref)
-      -- res <- evalStateT (tieKnot m undefined) (emptyState ref)
 
---      disposeCModule m
+      disposeCModule m
       case result res of
-        Just r -> return $ Right r
+        Just r -> return $ Right (r `deepseq` r)
         Nothing -> return $ Left "No module in result"
 --      return $ Right (fromJust $ result res) -- (ir `deepseq` ir)
 
@@ -407,25 +407,37 @@ tieKnot m finalState = do
 translateType :: KnotState -> TypePtr -> KnotMonad Type
 translateType finalState tp = do
   s <- get
-  case M.lookup (ptrToIntPtr tp) (typeMap s) of
+  let ip = ptrToIntPtr tp
+  -- This top-level translateType function is never called
+  -- recursively, so the set it introduces here will be valid for the
+  -- entire duration of the translateType call.  It will be
+  -- overwritten on the next call.
+  put s { visitedTypes = S.singleton ip }
+  case M.lookup ip (typeMap s) of
     Just t -> return t
-    Nothing -> translateType' finalState tp
+    Nothing -> do
+      t <- translateType' finalState tp
+      put s { typeMap = M.insert ip t (typeMap s) }
+      return t
 
 translateTypeRec :: KnotState -> TypePtr -> KnotMonad Type
 translateTypeRec finalState tp = do
   s <- get
-  case M.lookup (ptrToIntPtr tp) (typeMap s) of
+  let ip = ptrToIntPtr tp
+  -- Mark this type as visited in the state - the pattern match below
+  -- refers to the version of the map *before* this insertion.
+  put s { visitedTypes = S.insert ip (visitedTypes s) }
+  case M.lookup ip (typeMap s) of
     -- If we already translated, just do the simple thing.
     Just t -> return t
     Nothing -> do
       tag <- liftIO $ cTypeTag tp
-      case tag of
-        -- Break recursive cycles here - just look up the named type in
-        -- the final result.  The outer wrappers will have been
-        -- translated, so this should be sufficient to tie the type knot.
-        TYPE_NAMED -> case M.lookup (ptrToIntPtr tp) (typeMap finalState) of
-          Just t -> return t `debug` "Looked up a named type in the finalState"
-          Nothing -> throw TypeKnotTyingFailure
+      case (S.member ip (visitedTypes s), tag) of
+        -- This is a cyclic reference - look it up in the final result
+        (_, TYPE_NAMED) ->
+          return $ M.findWithDefault (throw TypeKnotTyingFailure) ip (typeMap finalState)
+        (True, _) ->
+          return $ M.findWithDefault (throw TypeKnotTyingFailure) ip (typeMap finalState)
         _ -> translateType' finalState tp
 
 translateType' :: KnotState -> TypePtr -> KnotMonad Type

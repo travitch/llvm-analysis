@@ -30,8 +30,7 @@ library
                    Data.LLVM.CFG,
                    Data.LLVM.Types,
                    Data.LLVM.Visualization
-  other-modules: Data.LLVM.Private.C2HS,
-                 Data.LLVM.Private.ForceModule,
+  other-modules: Data.LLVM.Private.ForceModule,
                  Data.LLVM.Private.Parser.Options,
                  Data.LLVM.Private.Parser.Unmarshal,
                  Data.LLVM.Private.Printers,

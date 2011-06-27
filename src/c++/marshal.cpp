@@ -446,6 +446,7 @@ static CType* translateType(CModule *m, const Type *t) {
     return it->second;
 
   CType *nt = (CType*)calloc(1, sizeof(CType));
+  CType *ret = nt;
   nt->typeTag = decodeTypeTag(t->getTypeID());
 
 
@@ -455,13 +456,15 @@ static CType* translateType(CModule *m, const Type *t) {
     namedTypeWrapper->innerType = nt;
     namedTypeWrapper->name = strdup(typeName.c_str());
 
-    pd->typeMap[t] = namedTypeWrapper;
+    // Normally we would just return the type we are building, but in
+    // this case we need to return the wrapper or it won't be
+    // exported.
+    ret = namedTypeWrapper;
   }
-  else {
-    // Need to put this in the table before making any recursive calls,
-    // otherwise it might never terminate.
-    pd->typeMap[t] = nt;
-  }
+
+  // Need to put this in the table before making any recursive calls,
+  // otherwise it might never terminate.
+  pd->typeMap[t] = ret;
 
   switch(nt->typeTag) {
     // Primitives don't require any work
@@ -535,7 +538,7 @@ static CType* translateType(CModule *m, const Type *t) {
   }
   }
 
-  return nt;
+  return ret;
 }
 
 static CValue* translateConstant(CModule *m, const Constant *c);
