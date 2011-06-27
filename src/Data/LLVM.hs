@@ -1,16 +1,13 @@
 -- |
-module Data.LLVM (--  parseLLVMAsm
-                 -- , maybeParseLLVMAsm
-                 -- , parseLLVMAsmFile
-  parseLLVMBitcodeFile
-  , defaultParserOptions
-  , ParserOptions(..)
-  , PositionPrecision(..)
+module Data.LLVM (
+  parseLLVMBitcodeFile,
+  defaultParserOptions,
+  ParserOptions(..),
+  PositionPrecision(..)
   ) where
 
 import Data.ByteString.Lazy.Char8 ( ByteString )
 import qualified Data.ByteString.Lazy.Char8 as B
-import System.Process
 
 import Data.LLVM.Types
 import Data.LLVM.Private.Parser.Options
@@ -49,11 +46,6 @@ import Data.LLVM.Private.Parser.Unmarshal
 -- process.
 parseLLVMBitcodeFile :: ParserOptions -> FilePath -> IO (Either String Module)
 parseLLVMBitcodeFile = parseBitcode
-  -- do
-  -- let llvmOpts = [ "-mem2reg", "-gvn", "-S", bcfile ]
-  -- (_, Just hOut, _, _) <- createProcess (proc "opt" llvmOpts) { std_out = CreatePipe }
-  -- content <- B.hGetContents hOut
-  -- return $ parseLLVMAsm opts content
 
 
 
