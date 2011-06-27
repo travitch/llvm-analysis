@@ -441,8 +441,6 @@ static void disposeCValue(CValue *v) {
   delete v;
 }
 
-// FIXME: Add in named types to help break cycles.  This information
-// is kind of available from the module.
 static CType* translateType(CModule *m, const Type *t) {
   PrivateData *pd = (PrivateData*)m->privateData;
   unordered_map<const Type*,CType*>::const_iterator it = pd->typeMap.find(t);
@@ -452,9 +450,20 @@ static CType* translateType(CModule *m, const Type *t) {
   CType *nt = new CType;
   nt->typeTag = decodeTypeTag(t->getTypeID());
 
-  // Need to put this in the table before making any recursive calls,
-  // otherwise it might never terminate.
-  pd->typeMap[t] = nt;
+
+  string typeName = pd->original->getTypeName(t);
+  if(typeName != "") {
+    CType *namedTypeWrapper = new CType;
+    namedTypeWrapper->innerType = nt;
+    namedTypeWrapper->name = strdup(typeName.c_str());
+
+    pd->typeMap[t] = namedTypeWrapper;
+  }
+  else {
+    // Need to put this in the table before making any recursive calls,
+    // otherwise it might never terminate.
+    pd->typeMap[t] = nt;
+  }
 
   switch(t->getTypeID()) {
     // Primitives don't require any work
