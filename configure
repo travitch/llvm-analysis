@@ -311,7 +311,7 @@ ac_includes_default="\
 # include <unistd.h>
 #endif"
 
-ac_subst_vars='SHELL PATH_SEPARATOR PACKAGE_NAME PACKAGE_TARNAME PACKAGE_VERSION PACKAGE_STRING PACKAGE_BUGREPORT exec_prefix prefix program_transform_name bindir sbindir libexecdir datadir sysconfdir sharedstatedir localstatedir libdir includedir oldincludedir infodir mandir build_alias host_alias target_alias DEFS ECHO_C ECHO_N ECHO_T LIBS CXX CXXFLAGS LDFLAGS CPPFLAGS ac_ct_CXX EXEEXT OBJEXT llvm_config CXXCPP EGREP llvm_version llvm_cppflags llvm_extra_libs llvm_extra_libdirs llvm_target llvm_includedir llvm_ldoptions LIBOBJS LTLIBOBJS'
+ac_subst_vars='SHELL PATH_SEPARATOR PACKAGE_NAME PACKAGE_TARNAME PACKAGE_VERSION PACKAGE_STRING PACKAGE_BUGREPORT exec_prefix prefix program_transform_name bindir sbindir libexecdir datadir sysconfdir sharedstatedir localstatedir libdir includedir oldincludedir infodir mandir build_alias host_alias target_alias DEFS ECHO_C ECHO_N ECHO_T LIBS CXX CXXFLAGS LDFLAGS CPPFLAGS ac_ct_CXX EXEEXT OBJEXT llvm_config CXXCPP EGREP llvm_version llvm_cppflags llvm_extra_libs llvm_extra_libdirs llvm_target llvm_includedir llvm_ldoptions llvm_libdir LIBOBJS LTLIBOBJS'
 ac_subst_files=''
 
 # Initialize some variables set by options.
@@ -1996,6 +1996,8 @@ for opt in $llvm_all_libs $llvm_ldflags; do
   esac
 done
 
+llvm_libdir="`$llvm_config --libdir`"
+
 CPPFLAGS="$llvm_cppflags $CPPFLAGS $TARGET_CPPFLAGS"
 LDFLAGS="$llvm_ldflags $LDFLAGS $TARGET_LDFLAGS"
 
@@ -2643,7 +2645,6 @@ done
 CC=$CXX
 
 save_LIBS="$LIBS"
-LIBS="-lLLVM-2.9 $LIBS"
 
 cat >conftest.$ac_ext <<_ACEOF
 /* confdefs.h.  */
@@ -3354,6 +3355,7 @@ s,@llvm_extra_libdirs@,$llvm_extra_libdirs,;t t
 s,@llvm_target@,$llvm_target,;t t
 s,@llvm_includedir@,$llvm_includedir,;t t
 s,@llvm_ldoptions@,$llvm_ldoptions,;t t
+s,@llvm_libdir@,$llvm_libdir,;t t
 s,@LIBOBJS@,$LIBOBJS,;t t
 s,@LTLIBOBJS@,$LTLIBOBJS,;t t
 CEOF

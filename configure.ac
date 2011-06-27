@@ -90,6 +90,8 @@ for opt in $llvm_all_libs $llvm_ldflags; do
   esac
 done
 
+llvm_libdir="`$llvm_config --libdir`"
+
 CPPFLAGS="$llvm_cppflags $CPPFLAGS $TARGET_CPPFLAGS"
 LDFLAGS="$llvm_ldflags $LDFLAGS $TARGET_LDFLAGS"
 
@@ -114,5 +116,6 @@ AC_SUBST([llvm_extra_libdirs])
 AC_SUBST([llvm_target])
 AC_SUBST([llvm_includedir])
 AC_SUBST([llvm_ldoptions])
+AC_SUBST([llvm_libdir])
 
 AC_OUTPUT
