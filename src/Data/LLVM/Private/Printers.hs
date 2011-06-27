@@ -213,14 +213,12 @@ isInteger s = case reads s :: [(Integer, String)] of
 
 printValue :: Value -> String
 printValue Value { valueContent =
-                      Function { -- functionType = t
-                                functionParameters = args
+                      Function { functionParameters = args
                                , functionBody = blockList
                                , functionLinkage = linkage
                                , functionVisibility = visStyle
                                , functionCC = cc
                                , functionRetAttrs = retAttrs
---                               , functionName = name
                                , functionSection = section
                                , functionAlign = align
                                , functionGCName = gcname
@@ -235,12 +233,13 @@ printValue Value { valueContent =
             argS, vaTag, ")", fAttrS, maybe "" unpack section,
             printAlignment align, maybe "" show gcname, "{\n",
             bodyS, "}" ]
-  where retAttrS = unwords $ map show retAttrs
-        argS = intercalate ", " $ map printValue args
-        vaTag = if isVararg then ", ..." else ""
-        fAttrS = unwords $ map show fattrs
-        bodyS = unlines $ map printValue blockList
-        (TypeFunction rtype _ _) = t
+  where
+    retAttrS = unwords $ map show retAttrs
+    argS = intercalate ", " $ map printValue args
+    vaTag = if isVararg then ", ..." else ""
+    fAttrS = unwords $ map show fattrs
+    bodyS = unlines $ map printValue blockList
+    (TypeFunction rtype _ _) = t
 
 printValue Value { valueContent =
                       GlobalDeclaration { globalVariableLinkage = linkage
