@@ -12,7 +12,6 @@ module Data.LLVM.Private.Types.Identifiers (
 import Control.DeepSeq
 import Data.Hashable
 import Data.ByteString.Char8 ( ByteString, unpack )
-import qualified Data.ByteString.Char8 as BS
 
 data Identifier = LocalIdentifier { localIdentifier :: !ByteString
                                   , localHash :: !Int
