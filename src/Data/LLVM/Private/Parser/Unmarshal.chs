@@ -30,6 +30,7 @@ data TranslationException = TooManyReturnValues
                           | InvalidSwitchLayout
                           | InvalidIndirectBranchOperands
                           | KnotTyingFailure
+                          | TypeKnotTyingFailure
                           | InvalidSelectArgs !Int
                           | InvalidExtractElementInst !Int
                           | InvalidInsertElementInst !Int
@@ -382,25 +383,32 @@ tieKnot m (_, finalState) = do
   s <- get
   return (ir, s)
 
-translateType :: TypePtr -> KnotMonad Type
-translateType tp = do
+translateType :: KnotState -> TypePtr -> KnotMonad Type
+translateType finalState tp = do
   s <- get
   case M.lookup (ptrToIntPtr tp) (typeMap s) of
     Just t -> return t
-    Nothing -> translateType' tp
+    Nothing -> translateType' finalState tp
 
-{-
-cTypeTag :: TypePtr -> IO TypeTag
-cTypeSize :: TypePtr -> IO Int
-cTypeIsVarArg :: TypePtr -> IO Bool
-cTypeIsPacked :: TypePtr -> IO Bool
-cTypeList :: TypePtr -> IO [TypePtr]
-cTypeInner :: TypePtr -> IO TypePtr
-cTypeName :: TypePtr -> IO String
-cTypeAddrSpace :: TypePtr -> IO Int
--}
-translateType' :: TypePtr -> KnotMonad Type
-translateType' tp = do
+translateTypeRec :: KnotState -> TypePtr -> KnotMonad Type
+translateTypeRec finalState tp = do
+  s <- get
+  case M.lookup (ptrToIntPtr tp) (typeMap s) of
+    -- If we already translated, just do the simple thing.
+    Just t -> return t
+    Nothing -> do
+      tag <- liftIO $ cTypeTag tp
+      case tag of
+        -- Break recursive cycles here - just look up the named type in
+        -- the final result.  The outer wrappers will have been
+        -- translated, so this should be sufficient to tie the type knot.
+        TYPE_NAMED -> case M.lookup (ptrToIntPtr tp) (typeMap finalState) of
+          Just t -> return t
+          Nothing -> throw TypeKnotTyingFailure
+        _ -> translateType' finalState tp
+
+translateType' :: KnotState -> TypePtr -> KnotMonad Type
+translateType' finalState tp = do
   s <- get
   tag <- liftIO $ cTypeTag tp
   t <- case tag of
@@ -422,39 +430,39 @@ translateType' tp = do
       rtp <- liftIO $ cTypeInner tp
       argTypePtrs <- liftIO $ cTypeList tp
 
-      rType <- translateType rtp
-      argTypes <- mapM translateType argTypePtrs
+      rType <- translateTypeRec finalState rtp
+      argTypes <- mapM (translateTypeRec finalState) argTypePtrs
 
       return $! TypeFunction rType argTypes isVa
     TYPE_STRUCT -> do
       isPacked <- liftIO $ cTypeIsPacked tp
       ptrs <- liftIO $ cTypeList tp
 
-      types <- mapM translateType ptrs
+      types <- mapM (translateTypeRec finalState) ptrs
 
       return $! TypeStruct types isPacked
     TYPE_ARRAY -> do
       sz <- liftIO $ cTypeSize tp
       itp <- liftIO $ cTypeInner tp
-      innerType <- translateType itp
+      innerType <- translateTypeRec finalState itp
 
       return $! TypeArray sz innerType
     TYPE_POINTER -> do
       itp <- liftIO $ cTypeInner tp
       addrSpc <- liftIO $ cTypeAddrSpace tp
-      innerType <- translateType itp
+      innerType <- translateTypeRec finalState itp
 
       return $! TypePointer innerType addrSpc
     TYPE_VECTOR -> do
       sz <- liftIO $ cTypeSize tp
       itp <- liftIO $ cTypeInner tp
-      innerType <- translateType itp
+      innerType <- translateTypeRec finalState itp
 
       return $! TypeVector sz innerType
     TYPE_NAMED -> do
       name <- liftIO $ cTypeName tp
       itp <- liftIO $ cTypeInner tp
-      innerType <- translateType itp
+      innerType <- translateTypeRec finalState itp
 
       return $! TypeNamed name innerType
   put s { typeMap = M.insert (ptrToIntPtr tp) t (typeMap s) }
@@ -479,7 +487,7 @@ translateAlias finalState vp = do
   aliasee <- liftIO $ cGlobalAliasee dataPtr'
 
   ta <- translateConstOrRef finalState aliasee
-  tt <- translateType typePtr
+  tt <- translateType finalState typePtr
 
   uid <- nextId
 
@@ -503,7 +511,7 @@ translateGlobalVariable finalState vp = do
   name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
-  tt <- translateType typePtr
+  tt <- translateType finalState typePtr
 
   uid <- nextId
 
@@ -552,7 +560,7 @@ translateFunction finalState vp = do
   name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
-  tt <- translateType typePtr
+  tt <- translateType finalState typePtr
 
   uid <- nextId
 
@@ -619,7 +627,7 @@ translateValue' finalState vp = do
   typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
 
-  tt <- translateType typePtr
+  tt <- translateType finalState typePtr
 
   content <- case tag of
     ValArgument -> translateArgument finalState (castPtr dataPtr)
