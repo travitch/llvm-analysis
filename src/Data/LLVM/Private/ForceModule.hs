@@ -241,8 +241,6 @@ forceGlobalValueT :: ValueT -> ForceMonad ()
 forceGlobalValueT f@(Function {})= do
   -- It is safe to deepseq the parameters since they can't contain
   -- cyclic stuff, and the Function owns them.
---  functionType f `deepseq` --
-   --functionParameters f `deepseq`
   functionRetAttrs f `deepseq` functionAttrs f `deepseq`
     functionSection f `seq` f `seq` return ()
   mapM_ forceBasicBlock (functionBody f)
