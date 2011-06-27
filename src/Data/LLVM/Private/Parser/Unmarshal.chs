@@ -17,8 +17,6 @@ import qualified Data.Map as M
 import Data.Maybe ( catMaybes )
 import Data.Typeable
 import Foreign.C
-import Foreign.C.String
-import Foreign.C.Types
 import Foreign.ForeignPtr
 import Foreign.Ptr
 import Foreign.Storable
@@ -101,16 +99,31 @@ peekArray obj arrAccessor sizeAccessor = do
 
 data CType
 {#pointer *CType as TypePtr -> CType #}
+cTypeTag :: TypePtr -> IO TypeTag
+cTypeTag t = cToEnum <$> {#get CType->typeTag#} t
+cTypeSize :: TypePtr -> IO Int
+cTypeSize t = cIntConv <$> {#get CType->size#} t
+cTypeIsVarArg :: TypePtr -> IO Bool
+cTypeIsVarArg t = cToBool <$> {#get CType->isVarArg#} t
+cTypeIsPacked :: TypePtr -> IO Bool
+cTypeIsPacked t = cToBool <$> {#get CType->isPacked#} t
+cTypeList :: TypePtr -> IO [TypePtr]
+cTypeList t =
+  peekArray t {#get CType->typeList#} {#get CType->typeListLen#}
+cTypeInner :: TypePtr -> IO TypePtr
+cTypeInner = {#get CType->innerType#}
+cTypeName :: TypePtr -> IO String
+cTypeName t = {#get CType->name#} t >>= peekCString
+cTypeAddrSpace :: TypePtr -> IO Int
+cTypeAddrSpace t = cIntConv <$> {#get CType->addrSpace#} t
 
 data CValue
 {#pointer *CValue as ValuePtr -> CValue #}
 
 cValueTag :: ValuePtr -> IO ValueTag
 cValueTag v = cToEnum <$> ({#get CValue->valueTag#} v)
-
 cValueType :: ValuePtr -> IO TypePtr
 cValueType = {#get CValue->valueType#}
-
 cValueName :: ValuePtr -> IO (Maybe Identifier)
 cValueName v = do
   namePtr <- ({#get CValue->name#}) v
@@ -119,7 +132,6 @@ cValueName v = do
     False -> do
       name <- BS.packCString namePtr
       return $! (Just . makeIdentifier) name
-
 cValueData :: ValuePtr -> IO (Ptr ())
 cValueData = {#get CValue->data#}
 
@@ -371,7 +383,82 @@ tieKnot m (_, finalState) = do
   return (ir, s)
 
 translateType :: TypePtr -> KnotMonad Type
-translateType tp = undefined
+translateType tp = do
+  s <- get
+  case M.lookup (ptrToIntPtr tp) (typeMap s) of
+    Just t -> return t
+    Nothing -> translateType' tp
+
+{-
+cTypeTag :: TypePtr -> IO TypeTag
+cTypeSize :: TypePtr -> IO Int
+cTypeIsVarArg :: TypePtr -> IO Bool
+cTypeIsPacked :: TypePtr -> IO Bool
+cTypeList :: TypePtr -> IO [TypePtr]
+cTypeInner :: TypePtr -> IO TypePtr
+cTypeName :: TypePtr -> IO String
+cTypeAddrSpace :: TypePtr -> IO Int
+-}
+translateType' :: TypePtr -> KnotMonad Type
+translateType' tp = do
+  s <- get
+  tag <- liftIO $ cTypeTag tp
+  t <- case tag of
+    TYPE_VOID -> return TypeVoid
+    TYPE_FLOAT -> return TypeFloat
+    TYPE_DOUBLE -> return TypeDouble
+    TYPE_X86_FP80 -> return TypeX86FP80
+    TYPE_FP128 -> return TypeFP128
+    TYPE_PPC_FP128 -> return TypePPCFP128
+    TYPE_LABEL -> return TypeLabel
+    TYPE_METADATA -> return TypeMetadata
+    TYPE_X86_MMX -> return TypeX86MMX
+    TYPE_OPAQUE -> return TypeOpaque
+    TYPE_INTEGER -> do
+      sz <- liftIO $ cTypeSize tp
+      return $! TypeInteger sz
+    TYPE_FUNCTION -> do
+      isVa <- liftIO $ cTypeIsVarArg tp
+      rtp <- liftIO $ cTypeInner tp
+      argTypePtrs <- liftIO $ cTypeList tp
+
+      rType <- translateType rtp
+      argTypes <- mapM translateType argTypePtrs
+
+      return $! TypeFunction rType argTypes isVa
+    TYPE_STRUCT -> do
+      isPacked <- liftIO $ cTypeIsPacked tp
+      ptrs <- liftIO $ cTypeList tp
+
+      types <- mapM translateType ptrs
+
+      return $! TypeStruct types isPacked
+    TYPE_ARRAY -> do
+      sz <- liftIO $ cTypeSize tp
+      itp <- liftIO $ cTypeInner tp
+      innerType <- translateType itp
+
+      return $! TypeArray sz innerType
+    TYPE_POINTER -> do
+      itp <- liftIO $ cTypeInner tp
+      addrSpc <- liftIO $ cTypeAddrSpace tp
+      innerType <- translateType itp
+
+      return $! TypePointer innerType addrSpc
+    TYPE_VECTOR -> do
+      sz <- liftIO $ cTypeSize tp
+      itp <- liftIO $ cTypeInner tp
+      innerType <- translateType itp
+
+      return $! TypeVector sz innerType
+    TYPE_NAMED -> do
+      name <- liftIO $ cTypeName tp
+      itp <- liftIO $ cTypeInner tp
+      innerType <- translateType itp
+
+      return $! TypeNamed name innerType
+  put s { typeMap = M.insert (ptrToIntPtr tp) t (typeMap s) }
+  return t
 
 recordValue :: ValuePtr -> Value -> KnotMonad ()
 recordValue vp v = do

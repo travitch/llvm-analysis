@@ -1032,9 +1032,10 @@ printType (TypeFunction retT argTs isVa) =
         vaTag = if isVa then ", ..." else ""
 printType TypeOpaque = "opaque"
 printType (TypePointer ty _) = mconcat [ printType ty, "*" ]
-printType (TypeStruct ts) = mconcat [ "{", fieldVals, "}" ]
-  where fieldVals = intercalate ", " $ map printType ts
-printType (TypePackedStruct ts) = mconcat [ "<{", fieldVals, "}>" ]
+printType (TypeStruct ts p) =
+  case p of
+    True -> mconcat [ "<", fieldVals, ">" ]
+    False -> mconcat [ "{", fieldVals, "}" ]
   where fieldVals = intercalate ", " $ map printType ts
 printType (TypeNamed name _) = name
 

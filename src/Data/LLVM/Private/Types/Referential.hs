@@ -54,8 +54,7 @@ data Type = TypeInteger !Int
             -- accepts varargs
           | TypeOpaque
           | TypePointer !Type !Int
-          | TypeStruct [Type]
-          | TypePackedStruct [Type]
+          | TypeStruct [Type] !Bool -- isPacked
           | TypeNamed !String !Type
             -- ^ A wrapper for typedefs
 
@@ -75,9 +74,8 @@ instance Hashable Type where
   hash (TypeFunction r ts v) = 13 `combine` hash r `combine` hash ts `combine` hash v
   hash TypeOpaque = 14
   hash (TypePointer t as) = 15 `combine` hash t `combine` as
-  hash (TypeStruct ts) = 16 `combine` hash ts
-  hash (TypePackedStruct ts) = 17 `combine` hash ts
-  hash (TypeNamed s _) = 18 `combine` hash s
+  hash (TypeStruct ts p) = 16 `combine` hash ts `combine` hash p
+  hash (TypeNamed s _) = 17 `combine` hash s
 
 instance Eq Type where
   TypeInteger i1 == TypeInteger i2 = i1 == i2
@@ -96,8 +94,7 @@ instance Eq Type where
     v1 == v2 && r1 == r2 && ts1 == ts2
   TypeOpaque == TypeOpaque = True
   TypePointer t1 as1 == TypePointer t2 as2 = t1 == t2 && as1 == as2
-  TypeStruct ts1 == TypeStruct ts2 = ts1 == ts2
-  TypePackedStruct ts1 == TypePackedStruct ts2 = ts1 == ts2
+  TypeStruct ts1 p1 == TypeStruct ts2 p2 = ts1 == ts2 && p1 == p2
   TypeNamed s1 _ == TypeNamed s2 _ = s1 == s2
   _ == _ = False
 
