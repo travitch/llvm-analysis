@@ -147,6 +147,8 @@ cGlobalIsThreadLocal :: GlobalInfoPtr -> IO Bool
 cGlobalIsThreadLocal g = cToBool <$> ({#get CGlobalInfo->isThreadLocal#} g)
 cGlobalAliasee :: GlobalInfoPtr -> IO ValuePtr
 cGlobalAliasee = {#get CGlobalInfo->aliasee#}
+cGlobalIsConstant :: GlobalInfoPtr -> IO Bool
+cGlobalIsConstant g = cToBool <$> {#get CGlobalInfo->isConstant#} g
 
 data CFunctionInfo
 {#pointer *CFunctionInfo as FunctionInfoPtr -> CFunctionInfo #}
@@ -385,7 +387,6 @@ translateAlias finalState vp = do
   dataPtr <- liftIO $ cValueData vp
   let dataPtr' = castPtr dataPtr
 
-  isExtern <- liftIO $ cGlobalIsExternal dataPtr'
   vis <- liftIO $ cGlobalVisibility dataPtr'
   link <- liftIO $ cGlobalLinkage dataPtr'
   aliasee <- liftIO $ cGlobalAliasee dataPtr'
@@ -439,6 +440,7 @@ translateGlobalVariable finalState vp = do
       section <- liftIO $ cGlobalSection dataPtr'
       isThreadLocal <- liftIO $ cGlobalIsThreadLocal dataPtr'
       initializer <- liftIO $ cGlobalInitializer dataPtr'
+      isConst <- liftIO $ cGlobalIsConstant dataPtr'
 
       ti <- case initializer == nullPtr of
         True -> return Nothing
@@ -452,6 +454,7 @@ translateGlobalVariable finalState vp = do
                                  , globalVariableAlignment = align
                                  , globalVariableSection = section
                                  , globalVariableIsThreadLocal = isThreadLocal
+                                 , globalVariableIsConstant = isConst
                                  }
           v = basicVal { valueContent = gv }
       recordValue vp v

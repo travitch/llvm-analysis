@@ -276,6 +276,7 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
                                 , globalVariableAlignment :: !Int64
                                 , globalVariableSection :: !(Maybe ByteString)
                                 , globalVariableIsThreadLocal :: !Bool
+                                , globalVariableIsConstant :: !Bool
                                 }
             | GlobalAlias { globalAliasLinkage :: !LinkageType
                           , globalAliasVisibility :: !VisibilityStyle

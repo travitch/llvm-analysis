@@ -261,6 +261,7 @@ typedef struct {
   // Only for global vars
   CValue *initializer;
   int isThreadLocal;
+  int isConstant;
 
   // Only for global aliases
   CValue *aliasee;

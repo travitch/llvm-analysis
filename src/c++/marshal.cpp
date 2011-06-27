@@ -1204,6 +1204,7 @@ static CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   gi->linkage = decodeLinkage(gv);
   gi->isExternal = gv->isDeclaration();
   gi->isThreadLocal = gv->isThreadLocal();
+  gi->isConstant = gv->isConstant();
 
   if(gv->hasInitializer())
     gi->initializer = translateConstant(m, gv->getInitializer());

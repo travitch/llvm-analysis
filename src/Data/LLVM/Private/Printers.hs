@@ -249,6 +249,7 @@ printValue Value { valueContent =
                                         , globalVariableInitializer = initializer
                                         , globalVariableAlignment = align
                                         , globalVariableSection = section
+                                        , globalVariableIsConstant = isConst
                                         }
                  , valueType = TypePointer _ addrSpace
                  , valueName = Just name
@@ -264,7 +265,7 @@ printValue Value { valueContent =
           _ -> "addrspace(" ++ show addrSpace ++ ")"
         linkageS = show linkage
         visS = show vis
-        annotsS = "global" -- FIXME: show annot
+        annotsS = if isConst then "constant" else "global"
         sectionS = maybe "" ((", section "++) . quote . unpack) section
         initS = maybe "" printConstOrName initializer
 
@@ -752,7 +753,6 @@ printValue Value { valueContent =
                       CallInst { callIsTail = isTail
                                , callConvention = cc
                                , callParamAttrs = pattrs
---                               , callRetType = rtype
                                , callFunction = f
                                , callArguments = args
                                , callAttrs = cattrs
