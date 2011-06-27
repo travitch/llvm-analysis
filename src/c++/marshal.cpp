@@ -369,6 +369,7 @@ static void disposeData(ValueTag t, void* data) {
   {
     CInstructionInfo *ii = (CInstructionInfo*)data;
     delete[] ii->operands;
+    delete[] ii->indices;
     delete ii;
     return;
   }
@@ -416,6 +417,7 @@ static void disposeData(ValueTag t, void* data) {
   {
     CConstExprInfo *ce = (CConstExprInfo*)data;
     delete[] ce->ii->operands;
+    delete[] ce->ii->indices;
     delete ce->ii;
     delete ce;
     return;
@@ -1367,6 +1369,15 @@ static CValue* translateConstantExpr(CModule *m, const ConstantExpr *ce) {
         ed = ce->op_end(); it != ed; ++it)
   {
     ii->operands[idx++] = translateValue(m, it->get());
+  }
+
+  if(ce->isCompare()) {
+    ii->cmpPred = decodePredicate((CmpInst::Predicate)ce->getPredicate());
+  }
+  else if(ce->hasIndices()) {
+    ii->numIndices = ce->getIndices().size();
+    ii->indices = new int[ii->numIndices];
+    std::copy(ce->getIndices().begin(), ce->getIndices().end(), ii->indices);
   }
 
   return v;
