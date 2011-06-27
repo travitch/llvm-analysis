@@ -99,10 +99,10 @@ peekArray obj arrAccessor sizeAccessor = do
   arr <- unsafeForeignPtrToStorableArray fArrPtr (1, cIntConv nElts)
   getElems arr
 
-data CType -- = CType TypeTag Int Bool Bool (Ptr TypePtr) Int TypePtr String
+data CType
 {#pointer *CType as TypePtr -> CType #}
 
-data CValue -- = CValue ValueTag TypePtr String (Ptr ()) (Ptr ())
+data CValue
 {#pointer *CValue as ValuePtr -> CValue #}
 
 cValueTag :: ValuePtr -> IO ValueTag
@@ -452,8 +452,6 @@ translateGlobalVariable finalState vp = do
                                  , globalVariableAlignment = align
                                  , globalVariableSection = section
                                  , globalVariableIsThreadLocal = isThreadLocal
-                                 , globalVariableAddressSpace = undefined
-                                 , globalVariableAnnotation = undefined
                                  }
           v = basicVal { valueContent = gv }
       recordValue vp v
@@ -607,7 +605,7 @@ translateValue' finalState vp = do
 
   let tv = Value { valueType = tt
                  , valueName = name
-                 , valueMetadata = undefined
+                 , valueMetadata = Nothing
                  , valueContent = content
                  , valueUniqueId = uid
                  }

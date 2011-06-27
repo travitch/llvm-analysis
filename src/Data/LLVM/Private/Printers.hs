@@ -244,15 +244,13 @@ printValue Value { valueContent =
         (TypeFunction rtype _ _) = t
 
 printValue Value { valueContent =
-                      GlobalDeclaration { globalVariableAddressSpace = addrSpace
-                                        , globalVariableLinkage = linkage
+                      GlobalDeclaration { globalVariableLinkage = linkage
                                         , globalVariableVisibility = vis
-                                        , globalVariableAnnotation = annot
                                         , globalVariableInitializer = initializer
                                         , globalVariableAlignment = align
                                         , globalVariableSection = section
                                         }
-                 , valueType = _
+                 , valueType = TypePointer _ addrSpace
                  , valueName = Just name
                  , valueMetadata = _
                  } =
@@ -266,7 +264,7 @@ printValue Value { valueContent =
           _ -> "addrspace(" ++ show addrSpace ++ ")"
         linkageS = show linkage
         visS = show vis
-        annotsS = show annot
+        annotsS = "global" -- FIXME: show annot
         sectionS = maybe "" ((", section "++) . quote . unpack) section
         initS = maybe "" printConstOrName initializer
 
@@ -564,7 +562,7 @@ printValue Value { valueContent =
 
 printValue Value { valueContent = AllocaInst elems align
                  , valueName = name
-                 , valueType = TypePointer ty
+                 , valueType = TypePointer ty _
                  , valueMetadata = _
                  } =
   compose [ printInstNamePrefix name
@@ -1033,7 +1031,7 @@ printType (TypeFunction retT argTs isVa) =
         vaTag :: String
         vaTag = if isVa then ", ..." else ""
 printType TypeOpaque = "opaque"
-printType (TypePointer ty) = mconcat [ printType ty, "*" ]
+printType (TypePointer ty _) = mconcat [ printType ty, "*" ]
 printType (TypeStruct ts) = mconcat [ "{", fieldVals, "}" ]
   where fieldVals = intercalate ", " $ map printType ts
 printType (TypePackedStruct ts) = mconcat [ "<{", fieldVals, "}>" ]

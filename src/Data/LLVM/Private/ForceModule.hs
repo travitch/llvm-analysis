@@ -251,8 +251,8 @@ forceGlobalValueT f@(Function {})= do
   mapM_ forceBasicBlock (functionBody f)
   mapM_ forceValueIfConstant (functionParameters f)
 forceGlobalValueT g@(GlobalDeclaration {}) = do
-  globalVariableAddressSpace g `seq` globalVariableLinkage g `seq`
-   globalVariableAnnotation g `seq` globalVariableAlignment g `seq`
+  globalVariableLinkage g `seq`
+   globalVariableAlignment g `seq`
    globalVariableSection g `seq` g `seq` return ()
   maybe (return ()) forceValueIfConstant (globalVariableInitializer g)
 forceGlobalValueT g@(GlobalAlias {}) = do

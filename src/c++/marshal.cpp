@@ -515,6 +515,7 @@ static CType* translateType(CModule *m, const Type *t) {
   {
     const PointerType *pt = dynamic_cast<const PointerType*>(t);
     nt->innerType = translateType(m, pt->getElementType());
+    nt->addrSpace = pt->getAddressSpace();
     break;
   }
 

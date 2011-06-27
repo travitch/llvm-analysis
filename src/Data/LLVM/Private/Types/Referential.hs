@@ -53,9 +53,7 @@ data Type = TypeInteger !Int
             -- and a flag that denotes whether or not the function
             -- accepts varargs
           | TypeOpaque
-          | TypePointer !Type
-            -- ^ LLVM supports an optional address space annotation on
-            -- pointer types.  This library does not yet.
+          | TypePointer !Type !Int
           | TypeStruct [Type]
           | TypePackedStruct [Type]
           | TypeNamed !String !Type
@@ -76,7 +74,7 @@ instance Hashable Type where
   hash (TypeVector i t) = 12 `combine` hash i `combine` hash t
   hash (TypeFunction r ts v) = 13 `combine` hash r `combine` hash ts `combine` hash v
   hash TypeOpaque = 14
-  hash (TypePointer t) = 15 `combine` hash t
+  hash (TypePointer t as) = 15 `combine` hash t `combine` as
   hash (TypeStruct ts) = 16 `combine` hash ts
   hash (TypePackedStruct ts) = 17 `combine` hash ts
   hash (TypeNamed s _) = 18 `combine` hash s
@@ -97,7 +95,7 @@ instance Eq Type where
   TypeFunction r1 ts1 v1 == TypeFunction r2 ts2 v2 =
     v1 == v2 && r1 == r2 && ts1 == ts2
   TypeOpaque == TypeOpaque = True
-  TypePointer t1 == TypePointer t2 = t1 == t2
+  TypePointer t1 as1 == TypePointer t2 as2 = t1 == t2 && as1 == as2
   TypeStruct ts1 == TypeStruct ts2 = ts1 == ts2
   TypePackedStruct ts1 == TypePackedStruct ts2 = ts1 == ts2
   TypeNamed s1 _ == TypeNamed s2 _ = s1 == s2
@@ -272,10 +270,8 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
                        , functionGCName :: !(Maybe GCName)
                        , functionIsVararg :: !Bool
                        }
-            | GlobalDeclaration { globalVariableAddressSpace :: !Int
-                                , globalVariableLinkage :: !LinkageType
+            | GlobalDeclaration { globalVariableLinkage :: !LinkageType
                                 , globalVariableVisibility :: !VisibilityStyle
-                                , globalVariableAnnotation :: !GlobalAnnotation
                                 , globalVariableInitializer :: Maybe Value
                                 , globalVariableAlignment :: !Int64
                                 , globalVariableSection :: !(Maybe ByteString)

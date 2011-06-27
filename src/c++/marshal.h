@@ -107,6 +107,9 @@ struct CType_t {
 
   // Only for TypeNamed
   char *name;
+
+  // For TypePointer
+  int addrSpace;
 };
 
 /*!
