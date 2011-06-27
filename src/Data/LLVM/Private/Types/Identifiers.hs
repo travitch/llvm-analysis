@@ -4,7 +4,6 @@ module Data.LLVM.Private.Types.Identifiers (
   -- * Accessor
   identifierAsString,
   -- * Builders
-  makeIdentifier,
   makeLocalIdentifier,
   makeGlobalIdentifier,
   makeMetaIdentifier
@@ -40,15 +39,6 @@ instance NFData Identifier where
   rnf i@(LocalIdentifier {}) = localIdentifier i `seq` localHash i `seq` i `seq` ()
   rnf i@(GlobalIdentifier {}) = globalIdentifier i `seq` globalHash i `seq` i `seq` ()
   rnf i@(MetaIdentifier {}) = metaIdentifier i `seq` metaHash i `seq` i `seq` ()
-
--- | Given a valid identifier in bytestring form, turn it into the
--- correct type of Identifier (local, global, or meta)
-makeIdentifier :: ByteString -> Identifier
-makeIdentifier bs =
-  case BS.head bs of
-    '%' -> makeLocalIdentifier bs
-    '@' -> makeGlobalIdentifier bs
-    '!' -> makeMetaIdentifier bs
 
 makeLocalIdentifier :: ByteString -> Identifier
 makeLocalIdentifier t =

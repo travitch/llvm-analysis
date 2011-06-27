@@ -42,20 +42,20 @@ data Type = TypeInteger !Int
           | TypeVoid
           | TypeLabel
           | TypeMetadata
-          | TypeArray !Int !Type
+          | TypeArray !Int Type
             -- ^ Fixed-length arrays, where the Int holds the number
             -- of elements in arrays of this type.
-          | TypeVector !Int !Type
+          | TypeVector !Int Type
             -- ^ Vectors with a fixed length.  These are vectors in
             -- the SSE sense.
-          | TypeFunction !Type [Type] !Bool
+          | TypeFunction Type [Type] !Bool
             -- ^ Functions with a return type, list of argument types,
             -- and a flag that denotes whether or not the function
             -- accepts varargs
           | TypeOpaque
-          | TypePointer !Type !Int
+          | TypePointer Type !Int
           | TypeStruct [Type] !Bool -- isPacked
-          | TypeNamed !String !Type
+          | TypeNamed !String Type
             -- ^ A wrapper for typedefs
 
 instance Hashable Type where

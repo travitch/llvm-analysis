@@ -9,19 +9,21 @@ import Data.LLVM.Types
 main :: IO ()
 main = do
   [ fname ] <- getArgs
-  let opts = defaultParserOptions { metaPositionPrecision = PositionNone }
+  let opts = defaultParserOptions -- { metaPositionPrecision = PositionNone }
   llvmModule <- parseLLVMBitcodeFile opts fname
   either putStrLn printAllFuncArgs llvmModule
 
 printAllFuncArgs :: Module -> IO ()
-printAllFuncArgs = (mapM_ printFuncArgs) . moduleFunctions
+printAllFuncArgs m = mapM_ printFuncArgs $ moduleFunctions m
 
 printFuncArgs :: Value -> IO ()
-printFuncArgs Value { valueContent = fc } = do
-  printf "Function [%s]:\n" (show (functionName fc))
-  mapM_ printArgType args
-  where
-    args = functionParameters fc
+printFuncArgs Value { valueContent = fc
+                    , valueName = Just n
+                    } = do
+  printf "Function [%s]:\n" (show n)
+--  mapM_ printArgType args
+  -- where
+  --   args = functionParameters fc
 
 metaType :: Metadata -> String
 metaType md = show $ metaLocalType $ metaValueContent md

@@ -30,6 +30,8 @@ using std::string;
 using std::tr1::unordered_map;
 
 struct PrivateData {
+  LLVMContext ctxt;
+  OwningPtr<MemoryBuffer> buffer;
   // Foreign callers do not need to access below this point.
   Module* original;
 
@@ -225,17 +227,12 @@ static CallingConvention decodeCallingConvention(CallingConv::ID cc) {
 }
 
 static void disposeCType(CType *ct) {
-  if(ct->innerType)
+  if(ct->typeTag == TYPE_NAMED)
     disposeCType(ct->innerType);
+
   free(ct->name);
-
-  for(int i = 0; i < ct->typeListLen; ++i)
-  {
-    disposeCType(ct->typeList[i]);
-  }
-  delete[] ct->typeList;
-
-  delete ct;
+  free(ct->typeList);
+  free(ct);
 }
 
 // Have to do the delete in this function since the pointer must be
@@ -245,7 +242,7 @@ static void disposeData(ValueTag t, void* data) {
   case VAL_ARGUMENT:
   {
     CArgumentInfo *ai = (CArgumentInfo*)data;
-    delete ai;
+    free(ai);
     return;
   }
 
@@ -254,9 +251,9 @@ static void disposeData(ValueTag t, void* data) {
     CBasicBlockInfo *bbi = (CBasicBlockInfo*)data;
 
     // The actual values are deleted from the valueMap
-    delete[] bbi->instructions;
+    free(bbi->instructions);
 
-    delete bbi;
+    free(bbi);
     return;
   }
 
@@ -265,7 +262,8 @@ static void disposeData(ValueTag t, void* data) {
     CInlineAsmInfo *ii = (CInlineAsmInfo*)data;
     free(ii->asmString);
     free(ii->constraintString);
-    delete ii;
+    free(ii);
+    return;
   }
 
   case VAL_ALIAS:
@@ -275,7 +273,7 @@ static void disposeData(ValueTag t, void* data) {
 
     free(gi->section);
 
-    delete gi;
+    free(gi);
     return;
   }
 
@@ -286,10 +284,10 @@ static void disposeData(ValueTag t, void* data) {
     free(fi->section);
     free(fi->gcName);
 
-    delete[] fi->arguments;
-    delete[] fi->body;
+    free(fi->arguments);
+    free(fi->body);
 
-    delete fi;
+    free(fi);
     return;
   }
 
@@ -305,17 +303,17 @@ static void disposeData(ValueTag t, void* data) {
   {
     CCallInfo *ci = (CCallInfo*)data;
 
-    delete[] ci->arguments;
-    delete ci;
+    free(ci->arguments);
+    free(ci);
     return;
   }
 
   case VAL_PHINODE:
   {
     CPHIInfo *pi = (CPHIInfo*)data;
-    delete[] pi->incomingValues;
-    delete[] pi->valueBlocks;
-    delete pi;
+    free(pi->incomingValues);
+    free(pi->valueBlocks);
+    free(pi);
     return;
   }
 
@@ -368,30 +366,30 @@ static void disposeData(ValueTag t, void* data) {
   case VAL_INSERTVALUEINST:
   {
     CInstructionInfo *ii = (CInstructionInfo*)data;
-    delete[] ii->operands;
-    delete[] ii->indices;
-    delete ii;
+    free(ii->operands);
+    free(ii->indices);
+    free(ii);
     return;
   }
 
   case VAL_BLOCKADDRESS:
   {
     CBlockAddrInfo *bi = (CBlockAddrInfo*)data;
-    delete bi;
+    free(bi);
     return;
   }
 
   case VAL_CONSTANTINT:
   {
     CConstInt *d = (CConstInt*)data;
-    delete d;
+    free(d);
     return;
   }
 
   case VAL_CONSTANTFP:
   {
     CConstFP *d = (CConstFP*)data;
-    delete d;
+    free(d);
     return;
   }
 
@@ -408,18 +406,18 @@ static void disposeData(ValueTag t, void* data) {
   case VAL_CONSTANTARRAY:
   {
     CConstAggregate *c = (CConstAggregate*)data;
-    delete[] c->constants;
-    delete c;
+    free(c->constants);
+    free(c);
     return;
   }
 
   case VAL_CONSTANTEXPR:
   {
     CConstExprInfo *ce = (CConstExprInfo*)data;
-    delete[] ce->ii->operands;
-    delete[] ce->ii->indices;
-    delete ce->ii;
-    delete ce;
+    free(ce->ii->operands);
+    free(ce->ii->indices);
+    free(ce->ii);
+    free(ce);
     return;
   }
 
@@ -434,11 +432,11 @@ static void disposeCValue(CValue *v) {
   // Do not dispose the type - that is taken care of in bulk in the
   // CModule disposal.  Same for MD.
   free(v->name);
-  delete[] v->md;
+  free(v->md);
 
   disposeData(v->valueTag, v->data);
 
-  delete v;
+  free(v);
 }
 
 static CType* translateType(CModule *m, const Type *t) {
@@ -447,13 +445,13 @@ static CType* translateType(CModule *m, const Type *t) {
   if(it != pd->typeMap.end())
     return it->second;
 
-  CType *nt = new CType;
+  CType *nt = (CType*)calloc(1, sizeof(CType));
   nt->typeTag = decodeTypeTag(t->getTypeID());
 
 
   string typeName = pd->original->getTypeName(t);
   if(typeName != "") {
-    CType *namedTypeWrapper = new CType;
+    CType *namedTypeWrapper = (CType*)calloc(1, sizeof(CType));
     namedTypeWrapper->innerType = nt;
     namedTypeWrapper->name = strdup(typeName.c_str());
 
@@ -465,7 +463,7 @@ static CType* translateType(CModule *m, const Type *t) {
     pd->typeMap[t] = nt;
   }
 
-  switch(t->getTypeID()) {
+  switch(nt->typeTag) {
     // Primitives don't require any work
   case TYPE_VOID:
   case TYPE_FLOAT:
@@ -492,7 +490,7 @@ static CType* translateType(CModule *m, const Type *t) {
     nt->isVarArg = ft->isVarArg();
     nt->innerType = translateType(m, ft->getReturnType());
     nt->typeListLen = ft->getNumParams();
-    nt->typeList = new CType*[nt->typeListLen];
+    nt->typeList = (CType**)calloc(nt->typeListLen, sizeof(CType*));
     for(int i = 0; i < nt->typeListLen; ++i) {
       nt->typeList[i] = translateType(m, ft->getParamType(i));
     }
@@ -505,7 +503,7 @@ static CType* translateType(CModule *m, const Type *t) {
     const StructType *st = dynamic_cast<const StructType*>(t);
     nt->isPacked = st->isPacked();
     nt->typeListLen = st->getNumElements();
-    nt->typeList = new CType*[nt->typeListLen];
+    nt->typeList = (CType**)calloc(nt->typeListLen, sizeof(CType*));
     for(int i = 0; i < nt->typeListLen; ++i) {
       nt->typeList[i] = translateType(m, st->getElementType(i));
     }
@@ -550,7 +548,7 @@ static CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
   if(it != pd->valueMap.end())
     return it->second;
 
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[ga] = v;
 
   v->valueTag = VAL_ALIAS;
@@ -559,7 +557,7 @@ static CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
 
   // FIXME: Get metadata
 
-  CGlobalInfo *gi = new CGlobalInfo;
+  CGlobalInfo *gi = (CGlobalInfo*)calloc(1, sizeof(CGlobalInfo));
   v->data = (void*)gi;
 
   gi->isExternal = ga->isDeclaration();
@@ -578,7 +576,7 @@ static CValue* translateArgument(CModule *m, const Argument *a) {
   PrivateData *pd = (PrivateData*)m->privateData;
   // Arguments are translated before instructions, so we don't really
   // need to check to see if the argument exists already (it won't).
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[a] = v;
 
   v->valueTag = VAL_ARGUMENT;
@@ -587,7 +585,7 @@ static CValue* translateArgument(CModule *m, const Argument *a) {
 
   // Metadata will be attached as instructions are processed.
 
-  CArgumentInfo *ai = new CArgumentInfo;
+  CArgumentInfo *ai = (CArgumentInfo*)calloc(1, sizeof(CArgumentInfo));
   v->data = (void*)ai;
 
   ai->hasSRet = a->hasStructRetAttr();
@@ -604,13 +602,13 @@ static void buildRetInst(CModule *m, CValue *v, const ReturnInst *ri) {
   v->valueType = translateType(m, ri->getType());
   // Never has a name
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
   if(Value* rv = ri->getReturnValue())
   {
     ii->numOperands = 1;
-    ii->operands = new CValue*[1];
+    ii->operands = (CValue**)calloc(1, sizeof(CValue*));
     ii->operands[0] = translateValue(m, rv);
   }
 
@@ -621,11 +619,11 @@ static void buildSimpleInst(CModule *m, CValue *v, ValueTag t, const Instruction
   v->valueTag = t;
   v->valueType = translateType(m, inst->getType());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
   ii->numOperands = inst->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
 
   for(size_t i = 0; i < inst->getNumOperands(); ++i) {
     ii->operands[i] = translateValue(m, inst->getOperand(i));
@@ -639,11 +637,11 @@ static void buildBinaryInst(CModule *m, CValue *v, ValueTag t, const Instruction
   v->valueTag = t;
   v->valueType = translateType(m, bi->getType());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
   ii->numOperands = inst->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, inst->getOperand(i));
   }
@@ -663,7 +661,7 @@ static void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
   if(ii->hasName())
     v->name = strdup(ii->getNameStr().c_str());
 
-  CCallInfo *ci = new CCallInfo;
+  CCallInfo *ci = (CCallInfo*)calloc(1, sizeof(CCallInfo));
   v->data = (void*)ci;
 
   ci->calledValue = translateValue(m, ii->getCalledValue());
@@ -672,20 +670,23 @@ static void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
   ci->normalDest = translateBasicBlock(m, ii->getNormalDest());
   ci->unwindDest = translateBasicBlock(m, ii->getUnwindDest());
   ci->argListLen = ii->getNumArgOperands();
-  ci->arguments = new CValue*[ci->argListLen];
+  ci->arguments = (CValue**)calloc(ci->argListLen, sizeof(CValue*));
 
   for(unsigned i = 0; i < ii->getNumArgOperands(); ++i) {
     ci->arguments[i] = translateValue(m, ii->getArgOperand(i));
   }
 }
 
-static void buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
+static bool buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
+  if(ii->getCalledValue()->getNameStr() == "llvm.dbg.value") return false;
+  if(ii->getCalledValue()->getNameStr() == "llvm.dbg.declare") return false;
+
   v->valueTag = VAL_CALLINST;
   v->valueType = translateType(m, ii->getType());
   if(ii->hasName())
     v->name = strdup(ii->getNameStr().c_str());
 
-  CCallInfo *ci = new CCallInfo;
+  CCallInfo *ci = (CCallInfo*)calloc(1, sizeof(CCallInfo));
   v->data = (void*)ci;
 
   ci->calledValue = translateValue(m, ii->getCalledValue());
@@ -693,11 +694,13 @@ static void buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
   ci->hasSRet = ii->hasStructRetAttr();
   ci->isTail = ii->isTailCall();
   ci->argListLen = ii->getNumArgOperands();
-  ci->arguments = new CValue*[ci->argListLen];
+  ci->arguments = (CValue**)calloc(ci->argListLen, sizeof(CValue*));
 
   for(unsigned i = 0; i < ii->getNumArgOperands(); ++i) {
     ci->arguments[i] = translateValue(m, ii->getArgOperand(i));
   }
+
+  return true;
 }
 
 static void buildAllocaInst(CModule *m, CValue *v, const AllocaInst *ai) {
@@ -706,11 +709,11 @@ static void buildAllocaInst(CModule *m, CValue *v, const AllocaInst *ai) {
   if(ai->hasName())
     v->name = strdup(ai->getNameStr().c_str());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
   ii->numOperands = ai->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, ai->getOperand(i));
   }
@@ -724,11 +727,11 @@ static void buildLoadInst(CModule *m, CValue *v, const LoadInst *li) {
   if(li->hasName())
     v->name = strdup(li->getNameStr().c_str());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
   ii->numOperands = li->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, li->getOperand(i));
   }
@@ -744,12 +747,12 @@ static void buildStoreInst(CModule *m, CValue *v, const StoreInst *si) {
   if(si->hasName())
     v->name = strdup(si->getNameStr().c_str());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
 
   ii->numOperands = si->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, si->getOperand(i));
   }
@@ -765,12 +768,12 @@ static void buildGEPInst(CModule *m, CValue *v, const GetElementPtrInst *gi) {
   if(gi->hasName())
     v->name = strdup(gi->getNameStr().c_str());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
 
   ii->numOperands = gi->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, gi->getOperand(i));
   }
@@ -786,12 +789,12 @@ static void buildCastInst(CModule *m, CValue *v, ValueTag t, const Instruction *
   if(ci->hasName())
     v->name = strdup(ci->getNameStr().c_str());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
 
   ii->numOperands = ci->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, ci->getOperand(i));
   }
@@ -804,11 +807,11 @@ static void buildCmpInst(CModule *m, CValue *v, ValueTag t, const Instruction *i
   if(ci->hasName())
     v->name = strdup(ci->getNameStr().c_str());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
   ii->numOperands = ci->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, ci->getOperand(i));
   }
@@ -822,12 +825,12 @@ static void buildPHINode(CModule *m, CValue *v, const PHINode* n) {
   if(n->hasName())
     v->name = strdup(n->getNameStr().c_str());
 
-  CPHIInfo *pi = new CPHIInfo;
+  CPHIInfo *pi = (CPHIInfo*)calloc(1, sizeof(CPHIInfo));
   v->data = (void*)pi;
 
   pi->numIncomingValues = n->getNumIncomingValues();
-  pi->incomingValues = new CValue*[pi->numIncomingValues];
-  pi->valueBlocks = new CValue*[pi->numIncomingValues];
+  pi->incomingValues = (CValue**)calloc(pi->numIncomingValues, sizeof(CValue*));
+  pi->valueBlocks = (CValue**)calloc(pi->numIncomingValues, sizeof(CValue*));
 
   for(int i = 0; i < pi->numIncomingValues; ++i) {
     pi->incomingValues[i] = translateValue(m, n->getIncomingValue(i));
@@ -841,11 +844,11 @@ static void buildVAArgInst(CModule *m, CValue *v, const VAArgInst *vi) {
   if(vi->hasName())
     v->name = strdup(vi->getNameStr().c_str());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
   ii->numOperands = vi->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, vi->getOperand(i));
   }
@@ -857,18 +860,18 @@ static void buildExtractValueInst(CModule *m, CValue *v, const ExtractValueInst 
   if(ei->hasName())
     v->name = strdup(ei->getNameStr().c_str());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
 
   ii->numOperands = ei->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, ei->getOperand(i));
   }
 
   ii->numIndices = ei->getNumIndices();
-  ii->indices = new int[ii->numIndices];
+  ii->indices = (int*)calloc(ii->numIndices, sizeof(int));
 
   std::copy(ei->idx_begin(), ei->idx_end(), ii->indices);
 }
@@ -879,17 +882,17 @@ static void buildInsertValueInst(CModule *m, CValue *v, const InsertValueInst *e
   if(ei->hasName())
     v->name = strdup(ei->getNameStr().c_str());
 
-  CInstructionInfo *ii = new CInstructionInfo;
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ii;
 
   ii->numOperands = ei->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
   for(int i = 0; i < ii->numOperands; ++i) {
     ii->operands[i] = translateValue(m, ei->getOperand(i));
   }
 
   ii->numIndices = ei->getNumIndices();
-  ii->indices = new int[ii->numIndices];
+  ii->indices = (int*)calloc(ii->numIndices, sizeof(int));
 
   std::copy(ei->idx_begin(), ei->idx_end(), ii->indices);
 }
@@ -900,7 +903,7 @@ static CValue* translateInstruction(CModule *m, const Instruction *i) {
   if(it != pd->valueMap.end())
     return it->second;
 
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[i] = v;
 
   // FIXME: Handle metadata here
@@ -1065,7 +1068,15 @@ static CValue* translateInstruction(CModule *m, const Instruction *i) {
     break;
 
   case Instruction::Call:
-    buildCallInst(m, v, dynamic_cast<const CallInst*>(i));
+    // If this is a call to llvm.dbg.*, return NULL and delete what we
+    // made so far.  We don't want these in the instruction stream
+    // (the builder will attach the debug information to the relevant
+    // entities)
+    if(!buildCallInst(m, v, dynamic_cast<const CallInst*>(i))) {
+      pd->valueMap.erase(i);
+      free(v);
+      return NULL;
+    }
     break;
 
   case Instruction::Select:
@@ -1113,7 +1124,7 @@ static CValue* translateBasicBlock(CModule *m, const BasicBlock *bb) {
   if(it != pd->valueMap.end())
     return it->second;
 
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[bb] = v;
 
   v->valueTag = VAL_BASICBLOCK;
@@ -1122,18 +1133,26 @@ static CValue* translateBasicBlock(CModule *m, const BasicBlock *bb) {
 
   // No metadata for these
 
-  CBasicBlockInfo* bbi = new CBasicBlockInfo;
+  CBasicBlockInfo* bbi = (CBasicBlockInfo*)calloc(1, sizeof(CBasicBlockInfo));
+  v->data = (void*)bbi;
+
   bbi->blockLen = bb->size();
-  bbi->instructions = new CValue*[bbi->blockLen];
+  bbi->instructions = (CValue**)calloc(bbi->blockLen, sizeof(CValue*));
 
   int idx = 0;
   for(BasicBlock::const_iterator it = bb->begin(),
         ed = bb->end(); it != ed; ++it)
   {
-    bbi->instructions[idx++] = translateInstruction(m, &*it);
-  }
+    CValue *tr = translateInstruction(m, &*it);
+    if(!tr) {
+      // This was a metadata call, so do not insert it into the
+      // instruction stream
+      --bbi->blockLen;
+      continue;
+    }
 
-  v->data = (void*)bbi;
+    bbi->instructions[idx++] = tr;
+  }
 
   return v;
 }
@@ -1144,7 +1163,7 @@ static CValue* translateFunction(CModule *m, const Function *f) {
   if(it != pd->valueMap.end())
     return it->second;
 
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[f] = v;
 
   v->valueTag = VAL_FUNCTION;
@@ -1153,7 +1172,7 @@ static CValue* translateFunction(CModule *m, const Function *f) {
 
   // FIXME: Get metadata from module
 
-  CFunctionInfo *fi = new CFunctionInfo;
+  CFunctionInfo *fi = (CFunctionInfo*)calloc(1, sizeof(CFunctionInfo));
   v->data = (void*)fi;
 
   if(f->hasSection())
@@ -1168,7 +1187,7 @@ static CValue* translateFunction(CModule *m, const Function *f) {
     fi->gcName = strdup(f->getGC());
 
   fi->argListLen = f->arg_size();
-  fi->arguments = new CValue*[f->arg_size()];
+  fi->arguments = (CValue**)calloc(fi->argListLen, sizeof(CValue*));
   int idx = 0;
   for(Function::const_arg_iterator it = f->arg_begin(),
         ed = f->arg_end(); it != ed; ++it)
@@ -1177,7 +1196,7 @@ static CValue* translateFunction(CModule *m, const Function *f) {
   }
 
   fi->blockListLen = f->size();
-  fi->body = new CValue*[f->size()];
+  fi->body = (CValue**)calloc(fi->blockListLen, sizeof(CValue*));
   idx = 0;
   for(Function::const_iterator it = f->begin(),
         ed = f->end(); it != ed; ++it)
@@ -1194,7 +1213,7 @@ static CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   if(it != pd->valueMap.end())
     return it->second;
 
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[gv] = v;
 
   v->valueTag = VAL_GLOBALVARIABLE;
@@ -1205,7 +1224,9 @@ static CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   // FIXME: Query the Module for metadata here...
 
 
-  CGlobalInfo *gi = new CGlobalInfo;
+  CGlobalInfo *gi = (CGlobalInfo*)calloc(1, sizeof(CGlobalInfo));
+  v->data = (void*)gi;
+
   if(gv->hasSection())
     gi->section = strdup(gv->getSection().c_str());
 
@@ -1218,14 +1239,12 @@ static CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   if(gv->hasInitializer())
     gi->initializer = translateConstant(m, gv->getInitializer());
 
-  v->data = (void*)gi;
-
   return v;
 }
 
 static CValue* translateInlineAsm(CModule *m, const InlineAsm* a) {
   PrivateData *pd = (PrivateData*)m->privateData;
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[a] = v;
 
   v->valueTag = VAL_INLINEASM;
@@ -1233,7 +1252,7 @@ static CValue* translateInlineAsm(CModule *m, const InlineAsm* a) {
   if(a->hasName())
     v->name = strdup(a->getNameStr().c_str());
 
-  CInlineAsmInfo *ii = new CInlineAsmInfo;
+  CInlineAsmInfo *ii = (CInlineAsmInfo*)calloc(1, sizeof(CInlineAsmInfo));
   v->data = (void*)ii;
 
   ii->asmString = strdup(a->getAsmString().c_str());
@@ -1264,7 +1283,7 @@ static CValue* translateGlobalValue(CModule *m, const GlobalValue *gv) {
 
 static CValue* translateEmptyConstant(CModule *m, ValueTag t, const Constant *p) {
   PrivateData *pd = (PrivateData*)m->privateData;
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[p] = v;
 
   v->valueTag = t;
@@ -1277,7 +1296,7 @@ static CValue* translateEmptyConstant(CModule *m, ValueTag t, const Constant *p)
 
 static CValue* translateConstantInt(CModule *m, const ConstantInt* i) {
   PrivateData *pd = (PrivateData*)m->privateData;
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[i] = v;
 
   v->valueTag = VAL_CONSTANTINT;
@@ -1285,7 +1304,7 @@ static CValue* translateConstantInt(CModule *m, const ConstantInt* i) {
 
   // No name
 
-  CConstInt *d = new CConstInt;
+  CConstInt *d = (CConstInt*)calloc(1, sizeof(CConstInt));
   v->data = (void*)d;
 
   d->val = i->getSExtValue();
@@ -1295,7 +1314,7 @@ static CValue* translateConstantInt(CModule *m, const ConstantInt* i) {
 
 static CValue* translateConstantFP(CModule *m, const ConstantFP *fp) {
   PrivateData *pd = (PrivateData*)m->privateData;
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[fp] = v;
 
   v->valueTag = VAL_CONSTANTFP;
@@ -1303,7 +1322,7 @@ static CValue* translateConstantFP(CModule *m, const ConstantFP *fp) {
 
   // No name
 
-  CConstFP *d = new CConstFP;
+  CConstFP *d = (CConstFP*)calloc(1, sizeof(CConstFP));
   v->data = (void*)d;
 
   d->val = fp->getValueAPF().convertToDouble();
@@ -1313,7 +1332,7 @@ static CValue* translateConstantFP(CModule *m, const ConstantFP *fp) {
 
 static CValue* translateBlockAddress(CModule *m, const BlockAddress *ba) {
   PrivateData *pd = (PrivateData*)m->privateData;
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[ba] = v;
 
   v->valueTag = VAL_BLOCKADDRESS;
@@ -1321,7 +1340,7 @@ static CValue* translateBlockAddress(CModule *m, const BlockAddress *ba) {
   if(ba->hasName())
     v->name = strdup(ba->getNameStr().c_str());
 
-  CBlockAddrInfo *i = new CBlockAddrInfo;
+  CBlockAddrInfo *i = (CBlockAddrInfo*)calloc(1, sizeof(CBlockAddrInfo));
   v->data = (void*)i;
 
   i->func = translateValue(m, ba->getFunction());
@@ -1332,7 +1351,7 @@ static CValue* translateBlockAddress(CModule *m, const BlockAddress *ba) {
 
 static CValue* translateConstantAggregate(CModule *m, ValueTag t, const Constant *ca) {
   PrivateData *pd = (PrivateData*)m->privateData;
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[ca] = v;
 
   v->valueTag = t;
@@ -1340,11 +1359,11 @@ static CValue* translateConstantAggregate(CModule *m, ValueTag t, const Constant
   if(ca->hasName())
     v->name = strdup(ca->getNameStr().c_str());
 
-  CConstAggregate *a = new CConstAggregate;
+  CConstAggregate *a = (CConstAggregate*)calloc(1, sizeof(CConstAggregate));
   v->data = (void*)a;
 
   a->numElements = ca->getNumOperands();
-  a->constants = new CValue*[a->numElements];
+  a->constants = (CValue**)calloc(a->numElements, sizeof(CValue*));
 
   int idx = 0;
   for(User::const_op_iterator it = ca->op_begin(),
@@ -1358,7 +1377,7 @@ static CValue* translateConstantAggregate(CModule *m, ValueTag t, const Constant
 
 static CValue* translateConstantExpr(CModule *m, const ConstantExpr *ce) {
   PrivateData *pd = (PrivateData*)m->privateData;
-  CValue *v = new CValue;
+  CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[ce] = v;
 
   v->valueTag = VAL_CONSTANTEXPR;
@@ -1366,14 +1385,14 @@ static CValue* translateConstantExpr(CModule *m, const ConstantExpr *ce) {
   if(ce->hasName())
     v->name = strdup(ce->getNameStr().c_str());
 
-  CConstExprInfo *ci = new CConstExprInfo;
-  CInstructionInfo *ii = new CInstructionInfo;
+  CConstExprInfo *ci = (CConstExprInfo*)calloc(1, sizeof(CConstExprInfo));
+  CInstructionInfo *ii = (CInstructionInfo*)calloc(1, sizeof(CInstructionInfo));
   v->data = (void*)ci;
   ci->ii = ii;
 
   ci->instrType = decodeOpcode(ce->getOpcode());
   ii->numOperands = ce->getNumOperands();
-  ii->operands = new CValue*[ii->numOperands];
+  ii->operands = (CValue**)calloc(ii->numOperands, sizeof(CValue*));
 
   int idx = 0;
   for(User::const_op_iterator it = ce->op_begin(),
@@ -1387,7 +1406,7 @@ static CValue* translateConstantExpr(CModule *m, const ConstantExpr *ce) {
   }
   else if(ce->hasIndices()) {
     ii->numIndices = ce->getIndices().size();
-    ii->indices = new int[ii->numIndices];
+    ii->indices = (int*)calloc(ii->numIndices, sizeof(int));
     std::copy(ce->getIndices().begin(), ce->getIndices().end(), ii->indices);
   }
 
@@ -1504,9 +1523,9 @@ extern "C" {
 
     // The actual variables are deleted with disposeCValue from the
     // valueMap.
-    delete[] m->globalVariables;
-    delete[] m->globalAliases;
-    delete[] m->functions;
+    free(m->globalVariables);
+    free(m->globalAliases);
+    free(m->functions);
 
     PrivateData *pd = (PrivateData*)m->privateData;
 
@@ -1523,25 +1542,28 @@ extern "C" {
     }
 
 
+    // These two are actually allocated with new
     delete pd->original;
     delete pd;
-    delete m;
+
+    free(m);
   }
 
   CModule* marshalLLVM(const char * filename) {
-    CModule *ret = new CModule;
-    std::string errMsg;
-    OwningPtr<MemoryBuffer> buffer;
-    error_code ec = MemoryBuffer::getFile(filename, buffer);
+    CModule *ret = (CModule*)calloc(1, sizeof(CModule));
+    PrivateData *pd = new PrivateData;
+    ret->privateData = (void*)pd;
 
-    if(buffer.get() == NULL){
+    std::string errMsg;
+    error_code ec = MemoryBuffer::getFile(filename, pd->buffer);
+
+    if(pd->buffer.get() == NULL){
       ret->hasError = 1;
       ret->errMsg = strdup(ec.message().c_str());
       return ret;
     }
 
-    LLVMContext ctxt;
-    Module *m = ParseBitcodeFile(buffer.get(), ctxt, &errMsg);
+    Module *m = ParseBitcodeFile(pd->buffer.get(), pd->ctxt, &errMsg);
 
     if(m == NULL) {
       ret->hasError = 1;
@@ -1549,14 +1571,13 @@ extern "C" {
       return ret;
     }
 
+    pd->original = m;
+
     ret->moduleIdentifier = strdup(m->getModuleIdentifier().c_str());
     ret->moduleDataLayout = strdup(m->getDataLayout().c_str());
     ret->targetTriple = strdup(m->getTargetTriple().c_str());
     ret->moduleInlineAsm = strdup(m->getModuleInlineAsm().c_str());
 
-    PrivateData *pd = new PrivateData;
-    pd->original = m;
-    ret->privateData = (void*)pd;
 
     try
     {
@@ -1572,7 +1593,7 @@ extern "C" {
       }
 
       ret->numGlobalVariables = globalVariables.size();
-      ret->globalVariables = new CValue*[ret->numGlobalVariables];
+      ret->globalVariables = (CValue**)calloc(ret->numGlobalVariables, sizeof(CValue*));
       std::copy(globalVariables.begin(), globalVariables.end(), ret->globalVariables);
 
       std::vector<CValue*> functions;
@@ -1587,7 +1608,7 @@ extern "C" {
       }
 
       ret->numFunctions = functions.size();
-      ret->functions = new CValue*[ret->numFunctions];
+      ret->functions = (CValue**)calloc(ret->numFunctions, sizeof(CValue*));
       std::copy(functions.begin(), functions.end(), ret->functions);
 
       std::vector<CValue*> globalAliases;
@@ -1602,7 +1623,7 @@ extern "C" {
       }
 
       ret->numGlobalAliases = globalAliases.size();
-      ret->globalAliases = new CValue*[ret->numGlobalAliases];
+      ret->globalAliases = (CValue**)calloc(ret->numGlobalAliases, sizeof(CValue*));
       std::copy(globalAliases.begin(), globalAliases.end(), ret->globalAliases);
     }
     catch(const string &msg) {

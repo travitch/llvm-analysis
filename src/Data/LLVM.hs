@@ -44,8 +44,8 @@ import Data.LLVM.Private.Parser.Unmarshal
 -- bitcode into the textual assembly form and then parses that.  This
 -- function requires that 'opt' be visible in the PATH of the calling
 -- process.
-parseLLVMBitcodeFile :: ParserOptions -> FilePath -> IO (Either String Module)
-parseLLVMBitcodeFile = parseBitcode
+-- parseLLVMBitcodeFile :: ParserOptions -> FilePath -> IO (Either String Module)
+-- parseLLVMBitcodeFile o fp = parseBitcode o fp
 
 
 

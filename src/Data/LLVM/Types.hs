@@ -25,11 +25,11 @@ import Data.LLVM.Private.Types.Referential
 -- is the type returned from all of the parsers, and all analysis
 -- begins at the Module level.
 data Module = Module { moduleIdentifier :: ByteString
-                     , moduleDataLayout :: DataLayout
+                     , moduleDataLayout :: ByteString -- DataLayout
                        -- ^ The layout of the primitive datatypes on
                        -- the architecture this module was generated
                        -- for
-                     , moduleTarget :: TargetTriple
+                     , moduleTarget :: ByteString -- TargetTriple
                        -- ^ The architecture that this module was
                        -- generated for
                      , moduleAssembly :: Assembly
@@ -89,5 +89,5 @@ forceModule m = do
   mapM_ forceGlobal (moduleAliases m)
   mapM_ forceGlobal (moduleGlobalVariables m)
   mapM_ forceGlobal (moduleFunctions m)
-  return $ moduleDataLayout m `deepseq` moduleTarget m `deepseq`
+  return $ {-moduleDataLayout m `deepseq` moduleTarget m `deepseq`-}
             moduleAssembly m `deepseq` m `seq` m
