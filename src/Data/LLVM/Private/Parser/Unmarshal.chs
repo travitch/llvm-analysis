@@ -3,6 +3,8 @@ module Data.LLVM.Private.Parser.Unmarshal ( parseLLVMBitcodeFile ) where
 
 #include "c++/marshal.h"
 
+import Prelude hiding ( catch )
+
 import Control.Applicative
 import Control.DeepSeq
 import Control.Exception
@@ -367,7 +369,11 @@ parseLLVMBitcodeFile _ bitcodefile = do
       Just err <- cModuleErrorMessage m
       disposeCModule m
       return $ Left err
-    False -> do
+    False -> catch (doParse m) exHandler
+  where
+    exHandler :: TranslationException -> IO (Either String Module)
+    exHandler ex = return $ Left (show ex)
+    doParse m = do
       ref <- newIORef 0
       res <- evalStateT (mfix (tieKnot m)) (emptyState ref)
 
@@ -729,7 +735,7 @@ translateValue' finalState vp = do
     ValFunction -> throw InvalidFunctionInTranslateValue
     ValAlias -> throw InvalidAliasInTranslateValue
     ValGlobalvariable -> throw InvalidGlobalVarInTranslateValue
-    ValConstantexpr -> return UnwindInst -- translateConstantExpr finalState (castPtr dataPtr)
+    ValConstantexpr -> translateConstantExpr finalState (castPtr dataPtr)
 
   uid <- nextId
 
