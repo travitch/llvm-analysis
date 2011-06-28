@@ -339,15 +339,17 @@ type KnotMonad = StateT KnotState IO
 data KnotState = KnotState { valueMap :: Map IntPtr Value
                            , typeMap :: Map IntPtr Type
                            , idSrc :: IORef Int
+                           , typeIdSrc :: IORef Int
                            , result :: Maybe Module
                            , visitedTypes :: Set IntPtr
                            , localId :: Int
                            , constantTranslationDepth :: Int
                            }
-emptyState :: IORef Int -> KnotState
-emptyState r = KnotState { valueMap = M.empty
+emptyState :: IORef Int -> IORef Int -> KnotState
+emptyState r1 r2 = KnotState { valueMap = M.empty
                          , typeMap = M.empty
-                         , idSrc = r
+                         , idSrc = r1
+                         , typeIdSrc = r2
                          , result = Nothing
                          , visitedTypes = S.empty
                          , localId = 0
@@ -362,6 +364,16 @@ nextId = do
   liftIO $ modifyIORef r (+1)
 
   return thisId
+
+nextTypeId :: KnotMonad Int
+nextTypeId = do
+  s <- get
+  let r = typeIdSrc s
+  thisId <- liftIO $ readIORef r
+  liftIO $ modifyIORef r (+1)
+
+  return thisId
+
 
 -- | Parse the named LLVM bitcode file into the LLVM form of the IR (a
 -- 'Module').  In the case of an error, a descriptive string will be
@@ -381,8 +393,9 @@ parseLLVMBitcodeFile _ bitcodefile = do
     exHandler :: TranslationException -> IO (Either String Module)
     exHandler ex = return $ Left (show ex)
     doParse m = do
-      ref <- newIORef 0
-      res <- evalStateT (mfix (tieKnot m)) (emptyState ref)
+      idref <- newIORef 0
+      tref <- newIORef 0
+      res <- evalStateT (mfix (tieKnot m)) (emptyState idref tref)
 
       disposeCModule m
       case result res of
@@ -448,8 +461,16 @@ translateTypeRec finalState tp = do
         -- This is a cyclic reference - look it up in the final result
         (_, TYPE_NAMED) ->
           return $ M.findWithDefault (throw (TypeKnotTyingFailure tag)) ip (typeMap finalState)
-        (True, _) ->
-          return $ M.findWithDefault (throw (TypeKnotTyingFailure tag)) ip (typeMap finalState)
+        (True, _) -> do
+          -- Here we have detected a cycle in a type that isn't broken
+          -- up by a NamedType.  We introduce an artificial name (a
+          -- type upref) to break the cycle.  This makes it a lot
+          -- easier to print out types later on, as we don't have to
+          -- do on-the-fly cycle detection everywhere we want to work
+          -- with types.
+          let innerType = M.findWithDefault (throw (TypeKnotTyingFailure tag)) ip (typeMap finalState)
+          uprefName <- nextTypeId
+          return $ TypeNamed (show uprefName) innerType
         _ -> translateType' finalState tp
 
 translateType' :: KnotState -> TypePtr -> KnotMonad Type
