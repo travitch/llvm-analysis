@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Types (
   Module(..),
+  moduleDefinedFunctions,
   moduleGlobals,
   module Data.LLVM.Private.Types.Referential,
   module Data.LLVM.Private.Types.Attributes,
@@ -37,6 +38,15 @@ data Module = Module { moduleIdentifier :: ByteString
                      , moduleFunctions :: [Value]
                      }
 
+-- | Extract a list of only those functions that are *defined* in the
+-- module (not external).
+moduleDefinedFunctions :: Module -> [Value]
+moduleDefinedFunctions = filter isNotExternal . moduleFunctions
+
+isNotExternal :: Value -> Bool
+isNotExternal Value { valueContent = Function {} } = True
+isNotExternal Value { valueContent = GlobalDeclaration {} } = True
+isNotExternal _ = False
 
 -- | Implementation of the Show instance
 printModule :: Module -> String
