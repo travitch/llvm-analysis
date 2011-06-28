@@ -11,7 +11,10 @@ cabal-version: >=1.10
 stability: experimental
 tested-with: GHC == 7.0.3
 
--- extra-source-files:
+extra-source-files: configure,
+                    llvm.buildinfo.in,
+                    llvm.buildinfo.windows.in,
+                    src/c++/marshal.h
 -- description:
 
 library
@@ -39,7 +42,7 @@ library
                  Data.LLVM.Private.Types.Identifiers,
                  Data.LLVM.Private.Types.Referential
 
-  C-sources: src/c++/marshal.cpp
+  c-sources: src/c++/marshal.cpp
 
   build-tools: c2hs
   default-extensions: OverloadedStrings

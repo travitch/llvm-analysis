@@ -341,6 +341,8 @@ data KnotState = KnotState { valueMap :: Map IntPtr Value
                            , idSrc :: IORef Int
                            , result :: Maybe Module
                            , visitedTypes :: Set IntPtr
+                           , localId :: Int
+                           , constantTranslationDepth :: Int
                            }
 emptyState :: IORef Int -> KnotState
 emptyState r = KnotState { valueMap = M.empty
@@ -348,6 +350,8 @@ emptyState r = KnotState { valueMap = M.empty
                          , idSrc = r
                          , result = Nothing
                          , visitedTypes = S.empty
+                         , localId = 0
+                         , constantTranslationDepth = 0
                          }
 
 nextId :: KnotMonad Int
@@ -596,6 +600,11 @@ translateGlobalVariable finalState vp = do
       recordValue vp v
       return v
 
+resetLocalIdCounter :: KnotMonad ()
+resetLocalIdCounter = do
+  s <- get
+  put s { localId = 0 }
+
 translateFunction :: KnotState -> ValuePtr -> KnotMonad Value
 translateFunction finalState vp = do
   name <- liftIO $ cValueName vp
@@ -604,6 +613,8 @@ translateFunction finalState vp = do
   tt <- translateType finalState typePtr
 
   uid <- nextId
+
+  resetLocalIdCounter
 
   let dataPtr' = castPtr dataPtr
       basicVal = Value { valueName = name
@@ -648,6 +659,17 @@ translateFunction finalState vp = do
       recordValue vp v
       return v
 
+constantBracket :: KnotMonad ValueT -> KnotMonad ValueT
+constantBracket c = do
+  s <- get
+  let tdepth = constantTranslationDepth s
+  put s { constantTranslationDepth = tdepth + 1 }
+  ret <- c
+  s' <- get
+  let tdepth' = constantTranslationDepth s'
+  put s' { constantTranslationDepth = tdepth' - 1 }
+  return ret
+
 -- | This wrapper checks to see if we have translated the value yet
 -- (but not against the final state - only the internal running
 -- state).  This way we really translate it if it hasn't been seen
@@ -668,19 +690,28 @@ translateValue' finalState vp = do
   typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
 
+  s <- get
+  let cdepth = constantTranslationDepth s
+      idCtr = localId s
+  realName <- case isGlobal tag || isConstant tag || cdepth > 0 of
+    True -> return name
+    False -> do
+      put s { localId = idCtr + 1 }
+      return $ Just $ makeLocalIdentifier $ BS.pack (show idCtr)
+
   tt <- translateType finalState typePtr
 
   content <- case tag of
     ValArgument -> translateArgument finalState (castPtr dataPtr)
     ValBasicblock -> translateBasicBlock finalState (castPtr dataPtr)
-    ValInlineasm -> translateInlineAsm finalState (castPtr dataPtr)
-    ValBlockaddress -> translateBlockAddress finalState (castPtr dataPtr)
+    ValInlineasm -> constantBracket $ translateInlineAsm finalState (castPtr dataPtr)
+    ValBlockaddress -> constantBracket $ translateBlockAddress finalState (castPtr dataPtr)
     ValConstantaggregatezero -> return ConstantAggregateZero
     ValConstantpointernull -> return ConstantPointerNull
     ValUndefvalue -> return UndefValue
-    ValConstantarray -> translateConstantAggregate finalState ConstantArray (castPtr dataPtr)
-    ValConstantstruct -> translateConstantAggregate finalState ConstantStruct (castPtr dataPtr)
-    ValConstantvector -> translateConstantAggregate finalState ConstantVector (castPtr dataPtr)
+    ValConstantarray -> constantBracket $ translateConstantAggregate finalState ConstantArray (castPtr dataPtr)
+    ValConstantstruct -> constantBracket $ translateConstantAggregate finalState ConstantStruct (castPtr dataPtr)
+    ValConstantvector -> constantBracket $ translateConstantAggregate finalState ConstantVector (castPtr dataPtr)
     ValConstantfp -> translateConstantFP finalState (castPtr dataPtr)
     ValConstantint -> translateConstantInt finalState (castPtr dataPtr)
     ValRetinst -> translateRetInst finalState (castPtr dataPtr)
@@ -738,12 +769,12 @@ translateValue' finalState vp = do
     ValFunction -> throw InvalidFunctionInTranslateValue
     ValAlias -> throw InvalidAliasInTranslateValue
     ValGlobalvariable -> throw InvalidGlobalVarInTranslateValue
-    ValConstantexpr -> translateConstantExpr finalState (castPtr dataPtr)
+    ValConstantexpr -> constantBracket $ translateConstantExpr finalState (castPtr dataPtr)
 
   uid <- nextId
 
   let tv = Value { valueType = tt
-                 , valueName = name
+                 , valueName = realName
                  , valueMetadata = Nothing
                  , valueContent = content
                  , valueUniqueId = uid
@@ -752,6 +783,13 @@ translateValue' finalState vp = do
   recordValue vp tv
 
   return tv
+
+isGlobal :: ValueTag -> Bool
+isGlobal vt = case vt of
+  ValFunction -> True
+  ValAlias -> True
+  ValGlobalvariable -> True
+  _ -> False
 
 isConstant :: ValueTag -> Bool
 isConstant vt = case vt of
