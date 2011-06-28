@@ -782,7 +782,9 @@ printValue Value { valueContent =
           , unwords $ map show cattrs
           ]
   where
-    TypeFunction rtype _ _ = valueType f
+    rtype = case valueType f of
+      TypeFunction r _ _ -> r
+      TypePointer (TypeFunction r _ _) _ -> r
 
 printValue Value { valueContent =
                       InvokeInst { invokeConvention = cc
