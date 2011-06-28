@@ -18,7 +18,7 @@ import Data.Map ( Map )
 import Data.Set ( Set )
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Data.Maybe ( catMaybes )
+import Data.Maybe ( catMaybes, isJust )
 import Data.Typeable
 import Foreign.C
 import Foreign.ForeignPtr
@@ -693,7 +693,7 @@ translateValue' finalState vp = do
   s <- get
   let cdepth = constantTranslationDepth s
       idCtr = localId s
-  realName <- case isGlobal tag || isConstant tag || cdepth > 0 of
+  realName <- case isJust name || isGlobal tag || isConstant tag || cdepth > 0 of
     True -> return name
     False -> do
       put s { localId = idCtr + 1 }
