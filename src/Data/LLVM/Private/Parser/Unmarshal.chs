@@ -927,6 +927,11 @@ translateRetInst finalState dataPtr = do
       return $ RetInst (Just val')
     _ -> throw TooManyReturnValues
 
+-- | Note, in LLVM the operands of the Branch instruction are ordered as
+--
+-- [Condition, FalseTarget,] TrueTarget
+--
+-- This is not exactly as expected.
 translateBranchInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateBranchInst finalState dataPtr = do
   opPtrs <- liftIO $ cInstructionOperands dataPtr
@@ -934,10 +939,10 @@ translateBranchInst finalState dataPtr = do
     [dst] -> do
       dst' <- translateConstOrRef finalState dst
       return $ UnconditionalBranchInst dst'
-    [val, t, f] -> do
+    [val, f, t] -> do
       val' <- translateConstOrRef finalState val
-      tbranch <- translateConstOrRef finalState t
       fbranch <- translateConstOrRef finalState f
+      tbranch <- translateConstOrRef finalState t
       return $ BranchInst { branchCondition = val'
                            , branchTrueTarget = tbranch
                            , branchFalseTarget = fbranch
