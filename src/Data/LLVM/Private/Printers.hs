@@ -1046,7 +1046,7 @@ printType (TypeStruct ts p) =
     True -> mconcat [ "<", fieldVals, ">" ]
     False -> mconcat [ "{", fieldVals, "}" ]
   where fieldVals = intercalate ", " $ map printType ts
-printType (TypeNamed name _) = name
+printType (TypeNamed name _) = '%' : name
 
 instance Show Metadata where
   show = printMetadata

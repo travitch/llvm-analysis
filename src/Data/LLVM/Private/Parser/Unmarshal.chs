@@ -470,7 +470,10 @@ translateTypeRec finalState tp = do
           -- with types.
           let innerType = M.findWithDefault (throw (TypeKnotTyingFailure tag)) ip (typeMap finalState)
           uprefName <- nextTypeId
-          return $ TypeNamed (show uprefName) innerType
+          let t = TypeNamed (show uprefName) innerType
+          st <- get
+          put st { typeMap = M.insert ip t (typeMap st) }
+          return t
         _ -> translateType' finalState tp
 
 translateType' :: KnotState -> TypePtr -> KnotMonad Type
