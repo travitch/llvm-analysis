@@ -13,51 +13,45 @@ import Control.DeepSeq
 import Data.Hashable
 import Data.ByteString.Char8 ( ByteString, unpack )
 
-data Identifier = LocalIdentifier { localIdentifier :: !ByteString
-                                  , localHash :: !Int
+data Identifier = LocalIdentifier { identifierContent :: !ByteString
+                                  , identifierHash :: !Int
                                   }
-                | GlobalIdentifier { globalIdentifier :: !ByteString
-                                   , globalHash :: !Int
+                | GlobalIdentifier { identifierContent :: !ByteString
+                                   , identifierHash :: !Int
                                    }
-                | MetaIdentifier { metaIdentifier :: !ByteString
-                                 , metaHash :: !Int
+                | MetaIdentifier { identifierContent :: !ByteString
+                                 , identifierHash :: !Int
                                  }
                   deriving (Eq, Ord)
 
 instance Show Identifier where
-  show LocalIdentifier { localIdentifier = t } = '%' : unpack t
-  show GlobalIdentifier { globalIdentifier = t } = '@' : unpack t
-  show MetaIdentifier { metaIdentifier = t } = '!' : unpack t
+  show LocalIdentifier { identifierContent = t } = '%' : unpack t
+  show GlobalIdentifier { identifierContent = t } = '@' : unpack t
+  show MetaIdentifier { identifierContent = t } = '!' : unpack t
 
 instance Hashable Identifier where
-  hash LocalIdentifier { localHash = h } = h
-  hash GlobalIdentifier { globalHash = h } = h
-  hash MetaIdentifier { metaHash = h } = h
+  hash = identifierHash
 
 instance NFData Identifier where
-  rnf i@(LocalIdentifier {}) = localIdentifier i `seq` localHash i `seq` i `seq` ()
-  rnf i@(GlobalIdentifier {}) = globalIdentifier i `seq` globalHash i `seq` i `seq` ()
-  rnf i@(MetaIdentifier {}) = metaIdentifier i `seq` metaHash i `seq` i `seq` ()
+  rnf i = identifierContent i `seq` identifierHash i `seq` ()
 
 makeLocalIdentifier :: ByteString -> Identifier
 makeLocalIdentifier t =
-  LocalIdentifier { localIdentifier = t
-                  , localHash = hash t
+  LocalIdentifier { identifierContent = t
+                  , identifierHash = hash t
                   }
 
 makeGlobalIdentifier :: ByteString -> Identifier
 makeGlobalIdentifier t =
-  GlobalIdentifier { globalIdentifier = t
-                   , globalHash = hash t
+  GlobalIdentifier { identifierContent = t
+                   , identifierHash = hash t
                    }
 
 makeMetaIdentifier :: ByteString -> Identifier
 makeMetaIdentifier t =
-  MetaIdentifier { metaIdentifier = t
-                 , metaHash = hash t
+  MetaIdentifier { identifierContent = t
+                 , identifierHash = hash t
                  }
 
 identifierAsString :: Identifier -> String
-identifierAsString LocalIdentifier { localIdentifier = t } = unpack t
-identifierAsString GlobalIdentifier { globalIdentifier = t } = unpack t
-identifierAsString MetaIdentifier { metaIdentifier = t } = unpack t
+identifierAsString = unpack . identifierContent
