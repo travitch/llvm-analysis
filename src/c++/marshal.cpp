@@ -453,13 +453,15 @@ static CType* translateType(CModule *m, const Type *t) {
   string typeName = pd->original->getTypeName(t);
   if(typeName != "") {
     CType *namedTypeWrapper = (CType*)calloc(1, sizeof(CType));
-    namedTypeWrapper->innerType = nt;
-    namedTypeWrapper->name = strdup(typeName.c_str());
 
     // Normally we would just return the type we are building, but in
     // this case we need to return the wrapper or it won't be
     // exported.
     ret = namedTypeWrapper;
+
+    namedTypeWrapper->innerType = nt;
+    namedTypeWrapper->typeTag = TYPE_NAMED;
+    namedTypeWrapper->name = strdup(typeName.c_str());
   }
 
   // Need to put this in the table before making any recursive calls,

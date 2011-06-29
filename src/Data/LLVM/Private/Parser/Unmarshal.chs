@@ -442,7 +442,8 @@ translateType finalState tp = do
     Just t -> return t
     Nothing -> do
       t <- translateType' finalState tp
-      put s { typeMap = M.insert ip t (typeMap s) }
+      st <- get
+      put st { typeMap = M.insert ip t (typeMap st) }
       return t
 
 translateTypeRec :: KnotState -> TypePtr -> KnotMonad Type
@@ -459,7 +460,27 @@ translateTypeRec finalState tp = do
       tag <- liftIO $ cTypeTag tp
       case (S.member ip (visitedTypes s), tag) of
         -- This is a cyclic reference - look it up in the final result
-        (_, TYPE_NAMED) ->
+        (False, TYPE_NAMED) -> do
+          -- If we have never seen a reference to this named type
+          -- before, we need to create it.
+          name <- liftIO $ cTypeName tp
+          itp <- liftIO $ cTypeInner tp
+          innerType <- translateTypeRec finalState itp
+
+          let t = TypeNamed name innerType
+
+          st <- get
+          let m = typeMap st
+              m' = M.insert (ptrToIntPtr itp) innerType m
+              m'' = M.insert ip t m'
+          put st { typeMap = m'' }
+
+          return t
+
+        (True, TYPE_NAMED) -> do
+          -- Otherwise, if we *have* seen it before, we can just look
+          -- it up.  This handles the case of seeing the same named
+          -- type for the first time within e.g., a TypeStruct
           return $ M.findWithDefault (throw (TypeKnotTyingFailure tag)) ip (typeMap finalState)
         (True, _) -> do
           -- Here we have detected a cycle in a type that isn't broken
@@ -534,7 +555,11 @@ translateType' finalState tp = do
       innerType <- translateTypeRec finalState itp
 
       return $ TypeNamed name innerType
-  put s { typeMap = M.insert (ptrToIntPtr tp) t (typeMap s) }
+  -- Need to get the latest state that exists after processing all
+  -- inner types above, otherwise we'll erase their updates from the
+  -- map.
+  s' <- get
+  put s' { typeMap = M.insert (ptrToIntPtr tp) t (typeMap s') }
   return t
 
 recordValue :: ValuePtr -> Value -> KnotMonad ()

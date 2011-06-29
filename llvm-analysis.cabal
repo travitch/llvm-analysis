@@ -70,15 +70,15 @@ test-suite AndersenTests
                  process, directory, filepath, containers,
                  HUnit, test-framework, test-framework-hunit
 
--- executable ParserDriver
---   default-language: Haskell2010
---   build-depends: llvm-analysis, base > 3 && < 5, unordered-containers
+executable ParserDriver
+  default-language: Haskell2010
+  build-depends: llvm-analysis, base > 3 && < 5, unordered-containers
 
---   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
---   ghc-prof-options: -auto-all
---   main-is: TestDriver.hs
---   hs-source-dirs: tests
---   default-extensions: OverloadedStrings
+  ghc-options: -Wall -rtsopts -funbox-strict-fields
+  ghc-prof-options: -auto-all
+  main-is: TestDriver.hs
+  hs-source-dirs: tests
+  default-extensions: OverloadedStrings
 
 executable DumpArguments
   default-language: Haskell2010
