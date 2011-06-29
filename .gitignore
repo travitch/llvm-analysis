@@ -12,3 +12,9 @@ dist/
 /autom4te.cache/output.0
 /autom4te.cache/requests
 /autom4te.cache/traces.0
+/rc/packages-7.0.3.conf/package.cache
+/rc/packages/00-index.tar
+/tdc++/packages-7.0.3.conf/package.cache
+/tdc++/packages/00-index.tar
+/up/llvm-2.9/lib/packages-7.0.3.conf/package.cache
+/up/llvm-2.9/lib/packages/00-index.tar
