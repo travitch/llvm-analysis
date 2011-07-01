@@ -22,7 +22,8 @@ library
   build-depends: base > 3 && < 5, array, bytestring, fgl, mtl > 2, filemanip >= 0.3.5.2,
                  graphviz, dwarf, deepseq, process, filepath, directory,
                  hashable >= 1.1.2.0, unordered-containers, containers >= 0.3,
-                 graphviz, lattices, datalog
+                 graphviz, lattices, datalog,
+                 HUnit, test-framework, test-framework-hunit
   hs-source-dirs: src
   exposed-modules: Data.LLVM,
                    Data.LLVM.Analysis.Dataflow,

@@ -17,6 +17,8 @@ import System.IO
 import System.Process
 
 import Text.Printf
+import Test.Framework ( defaultMain )
+import Test.Framework.Providers.HUnit
 
 import Data.LLVM
 import Data.LLVM.Types
@@ -37,11 +39,12 @@ testAgainstExpected testPattern expectedMap optimize buildResult compareResults 
   -- Glob up all of the files in the test directory with the target extension
   testInputFiles <- namesMatching testPattern
   inputsAndExpecteds <- mapM (readInputAndExpected expectedMap optimize) testInputFiles
-  mapM_ runAndCompare inputsAndExpecteds
+  testCases <- mapM mkTest inputsAndExpecteds
+  defaultMain testCases
   where
-    runAndCompare (file, m, expected) = do
+    mkTest (file, m, expected) = do
       let actual = buildResult m
-      compareResults file expected actual
+      return $ testCase file $ compareResults file expected actual
 
 -- | Build a 'Module' from a C or C++ file using clang.  Optionally,
 -- apply light optimizations (-O1, -mem2reg) using opt.  Both binaries
