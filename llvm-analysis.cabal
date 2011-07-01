@@ -41,8 +41,7 @@ library
                  Data.LLVM.Private.Types.Attributes,
                  Data.LLVM.Private.Types.Dwarf,
                  Data.LLVM.Private.Types.Identifiers,
-                 Data.LLVM.Private.Types.Referential,
-                 Data.LLVM.Testing.BuildModule
+                 Data.LLVM.Private.Types.Referential
 
   c-sources: src/c++/marshal.cpp
 
