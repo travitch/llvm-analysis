@@ -41,7 +41,7 @@ testAgainstExpected testPattern expectedMap optimize buildResult compareResults 
   where
     runAndCompare (file, m, expected) = do
       let actual = buildResult m
-      compareResults file actual expected
+      compareResults file expected actual
 
 -- | Build a 'Module' from a C or C++ file using clang.  Optionally,
 -- apply light optimizations (-O1, -mem2reg) using opt.  Both binaries
