@@ -1,6 +1,10 @@
+{-# LANGUAGE ExistentialQuantification #-}
 -- | Various functions to help test this library and analyses based on
 -- it.
 module Data.LLVM.Testing (
+  -- * Types
+  TestDescriptor(..),
+  -- * Actions
   buildModule,
   readInputAndExpected,
   testAgainstExpected
@@ -17,7 +21,7 @@ import System.IO
 import System.Process
 
 import Text.Printf
-import Test.Framework ( defaultMain )
+import Test.Framework ( defaultMain, Test )
 import Test.Framework.Providers.HUnit
 
 import Data.LLVM
@@ -33,18 +37,37 @@ readInputAndExpected expectedFunc optimize inputFile = do
   m <- buildModule inputFile optimize
   return (inputFile, m, expected)
 
-testAgainstExpected :: (Read a) => String -> (FilePath -> FilePath) -> Bool ->
-                       (Module -> a) -> (String -> a -> a -> IO ()) -> IO ()
-testAgainstExpected testPattern expectedMap optimize buildResult compareResults = do
-  -- Glob up all of the files in the test directory with the target extension
-  testInputFiles <- namesMatching testPattern
-  inputsAndExpecteds <- mapM (readInputAndExpected expectedMap optimize) testInputFiles
-  testCases <- mapM mkTest inputsAndExpecteds
-  defaultMain testCases
+data TestDescriptor =
+  forall a. (Read a) => TestDescriptor { testPattern :: String
+                                       , testExpectedMapping :: FilePath -> FilePath
+                                       , testOptimized :: Bool
+                                       , testResultBuilder :: Module -> a
+                                       , testResultComparator :: String -> a -> a -> IO ()
+                                       }
+
+testAgainstExpected :: [TestDescriptor] -> IO ()
+testAgainstExpected testDescriptors = do
+  caseSets <- mapM mkDescriptorSet testDescriptors
+  defaultMain $ concat caseSets
   where
-    mkTest (file, m, expected) = do
-      let actual = buildResult m
-      return $ testCase file $ compareResults file expected actual
+    mkDescriptorSet :: TestDescriptor -> IO [Test]
+    mkDescriptorSet TestDescriptor { testPattern = pat
+                                   , testExpectedMapping = mapping
+                                   , testOptimized = opt
+                                   , testResultBuilder = br
+                                   , testResultComparator = cmp
+                                   } = do
+
+      -- Glob up all of the files in the test directory with the target extension
+      testInputFiles <- namesMatching pat
+      -- Read in the expected results and corresponding modules
+      inputsAndExpecteds <- mapM (readInputAndExpected mapping opt) testInputFiles
+      -- Build actual test cases by applying the result builder
+      mapM (mkTest br cmp) inputsAndExpecteds
+
+    mkTest br cmp (file, m, expected) = do
+      let actual = br m
+      return $ testCase file $ cmp file expected actual
 
 -- | Build a 'Module' from a C or C++ file using clang.  Optionally,
 -- apply light optimizations (-O1, -mem2reg) using opt.  Both binaries
