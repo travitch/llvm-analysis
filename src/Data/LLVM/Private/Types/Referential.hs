@@ -57,6 +57,16 @@ data Type = TypeInteger !Int
           | TypeNamed !String Type
             -- ^ A wrapper for typedefs
 
+-- Deriving an Ord instance won't work because Type is a cyclic data
+-- structure and the derived instances end up stuck in infinite loops.
+-- Defining a more traditional one that just breaks cycles is really
+-- tedious here, so just base Ord off of equality and then make the
+-- ordering arbitrary (but consistent) based on the Hashable instance.
+instance Ord Type where
+  t1 `compare` t2 = case t1 == t2 of
+    True -> EQ
+    False -> hash t1 `compare` hash t2
+
 instance Hashable Type where
   hash (TypeInteger i) = 1 `combine` hash i
   hash TypeFloat = 2
