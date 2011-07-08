@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 /*!
   Arithmetic flags
  */
@@ -84,6 +86,8 @@ typedef enum {
   TYPE_NAMED
 } TypeTag;
 
+typedef struct CValue_t CValue;
+typedef struct CMeta_t CMeta;
 typedef struct CType_t CType;
 
 struct CType_t {
@@ -110,6 +114,214 @@ struct CType_t {
 
   // For TypePointer
   int addrSpace;
+};
+
+/*!
+  Metadata tags
+*/
+typedef enum {
+  META_LOCATION,
+  META_DERIVEDTYPE,
+  META_COMPOSITETYPE,
+  META_BASICTYPE,
+  META_VARIABLE,
+  META_SUBPROGRAM,
+  META_GLOBALVARIABLE,
+  META_FILE,
+  META_COMPILEUNIT,
+  META_NAMESPACE,
+  META_LEXICALBLOCK,
+  META_SUBRANGE,
+  META_ENUMERATOR,
+  META_ARRAY,
+  META_TEMPLATETYPEPARAMETER,
+  META_TEMPLATEVALUEPARAMETER
+} MetaTag;
+
+typedef struct {
+  int arrayLen;
+  CMeta **arrayElts;
+} MetaArrayInfo;
+
+typedef struct {
+  char *enumName;
+  uint64_t enumValue;
+} MetaEnumeratorInfo;
+
+typedef struct {
+  CMeta *context;
+  char *name;
+  char *displayName;
+  char *linkageName;
+  CMeta *compileUnit;
+  unsigned lineNumber;
+  CMeta *globalType;
+  int isLocalToUnit;
+  int isDefinition;
+  CValue *global;
+} MetaGlobalInfo;
+
+typedef struct {
+  unsigned lineNumber;
+  unsigned columnNumber;
+  CMeta *scope;
+  CMeta *origLocation;
+  char *filename;
+  char *directory;
+} MetaLocationInfo;
+
+typedef struct {
+  int64_t lo;
+  int64_t hi;
+} MetaSubrangeInfo;
+
+typedef struct {
+  CMeta *context;
+  char *name;
+  CMeta *type;
+  char *filename;
+  char *directory;
+  unsigned lineNumber;
+  unsigned columnNumber;
+} MetaTemplateTypeInfo;
+
+typedef struct {
+  CMeta *context;
+  char *name;
+  CMeta *type;
+  uint64_t value;
+  char *filename;
+  char *directory;
+  unsigned lineNumber;
+  unsigned columnNumber;
+} MetaTemplateValueInfo;
+
+typedef struct {
+  CMeta *context;
+  char *name;
+  CMeta *compileUnit;
+  unsigned lineNumber;
+  unsigned argNumber;
+  CMeta *type;
+  int isArtificial;
+  int hasComplexAddress;
+  unsigned numAddrElements;
+  uint64_t *addrElements;
+  int isBlockByRefVar;
+} MetaVariableInfo;
+
+typedef struct {
+  unsigned language;
+  char *filename;
+  char *directory;
+  char *producer;
+  int isMain;
+  int isOptimized;
+  char *flags;
+  unsigned runtimeVersion;
+} MetaCompileUnitInfo;
+
+typedef struct {
+  char *filename;
+  char *directory;
+  CMeta *compileUnit;
+} MetaFileInfo;
+
+typedef struct {
+  CMeta *context;
+  unsigned lineNumber;
+  unsigned columnNumber;
+  char *directory;
+  char *filename;
+} MetaLexicalBlockInfo;
+
+typedef struct {
+  CMeta *context;
+  char *name;
+  char *directory;
+  char *filename;
+  CMeta *compileUnit;
+  unsigned lineNumber;
+} MetaNamespaceInfo;
+
+typedef struct {
+  CMeta *context;
+  char *name;
+  char *displayName;
+  char *linkageName;
+  CMeta *compileUnit;
+  unsigned lineNumber;
+  CMeta *type;
+  char *returnTypeName;
+  int isLocalToUnit;
+  int isDefinition;
+  unsigned virtuality;
+  unsigned virtualIndex;
+  CMeta *containingType;
+  int isArtificial;
+  int isPrivate;
+  int isProtected;
+  int isExplicit;
+  int isPrototyped;
+  int isOptimized;
+  char *filename;
+  char *directory;
+  CValue *function;
+  // This is only available in LLVM 3.0+
+  // CMeta *templateParams;
+} MetaSubprogramInfo;
+
+typedef struct {
+  CMeta *context;
+  char *name;
+  CMeta *compileUnit;
+  CMeta *file;
+  unsigned lineNumber;
+  uint64_t sizeInBits;
+  uint64_t alignInBits;
+  uint64_t offsetInBits;
+  unsigned flags;
+  int isPrivate;
+  int isProtected;
+  int isForward;
+  int isByRefStruct;
+  int isVirtual;
+  int isArtificial;
+  char *directory;
+  char *filename;
+
+  // Basic type
+  unsigned encoding;
+
+  // Derived and Composite Types
+  CMeta *typeDerivedFrom;
+  uint64_t originalTypeSize;
+
+  // Composite Type
+  CMeta *typeArray;
+  unsigned runTimeLang;
+  CMeta *containingType;
+  CMeta *templateParams;
+} MetaTypeInfo;
+
+struct CMeta_t {
+  MetaTag tag;
+  union {
+    MetaArrayInfo metaArrayInfo;
+    MetaEnumeratorInfo metaEnumeratorInfo;
+    MetaGlobalInfo metaGlobalInfo;
+    MetaLocationInfo metaLocationInfo;
+    MetaSubrangeInfo metaSubrangeInfo;
+    MetaTemplateTypeInfo metaTemplateTypeInfo;
+    MetaTemplateValueInfo metaTemplateValueInfo;
+    MetaVariableInfo metaVariableInfo;
+    MetaCompileUnitInfo metaCompileUnitInfo;
+    MetaFileInfo metaFileInfo;
+    MetaLexicalBlockInfo metaLexicalBlockInfo;
+    MetaNamespaceInfo metaNamespaceInfo;
+    MetaSubprogramInfo metaSubprogramInfo;
+    MetaTypeInfo metaTypeInfo;
+  } u;
 };
 
 /*!
@@ -190,9 +402,6 @@ typedef enum {
   VAL_ALIAS
 } ValueTag;
 
-typedef struct {
-
-} CMetadata;
 
 typedef enum {
   LTExternal,
@@ -218,8 +427,6 @@ typedef enum {
   VisibilityHidden,
   VisibilityProtected
 } VisibilityStyle;
-
-typedef struct CValue_t CValue;
 
 typedef struct {
   int hasSRet;
@@ -348,7 +555,7 @@ struct CValue_t {
   ValueTag valueTag;
   CType *valueType;
   char *name;
-  CMetadata **md;
+  CMeta **md;
   int numMetadata;
 
   void *data;
@@ -379,7 +586,7 @@ typedef struct {
 extern "C" {
 #endif
   void disposeCModule(CModule *m);
-  CModule* marshalLLVM(const char *filename);
+  CModule* marshalLLVM(const char *filename, int includeLocs);
 #if defined(__cplusplus)
 }
 #endif

@@ -13,12 +13,15 @@
 
 #include <llvm/CallingConv.h>
 #include <llvm/InlineAsm.h>
+#include <llvm/IntrinsicInst.h>
 #include <llvm/Instructions.h>
 #include <llvm/LLVMContext.h>
 #include <llvm/Module.h>
 #include <llvm/Type.h>
 #include <llvm/DerivedTypes.h>
 #include <llvm/ADT/OwningPtr.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/Analysis/DebugInfo.h>
 #include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/raw_ostream.h>
@@ -34,6 +37,7 @@ struct PrivateData {
   OwningPtr<MemoryBuffer> buffer;
   // Foreign callers do not need to access below this point.
   Module* original;
+  int includeLocs;
 
   // This map is actually state only for this translation code.  Since
   // types have pointer equality in LLVM, every type will just be
@@ -42,6 +46,7 @@ struct PrivateData {
   // the CType to the translated version).
   unordered_map<const Type*, CType*> typeMap;
   unordered_map<const Value*, CValue*> valueMap;
+  unordered_map<const MDNode*, CMeta*> metaMap;
 };
 
 static ValueTag decodeOpcode(unsigned opcode) {
@@ -233,6 +238,90 @@ static void disposeCType(CType *ct) {
   free(ct->name);
   free(ct->typeList);
   free(ct);
+}
+
+static void disposeCMeta(CMeta *meta) {
+  switch(meta->tag) {
+  case META_LOCATION:
+    free(meta->u.metaLocationInfo.filename);
+    free(meta->u.metaLocationInfo.directory);
+    break;
+
+  case META_DERIVEDTYPE:
+  case META_COMPOSITETYPE:
+  case META_BASICTYPE:
+    free(meta->u.metaTypeInfo.name);
+    free(meta->u.metaTypeInfo.directory);
+    free(meta->u.metaTypeInfo.filename);
+    break;
+
+  case META_VARIABLE:
+    free(meta->u.metaVariableInfo.name);
+    break;
+
+  case META_SUBPROGRAM:
+    free(meta->u.metaSubprogramInfo.name);
+    free(meta->u.metaSubprogramInfo.displayName);
+    free(meta->u.metaSubprogramInfo.linkageName);
+    free(meta->u.metaSubprogramInfo.returnTypeName);
+    free(meta->u.metaSubprogramInfo.filename);
+    free(meta->u.metaSubprogramInfo.directory);
+    break;
+
+  case META_GLOBALVARIABLE:
+    free(meta->u.metaGlobalInfo.name);
+    free(meta->u.metaGlobalInfo.displayName);
+    free(meta->u.metaGlobalInfo.linkageName);
+    break;
+
+  case META_FILE:
+    free(meta->u.metaFileInfo.filename);
+    free(meta->u.metaFileInfo.directory);
+    break;
+
+  case META_COMPILEUNIT:
+    free(meta->u.metaCompileUnitInfo.filename);
+    free(meta->u.metaCompileUnitInfo.directory);
+    free(meta->u.metaCompileUnitInfo.producer);
+    free(meta->u.metaCompileUnitInfo.flags);
+    break;
+
+  case META_NAMESPACE:
+    free(meta->u.metaNamespaceInfo.name);
+    free(meta->u.metaNamespaceInfo.directory);
+    free(meta->u.metaNamespaceInfo.filename);
+    break;
+
+  case META_LEXICALBLOCK:
+    free(meta->u.metaLexicalBlockInfo.directory);
+    free(meta->u.metaLexicalBlockInfo.filename);
+    break;
+
+  case META_SUBRANGE:
+    break;
+
+  case META_ENUMERATOR:
+    free(meta->u.metaEnumeratorInfo.enumName);
+    break;
+
+  case META_ARRAY:
+    free(meta->u.metaArrayInfo.arrayElts);
+    break;
+
+  case META_TEMPLATETYPEPARAMETER:
+    free(meta->u.metaTemplateTypeInfo.name);
+    free(meta->u.metaTemplateTypeInfo.filename);
+    free(meta->u.metaTemplateTypeInfo.directory);
+    break;
+
+  case META_TEMPLATEVALUEPARAMETER:
+    free(meta->u.metaTemplateValueInfo.name);
+    free(meta->u.metaTemplateValueInfo.filename);
+    free(meta->u.metaTemplateValueInfo.directory);
+    break;
+  }
+
+  free(meta);
 }
 
 // Have to do the delete in this function since the pointer must be
@@ -439,6 +528,307 @@ static void disposeCValue(CValue *v) {
   free(v);
 }
 
+static MetaTag extractMetaTag(const MDNode *md) {
+  DIDescriptor desc(md);
+  // Ranked roughly by frequency.
+  if(desc.isLexicalBlock()) return META_LEXICALBLOCK;
+  if(desc.isVariable()) return META_VARIABLE;
+  if(desc.isSubprogram()) return META_SUBPROGRAM;
+  if(desc.isGlobalVariable()) return META_GLOBALVARIABLE;
+  if(desc.isDerivedType()) return META_DERIVEDTYPE;
+  if(desc.isCompositeType()) return META_COMPOSITETYPE;
+  if(desc.isBasicType()) return META_BASICTYPE;
+  if(desc.isFile()) return META_FILE;
+  if(desc.isCompileUnit()) return META_COMPILEUNIT;
+  if(desc.isNameSpace()) return META_NAMESPACE;
+  if(desc.isSubrange()) return META_SUBRANGE;
+  if(desc.isEnumerator()) return META_ENUMERATOR;
+  if(desc.isTemplateTypeParameter()) return META_TEMPLATETYPEPARAMETER;
+  if(desc.isTemplateValueParameter()) return META_TEMPLATEVALUEPARAMETER;
+
+  string msg;
+  raw_string_ostream os(msg);
+  os << "Unhandled metadata node type: ";
+  md->print(os);
+  throw os.str();
+}
+
+static CValue* translateConstant(CModule *m, const Constant *c);
+static CValue* translateValue(CModule *m, const Value *v);
+static CValue* translateBasicBlock(CModule *m, const BasicBlock *bb);
+static CMeta* translateMetadata(CModule *m, const MDNode *md);
+
+static void makeMetaLocation(CModule *m, const MDNode *md, CMeta *meta) {
+  DILocation loc(md);
+  meta->u.metaLocationInfo.lineNumber = loc.getLineNumber();
+  meta->u.metaLocationInfo.columnNumber = loc.getColumnNumber();
+  meta->u.metaLocationInfo.scope = translateMetadata(m, loc.getScope());
+  meta->u.metaLocationInfo.origLocation = translateMetadata(m, loc.getOrigLocation());
+  meta->u.metaLocationInfo.filename = strdup(loc.getFilename().str().c_str());
+  meta->u.metaLocationInfo.directory = strdup(loc.getDirectory().str().c_str());
+}
+
+static void makeMetaDerivedType(CModule *m, const MDNode *md, CMeta *meta) {
+  DIDerivedType dt(md);
+  meta->u.metaTypeInfo.context = translateMetadata(m, dt.getContext());
+  meta->u.metaTypeInfo.name = strdup(dt.getName().str().c_str());
+  meta->u.metaTypeInfo.compileUnit = translateMetadata(m, dt.getCompileUnit());
+  meta->u.metaTypeInfo.file = translateMetadata(m, dt.getFile());
+  meta->u.metaTypeInfo.lineNumber = dt.getLineNumber();
+  meta->u.metaTypeInfo.sizeInBits = dt.getSizeInBits();
+  meta->u.metaTypeInfo.alignInBits = dt.getAlignInBits();
+  meta->u.metaTypeInfo.offsetInBits = dt.getOffsetInBits();
+  meta->u.metaTypeInfo.flags = dt.getFlags();
+  meta->u.metaTypeInfo.isPrivate = dt.isPrivate();
+  meta->u.metaTypeInfo.isProtected = dt.isProtected();
+  meta->u.metaTypeInfo.isForward = dt.isForwardDecl();
+  meta->u.metaTypeInfo.isByRefStruct = dt.isBlockByrefStruct();
+  meta->u.metaTypeInfo.isVirtual = dt.isVirtual();
+  meta->u.metaTypeInfo.isArtificial = dt.isArtificial();
+  meta->u.metaTypeInfo.directory = strdup(dt.getDirectory().str().c_str());
+  meta->u.metaTypeInfo.filename = strdup(dt.getFilename().str().c_str());
+
+  meta->u.metaTypeInfo.typeDerivedFrom = translateMetadata(m, dt.getTypeDerivedFrom());
+  meta->u.metaTypeInfo.originalTypeSize = dt.getOriginalTypeSize();
+}
+
+static void makeMetaCompositeType(CModule *m, const MDNode *md, CMeta *meta) {
+  DICompositeType dt(md);
+  meta->u.metaTypeInfo.context = translateMetadata(m, dt.getContext());
+  meta->u.metaTypeInfo.name = strdup(dt.getName().str().c_str());
+  meta->u.metaTypeInfo.compileUnit = translateMetadata(m, dt.getCompileUnit());
+  meta->u.metaTypeInfo.file = translateMetadata(m, dt.getFile());
+  meta->u.metaTypeInfo.lineNumber = dt.getLineNumber();
+  meta->u.metaTypeInfo.sizeInBits = dt.getSizeInBits();
+  meta->u.metaTypeInfo.alignInBits = dt.getAlignInBits();
+  meta->u.metaTypeInfo.offsetInBits = dt.getOffsetInBits();
+  meta->u.metaTypeInfo.flags = dt.getFlags();
+  meta->u.metaTypeInfo.isPrivate = dt.isPrivate();
+  meta->u.metaTypeInfo.isProtected = dt.isProtected();
+  meta->u.metaTypeInfo.isForward = dt.isForwardDecl();
+  meta->u.metaTypeInfo.isByRefStruct = dt.isBlockByrefStruct();
+  meta->u.metaTypeInfo.isVirtual = dt.isVirtual();
+  meta->u.metaTypeInfo.isArtificial = dt.isArtificial();
+  meta->u.metaTypeInfo.directory = strdup(dt.getDirectory().str().c_str());
+  meta->u.metaTypeInfo.filename = strdup(dt.getFilename().str().c_str());
+
+  meta->u.metaTypeInfo.typeDerivedFrom = translateMetadata(m, dt.getTypeDerivedFrom());
+  meta->u.metaTypeInfo.originalTypeSize = dt.getOriginalTypeSize();
+
+  meta->u.metaTypeInfo.typeArray = translateMetadata(m, dt.getTypeArray());
+  meta->u.metaTypeInfo.runTimeLang = dt.getRunTimeLang();
+  meta->u.metaTypeInfo.containingType = translateMetadata(m, dt.getContainingType());
+  meta->u.metaTypeInfo.templateParams = translateMetadata(m, dt.getTemplateParams());
+}
+
+static void makeMetaBasicType(CModule *m, const MDNode *md, CMeta *meta) {
+  DIBasicType dt(md);
+  meta->u.metaTypeInfo.context = translateMetadata(m, dt.getContext());
+  meta->u.metaTypeInfo.name = strdup(dt.getName().str().c_str());
+  meta->u.metaTypeInfo.compileUnit = translateMetadata(m, dt.getCompileUnit());
+  meta->u.metaTypeInfo.file = translateMetadata(m, dt.getFile());
+  meta->u.metaTypeInfo.lineNumber = dt.getLineNumber();
+  meta->u.metaTypeInfo.sizeInBits = dt.getSizeInBits();
+  meta->u.metaTypeInfo.alignInBits = dt.getAlignInBits();
+  meta->u.metaTypeInfo.offsetInBits = dt.getOffsetInBits();
+  meta->u.metaTypeInfo.flags = dt.getFlags();
+  meta->u.metaTypeInfo.isPrivate = dt.isPrivate();
+  meta->u.metaTypeInfo.isProtected = dt.isProtected();
+  meta->u.metaTypeInfo.isForward = dt.isForwardDecl();
+  meta->u.metaTypeInfo.isByRefStruct = dt.isBlockByrefStruct();
+  meta->u.metaTypeInfo.isVirtual = dt.isVirtual();
+  meta->u.metaTypeInfo.isArtificial = dt.isArtificial();
+  meta->u.metaTypeInfo.directory = strdup(dt.getDirectory().str().c_str());
+  meta->u.metaTypeInfo.filename = strdup(dt.getFilename().str().c_str());
+
+  meta->u.metaTypeInfo.encoding = dt.getEncoding();
+}
+
+static void makeMetaVariable(CModule *m, const MDNode *md, CMeta *meta) {
+  DIVariable dv(md);
+  meta->u.metaVariableInfo.context = translateMetadata(m, dv.getContext());
+  meta->u.metaVariableInfo.name = strdup(dv.getName().str().c_str());
+  meta->u.metaVariableInfo.compileUnit = translateMetadata(m, dv.getCompileUnit());
+  meta->u.metaVariableInfo.lineNumber = dv.getLineNumber();
+  meta->u.metaVariableInfo.argNumber = dv.getArgNumber();
+  meta->u.metaVariableInfo.type = translateMetadata(m, dv.getType());
+  meta->u.metaVariableInfo.isArtificial = dv.isArtificial();
+  meta->u.metaVariableInfo.hasComplexAddress = dv.hasComplexAddress();
+  meta->u.metaVariableInfo.numAddrElements = dv.getNumAddrElements();
+  if(meta->u.metaVariableInfo.numAddrElements > 0) {
+    meta->u.metaVariableInfo.addrElements =
+      (uint64_t*)calloc(meta->u.metaVariableInfo.numAddrElements, sizeof(uint64_t));
+
+    for(unsigned int i = 0; i < meta->u.metaVariableInfo.numAddrElements; ++i) {
+      meta->u.metaVariableInfo.addrElements[i] = dv.getAddrElement(i);
+    }
+  }
+
+  meta->u.metaVariableInfo.isBlockByRefVar = dv.isBlockByrefVariable();
+}
+
+static void makeMetaSubprogram(CModule *m, const MDNode *md, CMeta *meta) {
+  DISubprogram ds(md);
+  meta->u.metaSubprogramInfo.context = translateMetadata(m, ds.getContext());
+  meta->u.metaSubprogramInfo.name = strdup(ds.getName().str().c_str());
+  meta->u.metaSubprogramInfo.displayName = strdup(ds.getDisplayName().str().c_str());
+  meta->u.metaSubprogramInfo.linkageName = strdup(ds.getLinkageName().str().c_str());
+  meta->u.metaSubprogramInfo.compileUnit = translateMetadata(m, ds.getCompileUnit());
+  meta->u.metaSubprogramInfo.lineNumber = ds.getLineNumber();
+  meta->u.metaSubprogramInfo.type = translateMetadata(m, ds.getType());
+  meta->u.metaSubprogramInfo.returnTypeName = strdup(ds.getReturnTypeName().str().c_str());
+  meta->u.metaSubprogramInfo.isLocalToUnit = ds.isLocalToUnit();
+  meta->u.metaSubprogramInfo.isDefinition = ds.isDefinition();
+  meta->u.metaSubprogramInfo.virtuality = ds.getVirtuality();
+  meta->u.metaSubprogramInfo.virtualIndex = ds.getVirtualIndex();
+  meta->u.metaSubprogramInfo.containingType = translateMetadata(m, ds.getContainingType());
+  meta->u.metaSubprogramInfo.isArtificial = ds.isArtificial();
+  meta->u.metaSubprogramInfo.isPrivate = ds.isPrivate();
+  meta->u.metaSubprogramInfo.isProtected = ds.isProtected();
+  meta->u.metaSubprogramInfo.isExplicit = ds.isExplicit();
+  meta->u.metaSubprogramInfo.isPrototyped = ds.isPrototyped();
+  meta->u.metaSubprogramInfo.isOptimized = ds.isOptimized();
+  meta->u.metaSubprogramInfo.filename = strdup(ds.getFilename().str().c_str());
+  meta->u.metaSubprogramInfo.directory = strdup(ds.getDirectory().str().c_str());
+  meta->u.metaSubprogramInfo.function = translateValue(m, ds.getFunction());
+  // meta->u.metaSubprogramInfo.templateParams = translateMetadata(m, ds.getTemplateParams());
+}
+
+static void makeMetaGlobalVariable(CModule *m, const MDNode *md, CMeta *meta) {
+  DIGlobalVariable dg(md);
+  meta->u.metaGlobalInfo.context = translateMetadata(m, dg.getContext());
+  meta->u.metaGlobalInfo.name = strdup(dg.getName().str().c_str());
+  meta->u.metaGlobalInfo.displayName = strdup(dg.getDisplayName().str().c_str());
+  meta->u.metaGlobalInfo.linkageName = strdup(dg.getLinkageName().str().c_str());
+  meta->u.metaGlobalInfo.compileUnit = translateMetadata(m, dg.getCompileUnit());
+  meta->u.metaGlobalInfo.lineNumber = dg.getLineNumber();
+  meta->u.metaGlobalInfo.globalType = translateMetadata(m, dg.getType());
+  meta->u.metaGlobalInfo.isLocalToUnit = dg.isLocalToUnit();
+  meta->u.metaGlobalInfo.isDefinition = dg.isDefinition();
+  meta->u.metaGlobalInfo.global = translateValue(m, dg.getConstant());
+}
+
+static void makeMetaFile(CModule *m, const MDNode *md, CMeta *meta) {
+  DIFile df(md);
+  meta->u.metaFileInfo.filename = strdup(df.getFilename().str().c_str());
+  meta->u.metaFileInfo.directory = strdup(df.getDirectory().str().c_str());
+  meta->u.metaFileInfo.compileUnit = translateMetadata(m, df.getCompileUnit());
+}
+
+static void makeMetaCompileUnit(CModule *, const MDNode *md, CMeta *meta) {
+  DICompileUnit dc(md);
+  meta->u.metaCompileUnitInfo.language = dc.getLanguage();
+  meta->u.metaCompileUnitInfo.filename = strdup(dc.getFilename().str().c_str());
+  meta->u.metaCompileUnitInfo.directory = strdup(dc.getDirectory().str().c_str());
+  meta->u.metaCompileUnitInfo.producer = strdup(dc.getProducer().str().c_str());
+  meta->u.metaCompileUnitInfo.isMain = dc.isMain();
+  meta->u.metaCompileUnitInfo.isOptimized = dc.isOptimized();
+  meta->u.metaCompileUnitInfo.flags = strdup(dc.getFlags().str().c_str());
+  meta->u.metaCompileUnitInfo.runtimeVersion = dc.getRunTimeVersion();
+}
+
+static void makeMetaNamespace(CModule *m, const MDNode *md, CMeta *meta) {
+  DINameSpace dn(md);
+  meta->u.metaNamespaceInfo.context = translateMetadata(m, dn.getContext());
+  meta->u.metaNamespaceInfo.name = strdup(dn.getName().str().c_str());
+  meta->u.metaNamespaceInfo.directory = strdup(dn.getDirectory().str().c_str());
+  meta->u.metaNamespaceInfo.filename = strdup(dn.getFilename().str().c_str());
+  meta->u.metaNamespaceInfo.compileUnit = translateMetadata(m, dn.getCompileUnit());
+  meta->u.metaNamespaceInfo.lineNumber = dn.getLineNumber();
+}
+
+static void makeMetaLexicalBlock(CModule *m, const MDNode *md, CMeta *meta) {
+  DILexicalBlock dl(md);
+  meta->u.metaLexicalBlockInfo.context = translateMetadata(m, dl.getContext());
+  meta->u.metaLexicalBlockInfo.lineNumber = dl.getLineNumber();
+  meta->u.metaLexicalBlockInfo.columnNumber = dl.getColumnNumber();
+  meta->u.metaLexicalBlockInfo.directory = strdup(dl.getDirectory().str().c_str());
+  meta->u.metaLexicalBlockInfo.filename = strdup(dl.getFilename().str().c_str());
+}
+
+static void makeMetaSubrange(CModule *, const MDNode *md, CMeta *meta) {
+  DISubrange ds(md);
+  meta->u.metaSubrangeInfo.lo = ds.getLo();
+  meta->u.metaSubrangeInfo.hi = ds.getHi();
+}
+
+static void makeMetaEnumerator(CModule *, const MDNode *md, CMeta *meta) {
+  DIEnumerator de(md);
+  meta->u.metaEnumeratorInfo.enumName = strdup(de.getName().str().c_str());
+  meta->u.metaEnumeratorInfo.enumValue = de.getEnumValue();
+}
+
+static void makeMetaArray(CModule *m, const MDNode *md, CMeta *meta) {
+  DIArray da(md);
+  meta->u.metaArrayInfo.arrayLen = da.getNumElements();
+  if(meta->u.metaArrayInfo.arrayLen == 0) return;
+
+  meta->u.metaArrayInfo.arrayElts =
+    (CMeta**)calloc(meta->u.metaArrayInfo.arrayLen, sizeof(CMeta*));
+  for(int i = 0; i < meta->u.metaArrayInfo.arrayLen; ++i) {
+    meta->u.metaArrayInfo.arrayElts[i] = translateMetadata(m, da.getElement(i));
+  }
+}
+
+static void makeMetaTemplateTypeParameter(CModule *m, const MDNode *md, CMeta *meta) {
+  DITemplateTypeParameter dt(md);
+  meta->u.metaTemplateTypeInfo.context = translateMetadata(m, dt.getContext());
+  meta->u.metaTemplateTypeInfo.name = strdup(dt.getName().str().c_str());
+  meta->u.metaTemplateTypeInfo.type = translateMetadata(m, dt.getType());
+  meta->u.metaTemplateTypeInfo.filename = strdup(dt.getFilename().str().c_str());
+  meta->u.metaTemplateTypeInfo.directory = strdup(dt.getDirectory().str().c_str());
+  meta->u.metaTemplateTypeInfo.lineNumber = dt.getLineNumber();
+  meta->u.metaTemplateTypeInfo.columnNumber = dt.getColumnNumber();
+}
+
+static void makeMetaTemplateValueParameter(CModule *m, const MDNode *md, CMeta *meta) {
+  DITemplateValueParameter dt(md);
+  meta->u.metaTemplateValueInfo.context = translateMetadata(m, dt.getContext());
+  meta->u.metaTemplateValueInfo.name = strdup(dt.getName().str().c_str());
+  meta->u.metaTemplateValueInfo.type = translateMetadata(m, dt.getType());
+  meta->u.metaTemplateValueInfo.value = dt.getValue();
+  meta->u.metaTemplateValueInfo.filename = strdup(dt.getFilename().str().c_str());
+  meta->u.metaTemplateValueInfo.directory = strdup(dt.getDirectory().str().c_str());
+  meta->u.metaTemplateValueInfo.lineNumber = dt.getLineNumber();
+  meta->u.metaTemplateValueInfo.columnNumber = dt.getColumnNumber();
+}
+
+static CMeta* translateMetadata(CModule *m, const MDNode *md) {
+  // I expect some metadata fields to be empty (e.g., templateParams).
+  // Just propagate nulls.
+  if(md == NULL) return NULL;
+
+  PrivateData *pd = (PrivateData*)m->privateData;
+  unordered_map<const MDNode*,CMeta*>::const_iterator it = pd->metaMap.find(md);
+  if(it != pd->metaMap.end())
+    return it->second;
+
+  CMeta *meta = (CMeta*)calloc(1, sizeof(CMeta));
+  pd->metaMap[md] = meta;
+  meta->tag = extractMetaTag(md);
+
+  switch(meta->tag) {
+  case META_LOCATION: makeMetaLocation(m, md, meta); break;
+  case META_DERIVEDTYPE: makeMetaDerivedType(m, md, meta); break;
+  case META_COMPOSITETYPE: makeMetaCompositeType(m, md, meta); break;
+  case META_BASICTYPE: makeMetaBasicType(m, md, meta); break;
+  case META_VARIABLE: makeMetaVariable(m, md, meta); break;
+  case META_SUBPROGRAM: makeMetaSubprogram(m, md, meta); break;
+  case META_GLOBALVARIABLE: makeMetaGlobalVariable(m, md, meta); break;
+  case META_FILE: makeMetaFile(m, md, meta); break;
+  case META_COMPILEUNIT: makeMetaCompileUnit(m, md, meta); break;
+  case META_NAMESPACE: makeMetaNamespace(m, md, meta); break;
+  case META_LEXICALBLOCK: makeMetaLexicalBlock(m, md, meta); break;
+  case META_SUBRANGE: makeMetaSubrange(m, md, meta); break;
+  case META_ENUMERATOR: makeMetaEnumerator(m, md, meta); break;
+  case META_ARRAY: makeMetaArray(m, md, meta); break;
+  case META_TEMPLATETYPEPARAMETER: makeMetaTemplateTypeParameter(m, md, meta); break;
+  case META_TEMPLATEVALUEPARAMETER: makeMetaTemplateValueParameter(m, md, meta); break;
+  }
+
+  return meta;
+}
+
 static CType* translateType(CModule *m, const Type *t) {
   PrivateData *pd = (PrivateData*)m->privateData;
   unordered_map<const Type*,CType*>::const_iterator it = pd->typeMap.find(t);
@@ -538,14 +928,13 @@ static CType* translateType(CModule *m, const Type *t) {
     nt->innerType = translateType(m, vt->getElementType());
     break;
   }
+
+  case TYPE_NAMED:
+    throw "TYPE_NAMED is never directly generated by LLVM";
   }
 
   return ret;
 }
-
-static CValue* translateConstant(CModule *m, const Constant *c);
-static CValue* translateValue(CModule *m, const Value *v);
-static CValue* translateBasicBlock(CModule *m, const BasicBlock *bb);
 
 static CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
   PrivateData *pd = (PrivateData*)m->privateData;
@@ -559,8 +948,6 @@ static CValue* translateGlobalAlias(CModule *m, const GlobalAlias *ga) {
   v->valueTag = VAL_ALIAS;
   v->valueType = translateType(m, ga->getType());
   v->name = strdup(ga->getNameStr().c_str());
-
-  // FIXME: Get metadata
 
   CGlobalInfo *gi = (CGlobalInfo*)calloc(1, sizeof(CGlobalInfo));
   v->data = (void*)gi;
@@ -588,7 +975,8 @@ static CValue* translateArgument(CModule *m, const Argument *a) {
   v->valueType = translateType(m, a->getType());
   v->name = strdup(a->getNameStr().c_str());
 
-  // Metadata will be attached as instructions are processed.
+  // Metadata will be attached as instructions are processed (calls to
+  // the Debug intrinsics)
 
   CArgumentInfo *ai = (CArgumentInfo*)calloc(1, sizeof(CArgumentInfo));
   v->data = (void*)ai;
@@ -683,8 +1071,43 @@ static void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
 }
 
 static bool buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
-  if(ii->getCalledValue()->getNameStr() == "llvm.dbg.value") return false;
-  if(ii->getCalledValue()->getNameStr() == "llvm.dbg.declare") return false;
+  if(const DbgDeclareInst *di = dynamic_cast<const DbgDeclareInst*>(ii)) {
+    CValue *addr = translateValue(m, di->getAddress());
+    CMeta *md = translateMetadata(m, di->getVariable());
+
+    // It should be the case that there should be exactly one of these
+    // per alloca, and allocas should not have location info of their
+    // own.
+    if(addr->md) throw "Address of MD already has metadata";
+
+    addr->numMetadata = 1;
+    addr->md = (CMeta**)calloc(1, sizeof(CMeta*));
+    addr->md[0] = md;
+
+    return false;
+  }
+
+  if(const DbgValueInst *di = dynamic_cast<const DbgValueInst*>(ii)) {
+    // In this case, we could see llvm.dbg.value "calls" for updates
+    // to parameters.  We should only attach the *first* one we
+    // encounter, which will be the one describing parameters or
+    // locals.  This is an important case when the bitcode has been
+    // run through the mem2reg optimization pass and most allocas are
+    // eliminated.  I don't care about when the value of a variable
+    // changes (that is apparent from the instruction stream).  I
+    // could be convinced to change the behavior here if there is a
+    // good use case.
+    CValue *val = translateValue(m, di->getValue());
+
+    if(val->numMetadata == 0) {
+      CMeta *md = translateMetadata(m, di->getVariable());
+      val->numMetadata = 1;
+      val->md = (CMeta**)calloc(1, sizeof(CMeta*));
+      val->md[0] = md;
+    }
+
+    return false;
+  }
 
   v->valueTag = VAL_CALLINST;
   v->valueType = translateType(m, ii->getType());
@@ -911,7 +1334,19 @@ static CValue* translateInstruction(CModule *m, const Instruction *i) {
   CValue *v = (CValue*)calloc(1, sizeof(CValue));
   pd->valueMap[i] = v;
 
-  // FIXME: Handle metadata here
+  SmallVectorImpl<std::pair<unsigned, MDNode*> > md(0);
+  if(pd->includeLocs) {
+    i->getAllMetadata(md);
+  }
+  else {
+    i->getAllMetadataOtherThanDebugLoc(md);
+  }
+
+  v->numMetadata = md.size();
+  v->md = (CMeta**)calloc(v->numMetadata, sizeof(CMeta*));
+  for(int ix = 0; ix < v->numMetadata; ++ix) {
+    v->md[ix] = translateMetadata(m, md[ix].second);
+  }
 
   switch(i->getOpcode()) {
     // Terminator instructions
@@ -1175,8 +1610,6 @@ static CValue* translateFunction(CModule *m, const Function *f) {
   v->valueType = translateType(m, f->getFunctionType());
   v->name = strdup(f->getNameStr().c_str());
 
-  // FIXME: Get metadata from module
-
   CFunctionInfo *fi = (CFunctionInfo*)calloc(1, sizeof(CFunctionInfo));
   v->data = (void*)fi;
 
@@ -1225,9 +1658,6 @@ static CValue* translateGlobalVariable(CModule *m, const GlobalVariable *gv) {
   v->valueType = translateType(m, gv->getType());
   if(gv->hasName())
     v->name = strdup(gv->getNameStr().c_str());
-
-  // FIXME: Query the Module for metadata here...
-
 
   CGlobalInfo *gi = (CGlobalInfo*)calloc(1, sizeof(CGlobalInfo));
   v->data = (void*)gi;
@@ -1513,6 +1943,46 @@ static CValue* translateValue(CModule *m, const Value *v) {
   throw os.str();
 }
 
+static void attachFunctionMetadata(CModule *m, Module *M) {
+  NamedMDNode *sp = M->getNamedMetadata("llvm.dbg.sp");
+  // No debug information
+  if(!sp) return;
+
+  for(unsigned int i = 0; i < sp->getNumOperands(); ++i) {
+    CMeta *md = translateMetadata(m, sp->getOperand(i));
+    if(md->tag != META_SUBPROGRAM) {
+      throw "Non-subprogram in llvm.dbg.sp";
+    }
+
+    if(md->u.metaSubprogramInfo.function->numMetadata != 0) {
+      throw "Subprogram already has metadata";
+    }
+    md->u.metaSubprogramInfo.function->numMetadata = 1;
+    md->u.metaSubprogramInfo.function->md = (CMeta**)calloc(1, sizeof(CMeta*));
+    md->u.metaSubprogramInfo.function->md[0] = md;
+  }
+}
+
+static void attachGlobalMetadata(CModule *m, Module *M) {
+  NamedMDNode *gv = M->getNamedMetadata("llvm.dbg.gv");
+  // No debug information
+  if(!gv) return;
+
+  for(unsigned int i = 0; i < gv->getNumOperands(); ++i) {
+    CMeta *md = translateMetadata(m, gv->getOperand(i));
+    if(md->tag != META_GLOBALVARIABLE) {
+      throw "Non-global in llvm.dbg.gv";
+    }
+
+    if(md->u.metaGlobalInfo.global->numMetadata != 0) {
+      throw "Global already has metadata";
+    }
+    md->u.metaGlobalInfo.global->numMetadata = 1;
+    md->u.metaGlobalInfo.global->md = (CMeta**)calloc(1, sizeof(CMeta*));
+    md->u.metaGlobalInfo.global->md[0] = md;
+  }
+}
+
 extern "C" {
 
   /*!
@@ -1546,6 +2016,11 @@ extern "C" {
       disposeCValue(it->second);
     }
 
+    for(unordered_map<const MDNode*,CMeta*>::iterator it = pd->metaMap.begin(),
+          ed = pd->metaMap.end(); it != ed; ++it)
+    {
+      disposeCMeta(it->second);
+    }
 
     // These two are actually allocated with new
     delete pd->original;
@@ -1554,7 +2029,7 @@ extern "C" {
     free(m);
   }
 
-  CModule* marshalLLVM(const char * filename) {
+  CModule* marshalLLVM(const char * filename, int includeLocs) {
     CModule *ret = (CModule*)calloc(1, sizeof(CModule));
     PrivateData *pd = new PrivateData;
     ret->privateData = (void*)pd;
@@ -1577,6 +2052,7 @@ extern "C" {
     }
 
     pd->original = m;
+    pd->includeLocs = includeLocs;
 
     ret->moduleIdentifier = strdup(m->getModuleIdentifier().c_str());
     ret->moduleDataLayout = strdup(m->getDataLayout().c_str());
@@ -1630,6 +2106,11 @@ extern "C" {
       ret->numGlobalAliases = globalAliases.size();
       ret->globalAliases = (CValue**)calloc(ret->numGlobalAliases, sizeof(CValue*));
       std::copy(globalAliases.begin(), globalAliases.end(), ret->globalAliases);
+
+      // Now process the global metadata to attach metadata to global
+      // variables and functions.
+      attachFunctionMetadata(ret, m);
+      attachGlobalMetadata(ret, m);
     }
     catch(const string &msg) {
       ret->hasError = 1;
