@@ -23,16 +23,10 @@ import Data.LLVM.Private.Types.Referential
 --   version
 
 showUntypedMDName :: Metadata -> String
-showUntypedMDName = (show . fj . metaValueName)
-  where
-    fj (Just v) = v
-    fj Nothing = error "No metadata value name in showUntypedMDName"
+showUntypedMDName = ("!"++) . show . metaValueUniqueId
 
 showMDName :: Metadata -> String
-showMDName md = "metadata " ++ (show . fj . metaValueName) md
-  where
-    fj (Just v) = v
-    fj Nothing = error "No Metadata value name in showMDName"
+showMDName = ("metadata !"++) . show . metaValueUniqueId
 
 showMDString :: ByteString -> String
 showMDString bs = "metadata !" ++ show bs
@@ -60,8 +54,9 @@ printMetadata md@Metadata { metaValueContent = lb@MetaDWLexicalBlock { } } =
           , ", i32 ", show (metaLexicalBlockRow lb)
           , ", i32 ", show (metaLexicalBlockCol lb)
           , ", ", showMDName (metaLexicalBlockContext lb)
-          , ", ", showMDName (metaLexicalBlockFile lb)
-          , ", i32 ", show (metaLexicalBlockDepth lb), "}"
+          -- , ", ", showMDName (metaLexicalBlockFile lb)
+          -- , ", i32 ", show (metaLexicalBlockDepth lb)
+          , "}"
           ]
 printMetadata md@Metadata { metaValueContent = cu@MetaDWCompileUnit {} } =
   mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 17
@@ -980,7 +975,7 @@ printAlignment align = case align of
   0 -> ""
   _ -> ", align " ++ show align
 
-printTypecast :: String -> Maybe Identifier -> Value -> Type -> Maybe Metadata -> String
+printTypecast :: String -> Maybe Identifier -> Value -> Type -> [Metadata] -> String
 printTypecast inst name val newType _ =
   compose [ printInstNamePrefix name
           , inst
@@ -993,7 +988,7 @@ printInBounds :: Bool -> String
 printInBounds inBounds = if inBounds then "inbounds" else ""
 
 printFlaggedBinaryOp :: String -> Maybe Identifier -> ArithFlags ->
-                        Type -> Value -> Value -> Maybe Metadata -> String
+                        Type -> Value -> Value -> [Metadata] -> String
 printFlaggedBinaryOp inst name flags t v1 v2 _ =
   compose [ printInstNamePrefix name, inst
           , show flags
@@ -1003,7 +998,7 @@ printFlaggedBinaryOp inst name flags t v1 v2 _ =
           ]
 
 printBinaryOp :: String -> Maybe Identifier -> Type ->
-                 Value -> Value -> Maybe Metadata -> String
+                 Value -> Value -> [Metadata] -> String
 printBinaryOp inst name t v1 v2 _ =
   compose [ printInstNamePrefix name, inst
           , printType t
@@ -1015,10 +1010,11 @@ printInstNamePrefix :: Maybe Identifier -> String
 printInstNamePrefix Nothing = ""
 printInstNamePrefix (Just n) = mconcat [ show n, " =" ]
 
-printDebugTag :: Maybe Metadata -> String
-printDebugTag Nothing = ""
-printDebugTag (Just (Metadata { metaValueName = Just n })) = ", !dbg " ++ show n
-printDebugTag (Just e) = error $ "Not metadata: " ++ printMetadata e
+-- | This is kind of gross - it only prints out the first piece of
+-- metadata.
+printDebugTag :: [Metadata] -> String
+printDebugTag [] = ""
+printDebugTag ((Metadata { metaValueUniqueId = uid }):_) = ", !dbg !" ++ show uid
 
 printType :: Type -> String
 printType (TypeInteger bits) = 'i' : show bits

@@ -13,7 +13,6 @@ module Data.LLVM.Private.Types.Referential (
   ) where
 
 import Data.ByteString.Char8 ( ByteString )
-import Data.Dwarf
 import Data.GraphViz
 import Data.Hashable
 import Data.Int
@@ -115,9 +114,14 @@ data MetadataT =
   | MetaDWLexicalBlock { metaLexicalBlockRow :: !Int32
                        , metaLexicalBlockCol :: !Int32
                        , metaLexicalBlockContext :: Metadata
-                       , metaLexicalBlockFile :: Metadata
-                       , metaLexicalBlockDepth :: !Int32
+                       -- , metaLexicalBlockFile :: Metadata
+                       -- , metaLexicalBlockDepth :: !Int32
                        }
+  | MetaDWNamespace { metaNamespaceContext :: Metadata
+                    , metaNamespaceName :: !ByteString
+                    , metaNamespaceCompileUnit :: Metadata
+                    , metaNamespaceLine :: !Int32
+                    }
   | MetaDWCompileUnit { metaCompileUnitLanguage :: !DW_LANG
                       , metaCompileUnitSourceFile :: !ByteString
                       , metaCompileUnitCompileDir :: !ByteString
@@ -148,6 +152,8 @@ data MetadataT =
                      , metaSubprogramFile :: Metadata
                      , metaSubprogramLine :: !Int32
                      , metaSubprogramType :: Metadata
+                     , metaSubprogramIsExplicit :: !Bool
+                     , metaSubprogramIsPrototyped :: !Bool
                      , metaSubprogramStatic :: !Bool
                      , metaSubprogramNotExtern :: !Bool
                      , metaSubprogramVirtuality :: !DW_VIRTUALITY
@@ -168,18 +174,25 @@ data MetadataT =
                    }
   | MetaDWDerivedType { metaDerivedTypeTag :: !DW_TAG
                       , metaDerivedTypeContext :: Metadata
+                      , metaDerivedTypeCompileUnit :: Maybe Metadata
                       , metaDerivedTypeName :: !ByteString
                       , metaDerivedTypeFile :: Maybe Metadata
                       , metaDerivedTypeLine :: !Int32
                       , metaDerivedTypeSize :: !Int64
                       , metaDerivedTypeAlign :: !Int64
                       , metaDerivedTypeOffset :: !Int64
+                      , metaDerivedTypeIsArtificial :: !Bool
+                      , metaDerivedTypeIsVirtual :: !Bool
+                      , metaDerivedTypeIsForward :: !Bool
+                      , metaDerivedTypeIsPrivate :: !Bool
+                      , metaDerivedTypeIsProtected :: !Bool
                       , metaDerivedTypeParent :: Maybe Metadata
                       }
   | MetaDWCompositeType { metaCompositeTypeTag :: !DW_TAG
                         , metaCompositeTypeContext :: Metadata
                         , metaCompositeTypeName :: !ByteString
                         , metaCompositeTypeFile :: Maybe Metadata
+                        , metaCompositeTypeCompileUnit :: Maybe Metadata
                         , metaCompositeTypeLine :: !Int32
                         , metaCompositeTypeSize :: !Int64
                         , metaCompositeTypeAlign :: !Int64
@@ -188,6 +201,14 @@ data MetadataT =
                         , metaCompositeTypeParent :: Maybe Metadata
                         , metaCompositeTypeMembers :: Maybe Metadata
                         , metaCompositeTypeRuntime :: !Int32
+                        , metaCompositeTypeContainer :: Maybe Metadata
+                        , metaCompositeTypeTemplateParams :: Maybe Metadata
+                        , metaCompositeTypeIsArtificial :: !Bool
+                        , metaCompositeTypeIsVirtual :: !Bool
+                        , metaCompositeTypeIsForward :: !Bool
+                        , metaCompositeTypeIsProtected :: !Bool
+                        , metaCompositeTypeIsPrivate :: !Bool
+                        , metaCompositeTypeIsByRefStruct :: !Bool
                         }
   | MetaDWSubrange { metaSubrangeLow :: !Int64
                    , metaSubrangeHigh :: !Int64
@@ -195,13 +216,30 @@ data MetadataT =
   | MetaDWEnumerator { metaEnumeratorName :: !ByteString
                      , metaEnumeratorValue :: !Int64
                      }
-  | MetaDWLocal { metaLocalTag :: !DW_VAR_TAG
+  | MetaDWLocal { metaLocalTag :: !DW_TAG
                 , metaLocalContext :: Metadata
                 , metaLocalName :: !ByteString
                 , metaLocalFile :: Metadata
                 , metaLocalLine :: !Int32
+                , metaLocalArgNo :: !Int32
                 , metaLocalType :: Metadata
+                , metaLocalIsArtificial :: !Bool
+                , metaLocalIsBlockByRefVar :: !Bool
+                , metaLocalAddrElements :: [Int64]
                 }
+  | MetaDWTemplateTypeParameter { metaTemplateTypeParameterContext :: Metadata
+                                , metaTemplateTypeParameterType :: Metadata
+                                , metaTemplateTypeParameterLine :: !Int32
+                                , metaTemplateTypeParameterCol :: !Int32
+                                , metaTemplateTypeParameterName :: !ByteString
+                                }
+  | MetaDWTemplateValueParameter { metaTemplateValueParameterContext :: Metadata
+                                 , metaTemplateValueParameterType :: Metadata
+                                 , metaTemplateValueParameterLine :: !Int32
+                                 , metaTemplateValueParameterCol :: !Int32
+                                 , metaTemplateValueParameterValue :: !Int64
+                                 , metaTemplateValueParameterName :: !ByteString
+                                 }
   | MetadataList [Metadata]
   | MetadataValueConstant Value
     -- ^ A reference to a 'Value' in metadata
@@ -222,8 +260,7 @@ type UniqueId = Int
 -- unique identifier (similar to the 'Value' wrapper).  Almost all
 -- 'Metadata' has an 'Identifier'.  The only exception seems to be a
 -- few 'Value' constants (such as Ints and null).
-data Metadata = Metadata { metaValueName :: Maybe Identifier
-                         , metaValueContent :: MetadataT
+data Metadata = Metadata { metaValueContent :: MetadataT
                          , metaValueUniqueId :: !UniqueId
                          }
 
@@ -243,7 +280,7 @@ instance Hashable Metadata where
 -- serialization.
 data Value = Value { valueType :: Type
                    , valueName :: !(Maybe Identifier)
-                   , valueMetadata :: Maybe Metadata
+                   , valueMetadata :: [Metadata]
                    , valueContent :: ValueT
                    , valueUniqueId :: !UniqueId
                    }

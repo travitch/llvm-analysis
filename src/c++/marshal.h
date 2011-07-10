@@ -305,7 +305,8 @@ typedef struct {
 } MetaTypeInfo;
 
 struct CMeta_t {
-  MetaTag tag;
+  MetaTag metaTag;
+  unsigned int tag;
   union {
     MetaArrayInfo metaArrayInfo;
     MetaEnumeratorInfo metaEnumeratorInfo;

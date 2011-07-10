@@ -18,7 +18,6 @@ import Control.Monad.State
 import Data.Array.Storable
 import Data.ByteString.Char8 ( ByteString )
 import qualified Data.ByteString.Char8 as BS
-import Data.Dwarf
 import Data.Int
 import Data.IORef
 import Data.Map ( Map )
@@ -35,6 +34,7 @@ import Foreign.Storable
 
 import Data.LLVM.Private.Parser.Options
 import Data.LLVM.Types
+import Data.LLVM.Private.Types.Dwarf
 
 data TranslationException = TooManyReturnValues
                           | InvalidBranchInst
@@ -113,9 +113,12 @@ peekArray :: forall a b c e . (Integral c, Storable e) =>
 peekArray obj arrAccessor sizeAccessor = do
   nElts <- sizeAccessor obj
   arrPtr <- arrAccessor obj
-  fArrPtr <- newForeignPtr_ (castPtr arrPtr)
-  arr <- unsafeForeignPtrToStorableArray fArrPtr (1, fromIntegral nElts)
-  getElems arr
+  case nElts == 0 || arrPtr == nullPtr of
+    True -> return []
+    False -> do
+      fArrPtr <- newForeignPtr_ (castPtr arrPtr)
+      arr <- unsafeForeignPtrToStorableArray fArrPtr (1, fromIntegral nElts)
+      getElems arr
 
 data CType
 {#pointer *CType as TypePtr -> CType #}
@@ -157,14 +160,19 @@ cValueName v = do
         ValGlobalvariable -> return $! (Just . makeGlobalIdentifier) name
         ValAlias -> return $! (Just . makeGlobalIdentifier) name
         _ -> return $! (Just . makeLocalIdentifier) name
+cValueMetadata :: ValuePtr -> IO [MetaPtr]
+cValueMetadata v = peekArray v {#get CValue->md#} {#get CValue->numMetadata#}
 cValueData :: ValuePtr -> IO (Ptr ())
 cValueData = {#get CValue->data#}
 
 data CMeta
 {#pointer *CMeta as MetaPtr -> CMeta #}
 
-cMetaTag :: MetaPtr -> IO MetaTag
-cMetaTag v = toEnum . fromIntegral <$> {#get CMeta->tag #} v
+cMetaTypeTag :: MetaPtr -> IO MetaTag
+cMetaTypeTag v = toEnum . fromIntegral <$> {#get CMeta->metaTag #} v
+
+cMetaTag :: MetaPtr -> IO DW_TAG
+cMetaTag p = dw_tag <$> {#get CMeta->tag#} p
 
 cMetaArrayElts :: MetaPtr -> IO [MetaPtr]
 cMetaArrayElts p =
@@ -183,7 +191,7 @@ cMetaGlobalLinkageName :: MetaPtr -> KnotMonad ByteString
 cMetaGlobalLinkageName = shareString {#get CMeta->u.metaGlobalInfo.linkageName#}
 cMetaGlobalCompileUnit :: MetaPtr -> IO MetaPtr
 cMetaGlobalCompileUnit = {#get CMeta->u.metaGlobalInfo.compileUnit#}
-cMetaGlobalLine :: MetaPtr -> IO Int
+cMetaGlobalLine :: MetaPtr -> IO Int32
 cMetaGlobalLine p = fromIntegral <$> {#get CMeta->u.metaGlobalInfo.lineNumber#} p
 cMetaGlobalType :: MetaPtr -> IO MetaPtr
 cMetaGlobalType = {#get CMeta->u.metaGlobalInfo.globalType#}
@@ -191,20 +199,12 @@ cMetaGlobalIsLocal :: MetaPtr -> IO Bool
 cMetaGlobalIsLocal p = toBool <$> {#get CMeta->u.metaGlobalInfo.isLocalToUnit#} p
 cMetaGlobalIsDefinition :: MetaPtr -> IO Bool
 cMetaGlobalIsDefinition p = toBool <$> {#get CMeta->u.metaGlobalInfo.isDefinition#} p
-cMetaGlobalValue :: MetaPtr -> IO ValuePtr
-cMetaGlobalValue = {#get CMeta->u.metaGlobalInfo.global#}
-cMetaLocationLine :: MetaPtr -> IO Int
+cMetaLocationLine :: MetaPtr -> IO Int32
 cMetaLocationLine p = fromIntegral <$> {#get CMeta->u.metaLocationInfo.lineNumber#} p
-cMetaLocationColumn :: MetaPtr -> IO Int
+cMetaLocationColumn :: MetaPtr -> IO Int32
 cMetaLocationColumn p = fromIntegral <$> {#get CMeta->u.metaLocationInfo.columnNumber#} p
 cMetaLocationScope :: MetaPtr -> IO MetaPtr
 cMetaLocationScope = {#get CMeta->u.metaLocationInfo.scope#}
-cMetaLocationOriginalLocation :: MetaPtr -> IO MetaPtr
-cMetaLocationOriginalLocation = {#get CMeta->u.metaLocationInfo.origLocation#}
-cMetaLocationFilename :: MetaPtr -> KnotMonad ByteString
-cMetaLocationFilename = shareString {#get CMeta->u.metaLocationInfo.filename#}
-cMetaLocationDirectory :: MetaPtr -> KnotMonad ByteString
-cMetaLocationDirectory = shareString {#get CMeta->u.metaLocationInfo.directory#}
 cMetaSubrangeLo :: MetaPtr -> IO Int64
 cMetaSubrangeLo p = fromIntegral <$> {#get CMeta->u.metaSubrangeInfo.lo#} p
 cMetaSubrangeHi :: MetaPtr -> IO Int64
@@ -215,13 +215,9 @@ cMetaTemplateTypeName :: MetaPtr -> KnotMonad ByteString
 cMetaTemplateTypeName = shareString {#get CMeta->u.metaTemplateTypeInfo.name#}
 cMetaTemplateTypeType :: MetaPtr -> IO MetaPtr
 cMetaTemplateTypeType = {#get CMeta->u.metaTemplateTypeInfo.type#}
-cMetaTemplateTypeFilename :: MetaPtr -> KnotMonad ByteString
-cMetaTemplateTypeFilename = shareString {#get CMeta->u.metaTemplateTypeInfo.filename#}
-cMetaTemplateTypeDirectory :: MetaPtr -> KnotMonad ByteString
-cMetaTemplateTypeDirectory = shareString {#get CMeta->u.metaTemplateTypeInfo.directory#}
-cMetaTemplateTypeLine :: MetaPtr -> IO Int
+cMetaTemplateTypeLine :: MetaPtr -> IO Int32
 cMetaTemplateTypeLine p = fromIntegral <$> {#get CMeta->u.metaTemplateTypeInfo.lineNumber#} p
-cMetaTemplateTypeColumn :: MetaPtr -> IO Int
+cMetaTemplateTypeColumn :: MetaPtr -> IO Int32
 cMetaTemplateTypeColumn p = fromIntegral <$> {#get CMeta->u.metaTemplateTypeInfo.columnNumber#} p
 cMetaTemplateValueContext :: MetaPtr -> IO MetaPtr
 cMetaTemplateValueContext = {#get CMeta->u.metaTemplateValueInfo.context#}
@@ -231,13 +227,9 @@ cMetaTemplateValueType :: MetaPtr -> IO MetaPtr
 cMetaTemplateValueType = {#get CMeta->u.metaTemplateValueInfo.type#}
 cMetaTemplateValueValue :: MetaPtr -> IO Int64
 cMetaTemplateValueValue p = fromIntegral <$> {#get CMeta->u.metaTemplateValueInfo.value#} p
-cMetaTemplateValueFilename :: MetaPtr -> KnotMonad ByteString
-cMetaTemplateValueFilename = shareString {#get CMeta->u.metaTemplateValueInfo.filename#}
-cMetaTemplateValueDirectory :: MetaPtr -> KnotMonad ByteString
-cMetaTemplateValueDirectory = shareString {#get CMeta->u.metaTemplateValueInfo.directory#}
-cMetaTemplateValueLine :: MetaPtr -> IO Int
+cMetaTemplateValueLine :: MetaPtr -> IO Int32
 cMetaTemplateValueLine p = fromIntegral <$> {#get CMeta->u.metaTemplateValueInfo.lineNumber#} p
-cMetaTemplateValueColumn :: MetaPtr -> IO Int
+cMetaTemplateValueColumn :: MetaPtr -> IO Int32
 cMetaTemplateValueColumn p = fromIntegral <$> {#get CMeta->u.metaTemplateValueInfo.columnNumber#} p
 cMetaVariableContext :: MetaPtr -> IO MetaPtr
 cMetaVariableContext = {#get CMeta->u.metaVariableInfo.context#}
@@ -245,17 +237,22 @@ cMetaVariableName :: MetaPtr -> KnotMonad ByteString
 cMetaVariableName = shareString {#get CMeta->u.metaVariableInfo.name#}
 cMetaVariableCompileUnit :: MetaPtr -> IO MetaPtr
 cMetaVariableCompileUnit = {#get CMeta->u.metaVariableInfo.compileUnit#}
-cMetaVariableLine :: MetaPtr -> IO Int
+cMetaVariableLine :: MetaPtr -> IO Int32
 cMetaVariableLine p = fromIntegral <$> {#get CMeta->u.metaVariableInfo.lineNumber#} p
-cMetaVariableArgNumber :: MetaPtr -> IO Int
+cMetaVariableArgNumber :: MetaPtr -> IO Int32
 cMetaVariableArgNumber p = fromIntegral <$> {#get CMeta->u.metaVariableInfo.argNumber#} p
+cMetaVariableType :: MetaPtr -> IO MetaPtr
+cMetaVariableType = {#get CMeta->u.metaVariableInfo.type#}
 cMetaVariableIsArtificial :: MetaPtr -> IO Bool
 cMetaVariableIsArtificial p = toBool <$> {#get CMeta->u.metaVariableInfo.isArtificial#} p
 cMetaVariableHasComplexAddress :: MetaPtr -> IO Bool
 cMetaVariableHasComplexAddress p = toBool <$> {#get CMeta->u.metaVariableInfo.hasComplexAddress #} p
 cMetaVariableAddrElements :: MetaPtr -> IO [Int64]
-cMetaVariableAddrElements p =
-  peekArray p {#get CMeta->u.metaVariableInfo.addrElements#} {#get CMeta->u.metaVariableInfo.numAddrElements#}
+cMetaVariableAddrElements p = do
+  ca <- cMetaVariableHasComplexAddress p
+  case ca of
+    True -> peekArray p {#get CMeta->u.metaVariableInfo.addrElements#} {#get CMeta->u.metaVariableInfo.numAddrElements#}
+    False -> return []
 cMetaVariableIsBlockByRefVar :: MetaPtr -> IO Bool
 cMetaVariableIsBlockByRefVar p = toBool <$> {#get CMeta->u.metaVariableInfo.isBlockByRefVar#} p
 cMetaCompileUnitLanguage :: MetaPtr -> IO DW_LANG
@@ -272,7 +269,7 @@ cMetaCompileUnitIsOptimized :: MetaPtr -> IO Bool
 cMetaCompileUnitIsOptimized p = toBool <$> {#get CMeta->u.metaCompileUnitInfo.isOptimized#} p
 cMetaCompileUnitFlags :: MetaPtr -> KnotMonad ByteString
 cMetaCompileUnitFlags = shareString {#get CMeta->u.metaCompileUnitInfo.flags#}
-cMetaCompileUnitRuntimeVersion :: MetaPtr -> IO Int
+cMetaCompileUnitRuntimeVersion :: MetaPtr -> IO Int32
 cMetaCompileUnitRuntimeVersion p = fromIntegral <$> {#get CMeta->u.metaCompileUnitInfo.runtimeVersion#} p
 cMetaFileFilename :: MetaPtr -> KnotMonad ByteString
 cMetaFileFilename = shareString {#get CMeta->u.metaFileInfo.filename#}
@@ -282,23 +279,17 @@ cMetaFileCompileUnit :: MetaPtr -> IO MetaPtr
 cMetaFileCompileUnit = {#get CMeta->u.metaFileInfo.compileUnit#}
 cMetaLexicalBlockContext :: MetaPtr -> IO MetaPtr
 cMetaLexicalBlockContext = {#get CMeta->u.metaLexicalBlockInfo.context#}
-cMetaLexicalBlockLine :: MetaPtr -> IO Int
+cMetaLexicalBlockLine :: MetaPtr -> IO Int32
 cMetaLexicalBlockLine p = fromIntegral <$> {#get CMeta->u.metaLexicalBlockInfo.lineNumber#} p
-cMetaLexicalBlockColumn :: MetaPtr -> IO Int
+cMetaLexicalBlockColumn :: MetaPtr -> IO Int32
 cMetaLexicalBlockColumn p = fromIntegral <$> {#get CMeta->u.metaLexicalBlockInfo.columnNumber#} p
-cMetaLexicalBlockDirectory :: MetaPtr -> KnotMonad ByteString
-cMetaLexicalBlockDirectory = shareString {#get CMeta->u.metaLexicalBlockInfo.directory#}
-cMetaLexicalBlockFilename :: MetaPtr -> KnotMonad ByteString
-cMetaLexicalBlockFilename = shareString {#get CMeta->u.metaLexicalBlockInfo.filename#}
 cMetaNamespaceContext :: MetaPtr -> IO MetaPtr
 cMetaNamespaceContext = {#get CMeta->u.metaNamespaceInfo.context#}
 cMetaNamespaceName :: MetaPtr -> KnotMonad ByteString
 cMetaNamespaceName = shareString {#get CMeta->u.metaNamespaceInfo.name#}
-cMetaNamespaceDirectory :: MetaPtr -> KnotMonad ByteString
-cMetaNamespaceDirectory = shareString {#get CMeta->u.metaNamespaceInfo.directory#}
 cMetaNamespaceCompileUnit :: MetaPtr -> IO MetaPtr
 cMetaNamespaceCompileUnit = {#get CMeta->u.metaNamespaceInfo.compileUnit#}
-cMetaNamespaceLine :: MetaPtr -> IO Int
+cMetaNamespaceLine :: MetaPtr -> IO Int32
 cMetaNamespaceLine p = fromIntegral <$> {#get CMeta->u.metaNamespaceInfo.lineNumber#} p
 cMetaSubprogramContext :: MetaPtr -> IO MetaPtr
 cMetaSubprogramContext = {#get CMeta->u.metaSubprogramInfo.context#}
@@ -310,12 +301,10 @@ cMetaSubprogramLinkageName :: MetaPtr -> KnotMonad ByteString
 cMetaSubprogramLinkageName = shareString {#get CMeta->u.metaSubprogramInfo.linkageName#}
 cMetaSubprogramCompileUnit :: MetaPtr -> IO MetaPtr
 cMetaSubprogramCompileUnit = {#get CMeta->u.metaSubprogramInfo.compileUnit#}
-cMetaSubprogramLine :: MetaPtr -> IO Int
+cMetaSubprogramLine :: MetaPtr -> IO Int32
 cMetaSubprogramLine p = fromIntegral <$> {#get CMeta->u.metaSubprogramInfo.lineNumber#} p
 cMetaSubprogramType :: MetaPtr -> IO MetaPtr
 cMetaSubprogramType = {#get CMeta->u.metaSubprogramInfo.type#}
-cMetaSubprogramReturnTypeName :: MetaPtr -> KnotMonad ByteString
-cMetaSubprogramReturnTypeName = shareString {#get CMeta->u.metaSubprogramInfo.returnTypeName#}
 cMetaSubprogramIsLocal :: MetaPtr -> IO Bool
 cMetaSubprogramIsLocal p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isLocalToUnit#} p
 cMetaSubprogramIsDefinition :: MetaPtr -> IO Bool
@@ -324,8 +313,8 @@ cMetaSubprogramVirtuality :: MetaPtr -> IO DW_VIRTUALITY
 cMetaSubprogramVirtuality p = dw_virtuality <$> {#get CMeta->u.metaSubprogramInfo.virtuality#} p
 cMetaSubprogramVirtualIndex :: MetaPtr -> IO Int32
 cMetaSubprogramVirtualIndex p = fromIntegral <$> {#get CMeta->u.metaSubprogramInfo.virtualIndex#} p
-cMetaSubprogramContainingType :: MetaPtr -> IO MetaPtr
-cMetaSubprogramContainingType = {#get CMeta->u.metaSubprogramInfo.containingType#}
+cMetaSubprogramContainingType :: MetaPtr -> IO (Maybe MetaPtr)
+cMetaSubprogramContainingType = optionalField {#get CMeta->u.metaSubprogramInfo.containingType#}
 cMetaSubprogramIsArtificial :: MetaPtr -> IO Bool
 cMetaSubprogramIsArtificial p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isArtificial#} p
 cMetaSubprogramIsPrivate :: MetaPtr -> IO Bool
@@ -338,18 +327,14 @@ cMetaSubprogramIsPrototyped :: MetaPtr -> IO Bool
 cMetaSubprogramIsPrototyped p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isPrototyped#} p
 cMetaSubprogramIsOptimized :: MetaPtr -> IO Bool
 cMetaSubprogramIsOptimized p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isOptimized#} p
-cMetaSubprogramFilename :: MetaPtr -> KnotMonad ByteString
-cMetaSubprogramFilename = shareString {#get CMeta->u.metaSubprogramInfo.filename#}
-cMetaSubprogramDirectory :: MetaPtr -> KnotMonad ByteString
-cMetaSubprogramDirectory = shareString {#get CMeta->u.metaSubprogramInfo.directory#}
 cMetaTypeContext :: MetaPtr -> IO MetaPtr
 cMetaTypeContext = {#get CMeta->u.metaTypeInfo.context#}
 cMetaTypeName :: MetaPtr -> KnotMonad ByteString
 cMetaTypeName = shareString {#get CMeta->u.metaTypeInfo.name#}
-cMetaTypeCompileUnit :: MetaPtr -> IO MetaPtr
-cMetaTypeCompileUnit = {#get CMeta->u.metaTypeInfo.compileUnit#}
-cMetaTypeFile :: MetaPtr -> IO MetaPtr
-cMetaTypeFile = {#get CMeta->u.metaTypeInfo.file#}
+cMetaTypeCompileUnit :: MetaPtr -> IO (Maybe MetaPtr)
+cMetaTypeCompileUnit = optionalField {#get CMeta->u.metaTypeInfo.compileUnit#}
+cMetaTypeFile :: MetaPtr -> IO (Maybe MetaPtr)
+cMetaTypeFile = optionalField {#get CMeta->u.metaTypeInfo.file#}
 cMetaTypeLine :: MetaPtr -> IO Int32
 cMetaTypeLine p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.lineNumber#} p
 cMetaTypeSize :: MetaPtr -> IO Int64
@@ -372,24 +357,25 @@ cMetaTypeIsVirtual :: MetaPtr -> IO Bool
 cMetaTypeIsVirtual p = toBool <$> {#get CMeta->u.metaTypeInfo.isVirtual#} p
 cMetaTypeIsArtificial :: MetaPtr -> IO Bool
 cMetaTypeIsArtificial p = toBool <$> {#get CMeta->u.metaTypeInfo.isArtificial#} p
-cMetaTypeDirectory :: MetaPtr -> KnotMonad ByteString
-cMetaTypeDirectory = shareString {#get CMeta->u.metaTypeInfo.directory#}
-cMetaTypeFilename :: MetaPtr -> KnotMonad ByteString
-cMetaTypeFilename = shareString {#get CMeta->u.metaTypeInfo.filename#}
 cMetaTypeEncoding :: MetaPtr -> IO DW_ATE
 cMetaTypeEncoding p = dw_ate <$> {#get CMeta->u.metaTypeInfo.encoding#} p
-cMetaTypeDerivedFrom :: MetaPtr -> IO MetaPtr
-cMetaTypeDerivedFrom = {#get CMeta->u.metaTypeInfo.typeDerivedFrom#}
-cMetaTypeOriginalTypeSize :: MetaPtr -> IO Int64
-cMetaTypeOriginalTypeSize p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.originalTypeSize#} p
-cMetaTypeCompositeComponents :: MetaPtr -> IO MetaPtr
-cMetaTypeCompositeComponents = {#get CMeta->u.metaTypeInfo.typeArray#}
+cMetaTypeDerivedFrom :: MetaPtr -> IO (Maybe MetaPtr)
+cMetaTypeDerivedFrom = optionalField {#get CMeta->u.metaTypeInfo.typeDerivedFrom#}
+cMetaTypeCompositeComponents :: MetaPtr -> IO (Maybe MetaPtr)
+cMetaTypeCompositeComponents = optionalField {#get CMeta->u.metaTypeInfo.typeArray#}
 cMetaTypeRuntimeLanguage :: MetaPtr -> IO Int32
 cMetaTypeRuntimeLanguage p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.runTimeLang#} p
-cMetaTypeContainingType :: MetaPtr -> IO MetaPtr
-cMetaTypeContainingType = {#get CMeta->u.metaTypeInfo.containingType#}
-cMetaTypeTemplateParams :: MetaPtr -> IO MetaPtr
-cMetaTypeTemplateParams = {#get CMeta->u.metaTypeInfo.templateParams#}
+cMetaTypeContainingType :: MetaPtr -> IO (Maybe MetaPtr)
+cMetaTypeContainingType = optionalField {#get CMeta->u.metaTypeInfo.containingType#}
+cMetaTypeTemplateParams :: MetaPtr -> IO (Maybe MetaPtr)
+cMetaTypeTemplateParams = optionalField {#get CMeta->u.metaTypeInfo.templateParams#}
+
+optionalField :: (a -> IO (Ptr b)) -> a -> IO (Maybe (Ptr b))
+optionalField accessor p = do
+  v <- accessor p
+  case v == nullPtr of
+    True -> return Nothing
+    False -> return (Just v)
 
 -- | This helper converts C char* strings into ByteStrings, sharing
 -- identical bytestrings on the Haskell side.  This is a simple
@@ -587,25 +573,27 @@ cCallNormalDest = {#get CCallInfo->normalDest#}
 -- | Free all of the resources allocated by 'marshalLLVM'
 {#fun disposeCModule { id `ModulePtr' } -> `()' #}
 
--- FIXME: add accessors for value metadata
-
 type KnotMonad = StateT KnotState IO
 data KnotState = KnotState { valueMap :: Map IntPtr Value
                            , typeMap :: Map IntPtr Type
+                           , metaMap :: Map IntPtr Metadata
                            , idSrc :: IORef Int
                            , typeIdSrc :: IORef Int
+                           , metaIdSrc :: IORef Int
                            , result :: Maybe Module
                            , visitedTypes :: Set IntPtr
                            , localId :: Int
                            , constantTranslationDepth :: Int
                            , stringCache :: Map ByteString ByteString
                            }
-emptyState :: IORef Int -> IORef Int -> KnotState
-emptyState r1 r2 =
+emptyState :: IORef Int -> IORef Int -> IORef Int -> KnotState
+emptyState r1 r2 r3 =
   KnotState { valueMap = M.empty
             , typeMap = M.empty
+            , metaMap = M.empty
             , idSrc = r1
             , typeIdSrc = r2
+            , metaIdSrc = r3
             , result = Nothing
             , visitedTypes = S.empty
             , localId = 0
@@ -631,6 +619,14 @@ nextTypeId = do
 
   return thisId
 
+nextMetaId :: KnotMonad Int
+nextMetaId = do
+  s <- get
+  let r = metaIdSrc s
+  thisId <- liftIO $ readIORef r
+  liftIO $ modifyIORef r (+1)
+
+  return thisId
 
 -- | Parse the named LLVM bitcode file into the LLVM form of the IR (a
 -- 'Module').  In the case of an error, a descriptive string will be
@@ -653,7 +649,8 @@ parseLLVMBitcodeFile opts bitcodefile = do
     doParse m = do
       idref <- newIORef 0
       tref <- newIORef 0
-      res <- evalStateT (mfix (tieKnot m)) (emptyState idref tref)
+      mref <- newIORef 0
+      res <- evalStateT (mfix (tieKnot m)) (emptyState idref tref mref)
 
       disposeCModule m
       case result res of
@@ -832,7 +829,10 @@ translateAlias finalState vp = do
   name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
+  metaPtr <- liftIO $ cValueMetadata vp
   let dataPtr' = castPtr dataPtr
+
+  mds <- mapM translateMetadata metaPtr
 
   vis <- liftIO $ cGlobalVisibility dataPtr'
   link <- liftIO $ cGlobalLinkage dataPtr'
@@ -849,7 +849,7 @@ translateAlias finalState vp = do
                        }
       v = Value { valueType = tt
                 , valueName = name
-                , valueMetadata = Nothing
+                , valueMetadata = mds
                 , valueContent = ga
                 , valueUniqueId = uid
                 }
@@ -863,14 +863,16 @@ translateGlobalVariable finalState vp = do
   name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
+  metaPtr <- liftIO $ cValueMetadata vp
   tt <- translateType finalState typePtr
 
+  mds <- mapM translateMetadata metaPtr
   uid <- nextId
 
   let dataPtr' = castPtr dataPtr
       basicVal = Value { valueName = name
                        , valueType = tt
-                       , valueMetadata = Nothing
+                       , valueMetadata = mds
                        , valueContent = ExternalValue
                        , valueUniqueId = uid
                        }
@@ -917,7 +919,10 @@ translateFunction finalState vp = do
   name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
+  metaPtr <- liftIO $ cValueMetadata vp
   tt <- translateType finalState typePtr
+
+  mds <- mapM translateMetadata metaPtr
 
   uid <- nextId
 
@@ -926,7 +931,7 @@ translateFunction finalState vp = do
   let dataPtr' = castPtr dataPtr
       basicVal = Value { valueName = name
                        , valueType = tt
-                       , valueMetadata = Nothing
+                       , valueMetadata = mds
                        , valueContent = ExternalFunction [] -- FIXME: there are attributes here
                        , valueUniqueId = uid
                        }
@@ -996,6 +1001,9 @@ translateValue' finalState vp = do
   name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
+  metaPtr <- liftIO $ cValueMetadata vp
+
+  mds <- mapM translateMetadata metaPtr
 
   s <- get
   let cdepth = constantTranslationDepth s
@@ -1082,7 +1090,7 @@ translateValue' finalState vp = do
 
   let tv = Value { valueType = tt
                  , valueName = realName
-                 , valueMetadata = Nothing
+                 , valueMetadata = mds
                  , valueContent = content
                  , valueUniqueId = uid
                  }
@@ -1521,3 +1529,352 @@ translateConstantExpr finalState dataPtr = do
     ValExtractvalueinst -> translateExtractValueInst finalState ii
     ValInsertvalueinst -> translateInsertValueInst finalState ii
   return $ ConstantValue vt
+
+translateMetadata :: MetaPtr -> KnotMonad Metadata
+translateMetadata mp = do
+  s <- get
+  let ip = ptrToIntPtr mp
+  case M.lookup ip (metaMap s) of
+    Just m -> return m
+    Nothing -> translateMetadata' mp
+
+maybeTranslateMetadata :: Maybe MetaPtr -> KnotMonad (Maybe Metadata)
+maybeTranslateMetadata Nothing = return Nothing
+maybeTranslateMetadata (Just mp) = Just <$> translateMetadata mp
+
+translateMetadata' :: MetaPtr -> KnotMonad Metadata
+translateMetadata' mp = do
+  let ip = ptrToIntPtr mp
+  metaTag <- liftIO $ cMetaTypeTag mp
+  tag <- liftIO $ cMetaTag mp
+  content <- case metaTag of
+    MetaLocation -> do
+      line <- liftIO $ cMetaLocationLine mp
+      col <- liftIO $ cMetaLocationColumn mp
+      scope <- liftIO $ cMetaLocationScope mp
+
+      scope' <- translateMetadata scope
+      return MetaSourceLocation { metaSourceRow = line
+                                , metaSourceCol = col
+                                , metaSourceScope = scope'
+                                }
+    MetaDerivedtype -> do
+      ctxt <- liftIO $ cMetaTypeContext mp
+      name <- cMetaTypeName mp
+      f <- liftIO $ cMetaTypeFile mp
+      line <- liftIO $ cMetaTypeLine mp
+      size <- liftIO $ cMetaTypeSize mp
+      align <- liftIO $ cMetaTypeAlign mp
+      off <- liftIO $ cMetaTypeOffset mp
+      parent <- liftIO $ cMetaTypeDerivedFrom mp
+
+      cu <- liftIO $ cMetaTypeCompileUnit mp
+      isArtif <- liftIO $ cMetaTypeIsArtificial mp
+      isVirt <- liftIO $ cMetaTypeIsVirtual mp
+      isForward <- liftIO $ cMetaTypeIsForward mp
+      isProt <- liftIO $ cMetaTypeIsProtected mp
+      isPriv <- liftIO $ cMetaTypeIsPrivate mp
+
+      f' <- maybeTranslateMetadata f
+      ctxt' <- translateMetadata ctxt
+      parent' <- maybeTranslateMetadata parent
+      cu' <- maybeTranslateMetadata cu
+
+      return MetaDWDerivedType { metaDerivedTypeContext = ctxt'
+                               , metaDerivedTypeName = name
+                               , metaDerivedTypeFile = f'
+                               , metaDerivedTypeLine = line
+                               , metaDerivedTypeSize = size
+                               , metaDerivedTypeAlign = align
+                               , metaDerivedTypeOffset = off
+                               , metaDerivedTypeParent = parent'
+                               , metaDerivedTypeTag = tag
+                               , metaDerivedTypeCompileUnit = cu'
+                               , metaDerivedTypeIsArtificial = isArtif
+                               , metaDerivedTypeIsVirtual = isVirt
+                               , metaDerivedTypeIsForward = isForward
+                               , metaDerivedTypeIsProtected = isProt
+                               , metaDerivedTypeIsPrivate = isPriv
+                               }
+    MetaCompositetype -> do
+      ctxt <- liftIO $ cMetaTypeContext mp
+      name <- cMetaTypeName mp
+      f <- liftIO $ cMetaTypeFile mp
+      line <- liftIO $ cMetaTypeLine mp
+      size <- liftIO $ cMetaTypeSize mp
+      align <- liftIO $ cMetaTypeAlign mp
+      off <- liftIO $ cMetaTypeOffset mp
+      parent <- liftIO $ cMetaTypeDerivedFrom mp
+      flags <- liftIO $ cMetaTypeFlags mp
+      members <- liftIO $ cMetaTypeCompositeComponents mp
+      rlang <- liftIO $ cMetaTypeRuntimeLanguage mp
+      ctype <- liftIO $ cMetaTypeContainingType mp
+      tparams <- liftIO $ cMetaTypeTemplateParams mp
+      cu <- liftIO $ cMetaTypeCompileUnit mp
+      isArtif <- liftIO $ cMetaTypeIsArtificial mp
+      isVirtual <- liftIO $ cMetaTypeIsVirtual mp
+      isForward <- liftIO $ cMetaTypeIsForward mp
+      isProt <- liftIO $ cMetaTypeIsProtected mp
+      isPriv <- liftIO $ cMetaTypeIsPrivate mp
+      isByRef <- liftIO $ cMetaTypeIsByRefStruct mp
+
+      ctxt' <- translateMetadata ctxt
+      f' <- maybeTranslateMetadata f
+      parent' <- maybeTranslateMetadata parent
+      members' <- maybeTranslateMetadata members
+      ctype' <- maybeTranslateMetadata ctype
+      tparams' <- maybeTranslateMetadata tparams
+      cu' <- maybeTranslateMetadata cu
+
+      return MetaDWCompositeType { metaCompositeTypeTag = tag
+                                 , metaCompositeTypeContext = ctxt'
+                                 , metaCompositeTypeName = name
+                                 , metaCompositeTypeFile = f'
+                                 , metaCompositeTypeLine = line
+                                 , metaCompositeTypeSize = size
+                                 , metaCompositeTypeAlign = align
+                                 , metaCompositeTypeOffset = off
+                                 , metaCompositeTypeFlags = flags
+                                 , metaCompositeTypeParent = parent'
+                                 , metaCompositeTypeMembers = members'
+                                 , metaCompositeTypeRuntime = rlang
+                                 , metaCompositeTypeContainer = ctype'
+                                 , metaCompositeTypeTemplateParams = tparams'
+                                 , metaCompositeTypeCompileUnit = cu'
+                                 , metaCompositeTypeIsArtificial = isArtif
+                                 , metaCompositeTypeIsVirtual = isVirtual
+                                 , metaCompositeTypeIsForward = isForward
+                                 , metaCompositeTypeIsProtected = isProt
+                                 , metaCompositeTypeIsPrivate = isPriv
+                                 , metaCompositeTypeIsByRefStruct = isByRef
+                                 }
+    MetaBasictype -> do
+      ctxt <- liftIO $ cMetaTypeContext mp
+      name <- cMetaTypeName mp
+      f <- liftIO $ cMetaTypeFile mp
+      line <- liftIO $ cMetaTypeLine mp
+      size <- liftIO $ cMetaTypeSize mp
+      align <- liftIO $ cMetaTypeAlign mp
+      off <- liftIO $ cMetaTypeOffset mp
+      flags <- liftIO $ cMetaTypeFlags mp
+      encoding <- liftIO $ cMetaTypeEncoding mp
+
+      ctxt' <- translateMetadata ctxt
+      f' <- maybeTranslateMetadata f
+
+      return MetaDWBaseType { metaBaseTypeContext = ctxt'
+                            , metaBaseTypeName = name
+                            , metaBaseTypeFile = f'
+                            , metaBaseTypeLine = line
+                            , metaBaseTypeSize = size
+                            , metaBaseTypeAlign = align
+                            , metaBaseTypeOffset = off
+                            , metaBaseTypeFlags = flags
+                            , metaBaseTypeEncoding = encoding
+                            }
+    MetaVariable -> do
+      ctxt <- liftIO $ cMetaVariableContext mp
+      name <- cMetaVariableName mp
+      file <- liftIO $ cMetaVariableCompileUnit mp
+      line <- liftIO $ cMetaVariableLine mp
+      argNo <- liftIO $ cMetaVariableArgNumber mp
+      ty <- liftIO $ cMetaVariableType mp
+      isArtif <- liftIO $ cMetaVariableIsArtificial mp
+      cplxAddr <- liftIO $ cMetaVariableAddrElements mp
+      byRef <- liftIO $ cMetaVariableIsBlockByRefVar mp
+
+      ctxt' <- translateMetadata ctxt
+      file' <- translateMetadata file
+      ty' <- translateMetadata ty
+
+      return MetaDWLocal { metaLocalTag = tag
+                         , metaLocalContext = ctxt'
+                         , metaLocalName = name
+                         , metaLocalFile = file'
+                         , metaLocalLine = line
+                         , metaLocalArgNo = argNo
+                         , metaLocalType = ty'
+                         , metaLocalIsArtificial = isArtif
+                         , metaLocalIsBlockByRefVar = byRef
+                         , metaLocalAddrElements = cplxAddr
+                         }
+    MetaSubprogram -> do
+      ctxt <- liftIO $ cMetaSubprogramContext mp
+      name <- cMetaSubprogramName mp
+      displayName <- cMetaSubprogramDisplayName mp
+      linkageName <- cMetaSubprogramLinkageName mp
+      compUnit <- liftIO $ cMetaSubprogramCompileUnit mp
+      line <- liftIO $ cMetaSubprogramLine mp
+      ty <- liftIO $ cMetaSubprogramType mp
+      isLocal <- liftIO $ cMetaSubprogramIsLocal mp
+      isDef <- liftIO $ cMetaSubprogramIsDefinition mp
+      virt <- liftIO $ cMetaSubprogramVirtuality mp
+      virtIdx <- liftIO $ cMetaSubprogramVirtualIndex mp
+      baseType <- liftIO $ cMetaSubprogramContainingType mp
+      isArtif <- liftIO $ cMetaSubprogramIsArtificial mp
+      isOpt <- liftIO $ cMetaSubprogramIsOptimized mp
+      isPrivate <- liftIO $ cMetaSubprogramIsPrivate mp
+      isProtected <- liftIO $ cMetaSubprogramIsProtected mp
+      isExplicit <- liftIO $ cMetaSubprogramIsExplicit mp
+      isPrototyped <- liftIO $ cMetaSubprogramIsPrototyped mp
+
+      ctxt' <- translateMetadata ctxt
+      compUnit' <- translateMetadata compUnit
+      ty' <- translateMetadata ty
+      baseType' <- maybeTranslateMetadata baseType
+
+      return MetaDWSubprogram { metaSubprogramContext = ctxt'
+                              , metaSubprogramName = name
+                              , metaSubprogramDisplayName = displayName
+                              , metaSubprogramLinkageName = linkageName
+                              , metaSubprogramFile = compUnit'
+                              , metaSubprogramLine = line
+                              , metaSubprogramType = ty'
+                              , metaSubprogramStatic = isLocal
+                              , metaSubprogramNotExtern = not isPrivate && not isProtected
+                              , metaSubprogramVirtuality = virt
+                              , metaSubprogramVirtIndex = virtIdx
+                              , metaSubprogramBaseType = baseType'
+                              , metaSubprogramArtificial = isArtif
+                              , metaSubprogramOptimized = isOpt
+                              , metaSubprogramIsExplicit = isExplicit
+                              , metaSubprogramIsPrototyped = isPrototyped
+                              }
+    MetaGlobalvariable -> do
+      ctxt <- liftIO $ cMetaGlobalContext mp
+      name <- cMetaGlobalName mp
+      displayName <- cMetaGlobalDisplayName mp
+      linkageName <- cMetaGlobalLinkageName mp
+      file <- liftIO $ cMetaGlobalCompileUnit mp
+      line <- liftIO $ cMetaGlobalLine mp
+      ty <- liftIO $ cMetaGlobalType mp
+      isLocal <- liftIO $ cMetaGlobalIsLocal mp
+      def <- liftIO $ cMetaGlobalIsDefinition mp
+
+      ctxt' <- translateMetadata ctxt
+      file' <- translateMetadata file
+      ty' <- translateMetadata ty
+
+      return MetaDWVariable { metaGlobalVarContext = ctxt'
+                            , metaGlobalVarName = name
+                            , metaGlobalVarDisplayName = displayName
+                            , metaGlobalVarLinkageName = linkageName
+                            , metaGlobalVarFile = file'
+                            , metaGlobalVarLine = line
+                            , metaGlobalVarType = ty'
+                            , metaGlobalVarStatic = isLocal
+                            , metaGlobalVarNotExtern = not def
+                            }
+    MetaFile -> do
+      file <- cMetaFileFilename mp
+      dir <- cMetaFileDirectory mp
+      cu <- liftIO $ cMetaFileCompileUnit mp
+
+      cu' <- translateMetadata cu
+
+      return MetaDWFile { metaFileSourceFile = file
+                        , metaFileSourceDir = dir
+                        , metaFileCompileUnit = cu'
+                        }
+    MetaCompileunit -> do
+      lang <- liftIO $ cMetaCompileUnitLanguage mp
+      fname <- cMetaCompileUnitFilename mp
+      dir <- cMetaCompileUnitDirectory mp
+      producer <- cMetaCompileUnitProducer mp
+      isMain <- liftIO $ cMetaCompileUnitIsMain mp
+      isOpt <- liftIO $ cMetaCompileUnitIsOptimized mp
+      flags <- cMetaCompileUnitFlags mp
+      rv <- liftIO $ cMetaCompileUnitRuntimeVersion mp
+
+      return MetaDWCompileUnit { metaCompileUnitLanguage = lang
+                               , metaCompileUnitSourceFile = fname
+                               , metaCompileUnitCompileDir = dir
+                               , metaCompileUnitProducer = producer
+                               , metaCompileUnitIsMain = isMain
+                               , metaCompileUnitIsOpt = isOpt
+                               , metaCompileUnitFlags = flags
+                               , metaCompileUnitVersion = rv
+                               }
+    MetaNamespace -> do
+      ctxt <- liftIO $ cMetaNamespaceContext mp
+      name <- cMetaNamespaceName mp
+      cu <- liftIO $ cMetaNamespaceCompileUnit mp
+      line <- liftIO $ cMetaNamespaceLine mp
+
+      ctxt' <- translateMetadata ctxt
+      cu' <- translateMetadata cu
+
+      return MetaDWNamespace { metaNamespaceContext = ctxt'
+                             , metaNamespaceName = name
+                             , metaNamespaceCompileUnit = cu'
+                             , metaNamespaceLine = line
+                             }
+    MetaLexicalblock -> do
+      ctxt <- liftIO $ cMetaLexicalBlockContext mp
+      line <- liftIO $ cMetaLexicalBlockLine mp
+      col <- liftIO $ cMetaLexicalBlockColumn mp
+
+      ctxt' <- translateMetadata ctxt
+
+      return MetaDWLexicalBlock { metaLexicalBlockRow = line
+                                , metaLexicalBlockCol = col
+                                , metaLexicalBlockContext = ctxt'
+                                }
+    MetaSubrange -> do
+      lo <- liftIO $ cMetaSubrangeLo mp
+      hi <- liftIO $ cMetaSubrangeHi mp
+      return MetaDWSubrange { metaSubrangeLow = lo
+                            , metaSubrangeHigh = hi
+                            }
+    MetaEnumerator -> do
+      name <- cMetaEnumeratorName mp
+      val <- liftIO $ cMetaEnumeratorValue mp
+      return MetaDWEnumerator { metaEnumeratorName = name
+                              , metaEnumeratorValue = val
+                              }
+    MetaArray -> do
+      elts <- liftIO $ cMetaArrayElts mp
+      elts' <- mapM translateMetadata elts
+      return $ MetadataList elts'
+    MetaTemplatetypeparameter -> do
+      ctxt <- liftIO $ cMetaTemplateTypeContext mp
+      name <- cMetaTemplateTypeName mp
+      ty <- liftIO $ cMetaTemplateTypeType mp
+      line <- liftIO $ cMetaTemplateTypeLine mp
+      col <- liftIO $ cMetaTemplateTypeColumn mp
+
+      ctxt' <- translateMetadata ctxt
+      ty' <- translateMetadata ty
+
+      return MetaDWTemplateTypeParameter { metaTemplateTypeParameterContext = ctxt'
+                                         , metaTemplateTypeParameterType = ty'
+                                         , metaTemplateTypeParameterLine = line
+                                         , metaTemplateTypeParameterCol = col
+                                         , metaTemplateTypeParameterName = name
+                                         }
+    MetaTemplatevalueparameter -> do
+      ctxt <- liftIO $ cMetaTemplateValueContext mp
+      name <- cMetaTemplateValueName mp
+      ty <- liftIO $ cMetaTemplateValueType mp
+      val <- liftIO $ cMetaTemplateValueValue mp
+      line <- liftIO $ cMetaTemplateValueLine mp
+      col <- liftIO $ cMetaTemplateValueColumn mp
+
+      ctxt' <- translateMetadata ctxt
+      ty' <- translateMetadata ty
+
+      return MetaDWTemplateValueParameter { metaTemplateValueParameterContext = ctxt'
+                                          , metaTemplateValueParameterType = ty'
+                                          , metaTemplateValueParameterLine = line
+                                          , metaTemplateValueParameterCol = col
+                                          , metaTemplateValueParameterValue = val
+                                          , metaTemplateValueParameterName = name
+                                          }
+
+  uid <- nextMetaId
+  let md = Metadata { metaValueContent = content
+                    , metaValueUniqueId = uid
+                    }
+  s <- get
+  put s { metaMap = M.insert ip md (metaMap s) }
+  return md

@@ -25,13 +25,14 @@ printFuncArgs Value { valueContent = fc
   -- where
   --   args = functionParameters fc
 
-metaType :: Metadata -> String
-metaType md = show $ metaLocalType $ metaValueContent md
-metaType md = show md
+metaType :: [Metadata] -> String
+metaType [] = "none"
+metaType (md:_) = show $ metaLocalType $ metaValueContent md
+-- metaType md = show md
 
 printArgType :: Value -> IO ()
 printArgType a = do
   let n = maybe "" show (valueName a)
-      mdType = maybe "none" metaType (valueMetadata a)
+      mdType = metaType (valueMetadata a)
       vType = show (valueType a)
   printf "%s :: %s (stated type %s)\n" n mdType vType

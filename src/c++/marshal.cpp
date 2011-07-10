@@ -241,7 +241,7 @@ static void disposeCType(CType *ct) {
 }
 
 static void disposeCMeta(CMeta *meta) {
-  switch(meta->tag) {
+  switch(meta->metaTag) {
   case META_LOCATION:
     free(meta->u.metaLocationInfo.filename);
     free(meta->u.metaLocationInfo.directory);
@@ -805,9 +805,11 @@ static CMeta* translateMetadata(CModule *m, const MDNode *md) {
 
   CMeta *meta = (CMeta*)calloc(1, sizeof(CMeta));
   pd->metaMap[md] = meta;
-  meta->tag = extractMetaTag(md);
+  meta->metaTag = extractMetaTag(md);
+  DIDescriptor desc(md);
+  meta->tag = desc.getTag();
 
-  switch(meta->tag) {
+  switch(meta->metaTag) {
   case META_LOCATION: makeMetaLocation(m, md, meta); break;
   case META_DERIVEDTYPE: makeMetaDerivedType(m, md, meta); break;
   case META_COMPOSITETYPE: makeMetaCompositeType(m, md, meta); break;

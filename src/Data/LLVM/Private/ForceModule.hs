@@ -16,7 +16,7 @@ forceGlobal v = do
   -- The unique id field is strict and will be forced when we force this constructor.
   valueName v `deepseq` v `seq` return ()
   -- Expand the metadata, if there is any
-  maybe (return ()) metaForceIfNeeded (valueMetadata v)
+  mapM_ metaForceIfNeeded (valueMetadata v)
   forceGlobalValueT (valueContent v)
   return ()
 
@@ -37,13 +37,13 @@ isConstant v = case valueContent v of
 forceInstruction :: Value -> ForceMonad ()
 forceInstruction v = do
   valueName v `deepseq` valueUniqueId v `deepseq` v `seq` return ()
-  maybe (return ()) metaForceIfNeeded (valueMetadata v)
+  mapM_ metaForceIfNeeded (valueMetadata v)
   forceValueT (valueContent v)
 
 forceValueIfConstant :: Value -> ForceMonad ()
 forceValueIfConstant v = do
   valueName v `deepseq` valueUniqueId v `deepseq` v `seq` return ()
-  maybe (return ()) metaForceIfNeeded (valueMetadata v)
+  mapM_ metaForceIfNeeded (valueMetadata v)
   case isConstant v of
     True -> forceValueT (valueContent v)
     False -> valueContent v `seq` return ()
@@ -259,7 +259,7 @@ forceGlobalValueT e@(ExternalFunction atts) = do
 forceBasicBlock :: Value -> ForceMonad ()
 forceBasicBlock v = do
   valueName v `deepseq` v `seq` return ()
-  maybe (return ()) metaForceIfNeeded (valueMetadata v)
+  mapM_ metaForceIfNeeded (valueMetadata v)
   let c = valueContent v
   case c of
     BasicBlock is -> mapM_ forceInstruction is
@@ -276,7 +276,7 @@ metaForceIfNeeded m = do
   where
     forceMetadata :: Metadata -> ForceMonad ()
     forceMetadata md = do
-      metaValueName md `deepseq` md `seq` return ()
+      md `seq` return ()
       forceMetadataT (metaValueContent md)
 
 forceMetadataT :: MetadataT -> ForceMonad ()
@@ -285,9 +285,7 @@ forceMetadataT m@(MetaSourceLocation {}) = do
   metaForceIfNeeded (metaSourceScope m)
 forceMetadataT m@(MetaDWLexicalBlock {}) = do
   m `seq` return ()
-  mapM_ metaForceIfNeeded [ metaLexicalBlockContext m
-                          , metaLexicalBlockFile m
-                          ]
+  mapM_ metaForceIfNeeded [ metaLexicalBlockContext m ]
 forceMetadataT m@(MetaDWCompileUnit {}) = do
   metaCompileUnitSourceFile m `seq` metaCompileUnitCompileDir m `seq`
     metaCompileUnitProducer m `seq` metaCompileUnitFlags m `seq` m `seq` return ()
