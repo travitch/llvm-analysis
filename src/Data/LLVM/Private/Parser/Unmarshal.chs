@@ -1,3 +1,9 @@
+-- | This module converts the C form of the LLVM IR into a fully
+-- referential Haskell version of the IR.  The translation is slightly
+-- lossy around integral types in some cases, as Haskell Ints do not
+-- have the same range as C ints.  In the vast majority of cases this
+-- should not really be an issue, but it is possible to lose
+-- information.  If it is an issue it can be changed.
 {-# LANGUAGE ForeignFunctionInterface, DeriveDataTypeable, RankNTypes #-}
 module Data.LLVM.Private.Parser.Unmarshal ( parseLLVMBitcodeFile ) where
 
@@ -12,6 +18,7 @@ import Control.Monad.State
 import Data.Array.Storable
 import Data.ByteString.Char8 ( ByteString )
 import qualified Data.ByteString.Char8 as BS
+import Data.Dwarf
 import Data.Int
 import Data.IORef
 import Data.Map ( Map )
@@ -53,6 +60,7 @@ instance Exception TranslationException
 
 {#enum TypeTag {} deriving (Show, Eq) #}
 {#enum ValueTag {underscoreToCase} deriving (Show, Eq) #}
+{#enum MetaTag {underscoreToCase} deriving (Show, Eq) #}
 
 data CModule
 {#pointer *CModule as ModulePtr -> CModule #}
@@ -151,6 +159,252 @@ cValueName v = do
         _ -> return $! (Just . makeLocalIdentifier) name
 cValueData :: ValuePtr -> IO (Ptr ())
 cValueData = {#get CValue->data#}
+
+data CMeta
+{#pointer *CMeta as MetaPtr -> CMeta #}
+
+cMetaTag :: MetaPtr -> IO MetaTag
+cMetaTag v = toEnum . fromIntegral <$> {#get CMeta->tag #} v
+
+cMetaArrayElts :: MetaPtr -> IO [MetaPtr]
+cMetaArrayElts p =
+  peekArray p {#get CMeta->u.metaArrayInfo.arrayElts#} {#get CMeta->u.metaArrayInfo.arrayLen#}
+cMetaEnumeratorName :: MetaPtr -> KnotMonad ByteString
+cMetaEnumeratorName = shareString {#get CMeta->u.metaEnumeratorInfo.enumName#}
+cMetaEnumeratorValue :: MetaPtr -> IO Int64
+cMetaEnumeratorValue p = fromIntegral <$> {#get CMeta->u.metaEnumeratorInfo.enumValue#} p
+cMetaGlobalContext :: MetaPtr -> IO MetaPtr
+cMetaGlobalContext = {#get CMeta->u.metaGlobalInfo.context #}
+cMetaGlobalName :: MetaPtr -> KnotMonad ByteString
+cMetaGlobalName = shareString {#get CMeta->u.metaGlobalInfo.name#}
+cMetaGlobalDisplayName :: MetaPtr -> KnotMonad ByteString
+cMetaGlobalDisplayName = shareString {#get CMeta->u.metaGlobalInfo.displayName#}
+cMetaGlobalLinkageName :: MetaPtr -> KnotMonad ByteString
+cMetaGlobalLinkageName = shareString {#get CMeta->u.metaGlobalInfo.linkageName#}
+cMetaGlobalCompileUnit :: MetaPtr -> IO MetaPtr
+cMetaGlobalCompileUnit = {#get CMeta->u.metaGlobalInfo.compileUnit#}
+cMetaGlobalLine :: MetaPtr -> IO Int
+cMetaGlobalLine p = fromIntegral <$> {#get CMeta->u.metaGlobalInfo.lineNumber#} p
+cMetaGlobalType :: MetaPtr -> IO MetaPtr
+cMetaGlobalType = {#get CMeta->u.metaGlobalInfo.globalType#}
+cMetaGlobalIsLocal :: MetaPtr -> IO Bool
+cMetaGlobalIsLocal p = toBool <$> {#get CMeta->u.metaGlobalInfo.isLocalToUnit#} p
+cMetaGlobalIsDefinition :: MetaPtr -> IO Bool
+cMetaGlobalIsDefinition p = toBool <$> {#get CMeta->u.metaGlobalInfo.isDefinition#} p
+cMetaGlobalValue :: MetaPtr -> IO ValuePtr
+cMetaGlobalValue = {#get CMeta->u.metaGlobalInfo.global#}
+cMetaLocationLine :: MetaPtr -> IO Int
+cMetaLocationLine p = fromIntegral <$> {#get CMeta->u.metaLocationInfo.lineNumber#} p
+cMetaLocationColumn :: MetaPtr -> IO Int
+cMetaLocationColumn p = fromIntegral <$> {#get CMeta->u.metaLocationInfo.columnNumber#} p
+cMetaLocationScope :: MetaPtr -> IO MetaPtr
+cMetaLocationScope = {#get CMeta->u.metaLocationInfo.scope#}
+cMetaLocationOriginalLocation :: MetaPtr -> IO MetaPtr
+cMetaLocationOriginalLocation = {#get CMeta->u.metaLocationInfo.origLocation#}
+cMetaLocationFilename :: MetaPtr -> KnotMonad ByteString
+cMetaLocationFilename = shareString {#get CMeta->u.metaLocationInfo.filename#}
+cMetaLocationDirectory :: MetaPtr -> KnotMonad ByteString
+cMetaLocationDirectory = shareString {#get CMeta->u.metaLocationInfo.directory#}
+cMetaSubrangeLo :: MetaPtr -> IO Int64
+cMetaSubrangeLo p = fromIntegral <$> {#get CMeta->u.metaSubrangeInfo.lo#} p
+cMetaSubrangeHi :: MetaPtr -> IO Int64
+cMetaSubrangeHi p = fromIntegral <$> {#get CMeta->u.metaSubrangeInfo.hi#} p
+cMetaTemplateTypeContext :: MetaPtr -> IO MetaPtr
+cMetaTemplateTypeContext = {#get CMeta->u.metaTemplateTypeInfo.context#}
+cMetaTemplateTypeName :: MetaPtr -> KnotMonad ByteString
+cMetaTemplateTypeName = shareString {#get CMeta->u.metaTemplateTypeInfo.name#}
+cMetaTemplateTypeType :: MetaPtr -> IO MetaPtr
+cMetaTemplateTypeType = {#get CMeta->u.metaTemplateTypeInfo.type#}
+cMetaTemplateTypeFilename :: MetaPtr -> KnotMonad ByteString
+cMetaTemplateTypeFilename = shareString {#get CMeta->u.metaTemplateTypeInfo.filename#}
+cMetaTemplateTypeDirectory :: MetaPtr -> KnotMonad ByteString
+cMetaTemplateTypeDirectory = shareString {#get CMeta->u.metaTemplateTypeInfo.directory#}
+cMetaTemplateTypeLine :: MetaPtr -> IO Int
+cMetaTemplateTypeLine p = fromIntegral <$> {#get CMeta->u.metaTemplateTypeInfo.lineNumber#} p
+cMetaTemplateTypeColumn :: MetaPtr -> IO Int
+cMetaTemplateTypeColumn p = fromIntegral <$> {#get CMeta->u.metaTemplateTypeInfo.columnNumber#} p
+cMetaTemplateValueContext :: MetaPtr -> IO MetaPtr
+cMetaTemplateValueContext = {#get CMeta->u.metaTemplateValueInfo.context#}
+cMetaTemplateValueName :: MetaPtr -> KnotMonad ByteString
+cMetaTemplateValueName = shareString {#get CMeta->u.metaTemplateValueInfo.name#}
+cMetaTemplateValueType :: MetaPtr -> IO MetaPtr
+cMetaTemplateValueType = {#get CMeta->u.metaTemplateValueInfo.type#}
+cMetaTemplateValueValue :: MetaPtr -> IO Int64
+cMetaTemplateValueValue p = fromIntegral <$> {#get CMeta->u.metaTemplateValueInfo.value#} p
+cMetaTemplateValueFilename :: MetaPtr -> KnotMonad ByteString
+cMetaTemplateValueFilename = shareString {#get CMeta->u.metaTemplateValueInfo.filename#}
+cMetaTemplateValueDirectory :: MetaPtr -> KnotMonad ByteString
+cMetaTemplateValueDirectory = shareString {#get CMeta->u.metaTemplateValueInfo.directory#}
+cMetaTemplateValueLine :: MetaPtr -> IO Int
+cMetaTemplateValueLine p = fromIntegral <$> {#get CMeta->u.metaTemplateValueInfo.lineNumber#} p
+cMetaTemplateValueColumn :: MetaPtr -> IO Int
+cMetaTemplateValueColumn p = fromIntegral <$> {#get CMeta->u.metaTemplateValueInfo.columnNumber#} p
+cMetaVariableContext :: MetaPtr -> IO MetaPtr
+cMetaVariableContext = {#get CMeta->u.metaVariableInfo.context#}
+cMetaVariableName :: MetaPtr -> KnotMonad ByteString
+cMetaVariableName = shareString {#get CMeta->u.metaVariableInfo.name#}
+cMetaVariableCompileUnit :: MetaPtr -> IO MetaPtr
+cMetaVariableCompileUnit = {#get CMeta->u.metaVariableInfo.compileUnit#}
+cMetaVariableLine :: MetaPtr -> IO Int
+cMetaVariableLine p = fromIntegral <$> {#get CMeta->u.metaVariableInfo.lineNumber#} p
+cMetaVariableArgNumber :: MetaPtr -> IO Int
+cMetaVariableArgNumber p = fromIntegral <$> {#get CMeta->u.metaVariableInfo.argNumber#} p
+cMetaVariableIsArtificial :: MetaPtr -> IO Bool
+cMetaVariableIsArtificial p = toBool <$> {#get CMeta->u.metaVariableInfo.isArtificial#} p
+cMetaVariableHasComplexAddress :: MetaPtr -> IO Bool
+cMetaVariableHasComplexAddress p = toBool <$> {#get CMeta->u.metaVariableInfo.hasComplexAddress #} p
+cMetaVariableAddrElements :: MetaPtr -> IO [Int64]
+cMetaVariableAddrElements p =
+  peekArray p {#get CMeta->u.metaVariableInfo.addrElements#} {#get CMeta->u.metaVariableInfo.numAddrElements#}
+cMetaVariableIsBlockByRefVar :: MetaPtr -> IO Bool
+cMetaVariableIsBlockByRefVar p = toBool <$> {#get CMeta->u.metaVariableInfo.isBlockByRefVar#} p
+cMetaCompileUnitLanguage :: MetaPtr -> IO DW_LANG
+cMetaCompileUnitLanguage p = dw_lang <$> {#get CMeta->u.metaCompileUnitInfo.language#} p
+cMetaCompileUnitFilename :: MetaPtr -> KnotMonad ByteString
+cMetaCompileUnitFilename = shareString {#get CMeta->u.metaCompileUnitInfo.filename#}
+cMetaCompileUnitDirectory :: MetaPtr -> KnotMonad ByteString
+cMetaCompileUnitDirectory = shareString {#get CMeta->u.metaCompileUnitInfo.directory#}
+cMetaCompileUnitProducer :: MetaPtr -> KnotMonad ByteString
+cMetaCompileUnitProducer = shareString {#get CMeta->u.metaCompileUnitInfo.producer#}
+cMetaCompileUnitIsMain :: MetaPtr -> IO Bool
+cMetaCompileUnitIsMain p = toBool <$> {#get CMeta->u.metaCompileUnitInfo.isMain#} p
+cMetaCompileUnitIsOptimized :: MetaPtr -> IO Bool
+cMetaCompileUnitIsOptimized p = toBool <$> {#get CMeta->u.metaCompileUnitInfo.isOptimized#} p
+cMetaCompileUnitFlags :: MetaPtr -> KnotMonad ByteString
+cMetaCompileUnitFlags = shareString {#get CMeta->u.metaCompileUnitInfo.flags#}
+cMetaCompileUnitRuntimeVersion :: MetaPtr -> IO Int
+cMetaCompileUnitRuntimeVersion p = fromIntegral <$> {#get CMeta->u.metaCompileUnitInfo.runtimeVersion#} p
+cMetaFileFilename :: MetaPtr -> KnotMonad ByteString
+cMetaFileFilename = shareString {#get CMeta->u.metaFileInfo.filename#}
+cMetaFileDirectory :: MetaPtr -> KnotMonad ByteString
+cMetaFileDirectory = shareString {#get CMeta->u.metaFileInfo.directory#}
+cMetaFileCompileUnit :: MetaPtr -> IO MetaPtr
+cMetaFileCompileUnit = {#get CMeta->u.metaFileInfo.compileUnit#}
+cMetaLexicalBlockContext :: MetaPtr -> IO MetaPtr
+cMetaLexicalBlockContext = {#get CMeta->u.metaLexicalBlockInfo.context#}
+cMetaLexicalBlockLine :: MetaPtr -> IO Int
+cMetaLexicalBlockLine p = fromIntegral <$> {#get CMeta->u.metaLexicalBlockInfo.lineNumber#} p
+cMetaLexicalBlockColumn :: MetaPtr -> IO Int
+cMetaLexicalBlockColumn p = fromIntegral <$> {#get CMeta->u.metaLexicalBlockInfo.columnNumber#} p
+cMetaLexicalBlockDirectory :: MetaPtr -> KnotMonad ByteString
+cMetaLexicalBlockDirectory = shareString {#get CMeta->u.metaLexicalBlockInfo.directory#}
+cMetaLexicalBlockFilename :: MetaPtr -> KnotMonad ByteString
+cMetaLexicalBlockFilename = shareString {#get CMeta->u.metaLexicalBlockInfo.filename#}
+cMetaNamespaceContext :: MetaPtr -> IO MetaPtr
+cMetaNamespaceContext = {#get CMeta->u.metaNamespaceInfo.context#}
+cMetaNamespaceName :: MetaPtr -> KnotMonad ByteString
+cMetaNamespaceName = shareString {#get CMeta->u.metaNamespaceInfo.name#}
+cMetaNamespaceDirectory :: MetaPtr -> KnotMonad ByteString
+cMetaNamespaceDirectory = shareString {#get CMeta->u.metaNamespaceInfo.directory#}
+cMetaNamespaceCompileUnit :: MetaPtr -> IO MetaPtr
+cMetaNamespaceCompileUnit = {#get CMeta->u.metaNamespaceInfo.compileUnit#}
+cMetaNamespaceLine :: MetaPtr -> IO Int
+cMetaNamespaceLine p = fromIntegral <$> {#get CMeta->u.metaNamespaceInfo.lineNumber#} p
+cMetaSubprogramContext :: MetaPtr -> IO MetaPtr
+cMetaSubprogramContext = {#get CMeta->u.metaSubprogramInfo.context#}
+cMetaSubprogramName :: MetaPtr -> KnotMonad ByteString
+cMetaSubprogramName = shareString {#get CMeta->u.metaSubprogramInfo.name#}
+cMetaSubprogramDisplayName :: MetaPtr -> KnotMonad ByteString
+cMetaSubprogramDisplayName = shareString {#get CMeta->u.metaSubprogramInfo.displayName#}
+cMetaSubprogramLinkageName :: MetaPtr -> KnotMonad ByteString
+cMetaSubprogramLinkageName = shareString {#get CMeta->u.metaSubprogramInfo.linkageName#}
+cMetaSubprogramCompileUnit :: MetaPtr -> IO MetaPtr
+cMetaSubprogramCompileUnit = {#get CMeta->u.metaSubprogramInfo.compileUnit#}
+cMetaSubprogramLine :: MetaPtr -> IO Int
+cMetaSubprogramLine p = fromIntegral <$> {#get CMeta->u.metaSubprogramInfo.lineNumber#} p
+cMetaSubprogramType :: MetaPtr -> IO MetaPtr
+cMetaSubprogramType = {#get CMeta->u.metaSubprogramInfo.type#}
+cMetaSubprogramReturnTypeName :: MetaPtr -> KnotMonad ByteString
+cMetaSubprogramReturnTypeName = shareString {#get CMeta->u.metaSubprogramInfo.returnTypeName#}
+cMetaSubprogramIsLocal :: MetaPtr -> IO Bool
+cMetaSubprogramIsLocal p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isLocalToUnit#} p
+cMetaSubprogramIsDefinition :: MetaPtr -> IO Bool
+cMetaSubprogramIsDefinition p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isDefinition#} p
+cMetaSubprogramVirtuality :: MetaPtr -> IO DW_VIRTUALITY
+cMetaSubprogramVirtuality p = dw_virtuality <$> {#get CMeta->u.metaSubprogramInfo.virtuality#} p
+cMetaSubprogramVirtualIndex :: MetaPtr -> IO Int32
+cMetaSubprogramVirtualIndex p = fromIntegral <$> {#get CMeta->u.metaSubprogramInfo.virtualIndex#} p
+cMetaSubprogramContainingType :: MetaPtr -> IO MetaPtr
+cMetaSubprogramContainingType = {#get CMeta->u.metaSubprogramInfo.containingType#}
+cMetaSubprogramIsArtificial :: MetaPtr -> IO Bool
+cMetaSubprogramIsArtificial p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isArtificial#} p
+cMetaSubprogramIsPrivate :: MetaPtr -> IO Bool
+cMetaSubprogramIsPrivate p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isPrivate#} p
+cMetaSubprogramIsProtected :: MetaPtr -> IO Bool
+cMetaSubprogramIsProtected p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isProtected#} p
+cMetaSubprogramIsExplicit :: MetaPtr -> IO Bool
+cMetaSubprogramIsExplicit p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isExplicit#} p
+cMetaSubprogramIsPrototyped :: MetaPtr -> IO Bool
+cMetaSubprogramIsPrototyped p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isPrototyped#} p
+cMetaSubprogramIsOptimized :: MetaPtr -> IO Bool
+cMetaSubprogramIsOptimized p = toBool <$> {#get CMeta->u.metaSubprogramInfo.isOptimized#} p
+cMetaSubprogramFilename :: MetaPtr -> KnotMonad ByteString
+cMetaSubprogramFilename = shareString {#get CMeta->u.metaSubprogramInfo.filename#}
+cMetaSubprogramDirectory :: MetaPtr -> KnotMonad ByteString
+cMetaSubprogramDirectory = shareString {#get CMeta->u.metaSubprogramInfo.directory#}
+cMetaTypeContext :: MetaPtr -> IO MetaPtr
+cMetaTypeContext = {#get CMeta->u.metaTypeInfo.context#}
+cMetaTypeName :: MetaPtr -> KnotMonad ByteString
+cMetaTypeName = shareString {#get CMeta->u.metaTypeInfo.name#}
+cMetaTypeCompileUnit :: MetaPtr -> IO MetaPtr
+cMetaTypeCompileUnit = {#get CMeta->u.metaTypeInfo.compileUnit#}
+cMetaTypeFile :: MetaPtr -> IO MetaPtr
+cMetaTypeFile = {#get CMeta->u.metaTypeInfo.file#}
+cMetaTypeLine :: MetaPtr -> IO Int32
+cMetaTypeLine p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.lineNumber#} p
+cMetaTypeSize :: MetaPtr -> IO Int64
+cMetaTypeSize p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.sizeInBits#} p
+cMetaTypeAlign :: MetaPtr -> IO Int64
+cMetaTypeAlign p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.alignInBits#} p
+cMetaTypeOffset :: MetaPtr -> IO Int64
+cMetaTypeOffset p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.offsetInBits#} p
+cMetaTypeFlags :: MetaPtr -> IO Int32
+cMetaTypeFlags p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.flags#} p
+cMetaTypeIsPrivate :: MetaPtr -> IO Bool
+cMetaTypeIsPrivate p = toBool <$> {#get CMeta->u.metaTypeInfo.isPrivate#} p
+cMetaTypeIsProtected :: MetaPtr -> IO Bool
+cMetaTypeIsProtected p = toBool <$> {#get CMeta->u.metaTypeInfo.isProtected#} p
+cMetaTypeIsForward :: MetaPtr -> IO Bool
+cMetaTypeIsForward p = toBool <$> {#get CMeta->u.metaTypeInfo.isForward#} p
+cMetaTypeIsByRefStruct :: MetaPtr -> IO Bool
+cMetaTypeIsByRefStruct p = toBool <$> {#get CMeta->u.metaTypeInfo.isByRefStruct#} p
+cMetaTypeIsVirtual :: MetaPtr -> IO Bool
+cMetaTypeIsVirtual p = toBool <$> {#get CMeta->u.metaTypeInfo.isVirtual#} p
+cMetaTypeIsArtificial :: MetaPtr -> IO Bool
+cMetaTypeIsArtificial p = toBool <$> {#get CMeta->u.metaTypeInfo.isArtificial#} p
+cMetaTypeDirectory :: MetaPtr -> KnotMonad ByteString
+cMetaTypeDirectory = shareString {#get CMeta->u.metaTypeInfo.directory#}
+cMetaTypeFilename :: MetaPtr -> KnotMonad ByteString
+cMetaTypeFilename = shareString {#get CMeta->u.metaTypeInfo.filename#}
+cMetaTypeEncoding :: MetaPtr -> IO DW_ATE
+cMetaTypeEncoding p = dw_ate <$> {#get CMeta->u.metaTypeInfo.encoding#} p
+cMetaTypeDerivedFrom :: MetaPtr -> IO MetaPtr
+cMetaTypeDerivedFrom = {#get CMeta->u.metaTypeInfo.typeDerivedFrom#}
+cMetaTypeOriginalTypeSize :: MetaPtr -> IO Int64
+cMetaTypeOriginalTypeSize p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.originalTypeSize#} p
+cMetaTypeCompositeComponents :: MetaPtr -> IO MetaPtr
+cMetaTypeCompositeComponents = {#get CMeta->u.metaTypeInfo.typeArray#}
+cMetaTypeRuntimeLanguage :: MetaPtr -> IO Int32
+cMetaTypeRuntimeLanguage p = fromIntegral <$> {#get CMeta->u.metaTypeInfo.runTimeLang#} p
+cMetaTypeContainingType :: MetaPtr -> IO MetaPtr
+cMetaTypeContainingType = {#get CMeta->u.metaTypeInfo.containingType#}
+cMetaTypeTemplateParams :: MetaPtr -> IO MetaPtr
+cMetaTypeTemplateParams = {#get CMeta->u.metaTypeInfo.templateParams#}
+
+-- | This helper converts C char* strings into ByteStrings, sharing
+-- identical bytestrings on the Haskell side.  This is a simple
+-- space-saving optimization (assuming the entire cache is garbage
+-- collected)
+shareString :: (a -> IO CString) -> a -> KnotMonad ByteString
+shareString accessor ptr = do
+  str <- liftIO $ accessor ptr >>= BS.packCString
+  s <- get
+  let cache = stringCache s
+  case M.lookup str cache of
+    Just cval -> return cval
+    Nothing -> do
+      put s { stringCache = M.insert str str cache }
+      return str
 
 data CGlobalInfo
 {#pointer *CGlobalInfo as GlobalInfoPtr -> CGlobalInfo #}
@@ -328,7 +582,7 @@ cCallNormalDest = {#get CCallInfo->normalDest#}
 
 -- | Parse the named file into an FFI-friendly representation of an
 -- LLVM module.
-{#fun marshalLLVM { `String' } -> `ModulePtr' id #}
+{#fun marshalLLVM { `String', fromBool `Bool' } -> `ModulePtr' id #}
 
 -- | Free all of the resources allocated by 'marshalLLVM'
 {#fun disposeCModule { id `ModulePtr' } -> `()' #}
@@ -344,17 +598,20 @@ data KnotState = KnotState { valueMap :: Map IntPtr Value
                            , visitedTypes :: Set IntPtr
                            , localId :: Int
                            , constantTranslationDepth :: Int
+                           , stringCache :: Map ByteString ByteString
                            }
 emptyState :: IORef Int -> IORef Int -> KnotState
-emptyState r1 r2 = KnotState { valueMap = M.empty
-                         , typeMap = M.empty
-                         , idSrc = r1
-                         , typeIdSrc = r2
-                         , result = Nothing
-                         , visitedTypes = S.empty
-                         , localId = 0
-                         , constantTranslationDepth = 0
-                         }
+emptyState r1 r2 =
+  KnotState { valueMap = M.empty
+            , typeMap = M.empty
+            , idSrc = r1
+            , typeIdSrc = r2
+            , result = Nothing
+            , visitedTypes = S.empty
+            , localId = 0
+            , constantTranslationDepth = 0
+            , stringCache = M.empty
+            }
 
 nextId :: KnotMonad Int
 nextId = do
@@ -379,8 +636,9 @@ nextTypeId = do
 -- 'Module').  In the case of an error, a descriptive string will be
 -- returned.
 parseLLVMBitcodeFile :: ParserOptions -> FilePath -> IO (Either String Module)
-parseLLVMBitcodeFile _ bitcodefile = do
-  m <- marshalLLVM bitcodefile
+parseLLVMBitcodeFile opts bitcodefile = do
+  let includeLineNumbers = metaPositionPrecision opts == PositionPrecise
+  m <- marshalLLVM bitcodefile includeLineNumbers
 
   hasError <- cModuleHasError m
   case hasError of
