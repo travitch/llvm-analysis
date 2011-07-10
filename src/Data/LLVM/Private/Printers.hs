@@ -190,12 +190,6 @@ printMetadata md@Metadata { metaValueContent = t@MetaDWTemplateValueParameter {}
           , ", i64 ", show (metaTemplateValueParameterValue t)
           , "}"
           ]
-printMetadata md@Metadata { metaValueContent = MetadataValueConstant v } =
-  mconcat [ showUntypedMDName md, " = metadata !{", printValue v, "}" ]
-printMetadata md@Metadata { metaValueContent = MetadataDiscarded } =
-  mconcat [ showUntypedMDName md, " = metadata !{ }" ]
-printMetadata md@Metadata { metaValueContent = MetadataUnknown } =
-  mconcat [ showUntypedMDName md, " = metadata unknown" ]
 
 -- Take all of the asm chunks, break their contents into lines,
 -- then wrap each of those lines in the 'module asm' wrapper.

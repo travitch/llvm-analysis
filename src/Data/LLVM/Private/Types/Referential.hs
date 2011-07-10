@@ -239,13 +239,6 @@ data MetadataT =
                                  , metaTemplateValueParameterName :: !ByteString
                                  }
   | MetadataList [Metadata]
-  | MetadataValueConstant Value
-    -- ^ A reference to a 'Value' in metadata
-  | MetadataDiscarded
-    -- ^ Metadata that has been discarded due to the parser
-    -- configuration
-  | MetadataUnknown
-    -- ^ Unrecognized type of metadata
   deriving (Ord, Eq)
 
 -- | The type of the unique identifiers that let us to work with

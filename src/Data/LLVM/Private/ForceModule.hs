@@ -356,11 +356,3 @@ forceMetadataT m@(MetaDWTemplateValueParameter {}) = do
   mapM_ metaForceIfNeeded [ metaTemplateValueParameterContext m
                           , metaTemplateValueParameterType m
                           ]
-forceMetadataT m@(MetadataValueConstant v) = do
-  -- v will actually be forced by the value expander, so we can just
-  -- force the constructor for it here.
-  v `seq` m `seq` return ()
-forceMetadataT m@MetadataDiscarded = do
-  m `seq` return ()
-forceMetadataT m@MetadataUnknown = do
-  m `seq` return ()
