@@ -42,6 +42,7 @@ data TranslationException = TooManyReturnValues
                           | InvalidIndirectBranchOperands
                           | KnotTyingFailure ValueTag
                           | TypeKnotTyingFailure TypeTag
+                          | MetaKnotFailure
                           | InvalidSelectArgs !Int
                           | InvalidExtractElementInst !Int
                           | InvalidInsertElementInst !Int
@@ -582,6 +583,7 @@ data KnotState = KnotState { valueMap :: Map IntPtr Value
                            , metaIdSrc :: IORef Int
                            , result :: Maybe Module
                            , visitedTypes :: Set IntPtr
+                           , visitedMetadata :: Set IntPtr
                            , localId :: Int
                            , constantTranslationDepth :: Int
                            , stringCache :: Map ByteString ByteString
@@ -596,6 +598,7 @@ emptyState r1 r2 r3 =
             , metaIdSrc = r3
             , result = Nothing
             , visitedTypes = S.empty
+            , visitedMetadata = S.empty
             , localId = 0
             , constantTranslationDepth = 0
             , stringCache = M.empty
@@ -832,7 +835,7 @@ translateAlias finalState vp = do
   metaPtr <- liftIO $ cValueMetadata vp
   let dataPtr' = castPtr dataPtr
 
-  mds <- mapM translateMetadata metaPtr
+  mds <- mapM (translateMetadata finalState) metaPtr
 
   vis <- liftIO $ cGlobalVisibility dataPtr'
   link <- liftIO $ cGlobalLinkage dataPtr'
@@ -866,7 +869,7 @@ translateGlobalVariable finalState vp = do
   metaPtr <- liftIO $ cValueMetadata vp
   tt <- translateType finalState typePtr
 
-  mds <- mapM translateMetadata metaPtr
+  mds <- mapM (translateMetadata finalState) metaPtr
   uid <- nextId
 
   let dataPtr' = castPtr dataPtr
@@ -922,7 +925,7 @@ translateFunction finalState vp = do
   metaPtr <- liftIO $ cValueMetadata vp
   tt <- translateType finalState typePtr
 
-  mds <- mapM translateMetadata metaPtr
+  mds <- mapM (translateMetadata finalState) metaPtr
 
   uid <- nextId
 
@@ -1003,7 +1006,7 @@ translateValue' finalState vp = do
   dataPtr <- liftIO $ cValueData vp
   metaPtr <- liftIO $ cValueMetadata vp
 
-  mds <- mapM translateMetadata metaPtr
+  mds <- mapM (translateMetadata finalState) metaPtr
 
   s <- get
   let cdepth = constantTranslationDepth s
@@ -1530,21 +1533,41 @@ translateConstantExpr finalState dataPtr = do
     ValInsertvalueinst -> translateInsertValueInst finalState ii
   return $ ConstantValue vt
 
-translateMetadata :: MetaPtr -> KnotMonad Metadata
-translateMetadata mp = do
+translateMetadata :: KnotState -> MetaPtr -> KnotMonad Metadata
+translateMetadata finalState mp = do
   s <- get
   let ip = ptrToIntPtr mp
+  put s { visitedMetadata = S.insert ip (visitedMetadata s) }
   case M.lookup ip (metaMap s) of
     Just m -> return m
-    Nothing -> translateMetadata' mp
+    Nothing -> translateMetadata' finalState mp
 
-maybeTranslateMetadata :: Maybe MetaPtr -> KnotMonad (Maybe Metadata)
-maybeTranslateMetadata Nothing = return Nothing
-maybeTranslateMetadata (Just mp) = Just <$> translateMetadata mp
-
-translateMetadata' :: MetaPtr -> KnotMonad Metadata
-translateMetadata' mp = do
+translateMetadataRec :: KnotState -> MetaPtr -> KnotMonad Metadata
+translateMetadataRec finalState mp = do
+  s <- get
   let ip = ptrToIntPtr mp
+  -- If we have already visited this metadata object, look it up in
+  -- the final state.  We record visits *before* making recursive
+  -- calls, allowing us to tie the knot by looking already-visited
+  -- nodes up in the final state.
+  --
+  -- If we haven't seen this node before, we can safely call the
+  -- outermost 'translateMetadata', which will make an entry in the
+  -- visited set and then do the translation.
+  case S.member ip (visitedMetadata s) of
+    False -> translateMetadata finalState mp
+    True -> return $ M.findWithDefault (throw MetaKnotFailure) ip (metaMap finalState)
+
+maybeTranslateMetadataRec :: KnotState -> Maybe MetaPtr -> KnotMonad (Maybe Metadata)
+maybeTranslateMetadataRec _ Nothing = return Nothing
+maybeTranslateMetadataRec finalState (Just mp) =
+  Just <$> translateMetadataRec finalState mp
+
+translateMetadata' :: KnotState -> MetaPtr -> KnotMonad Metadata
+translateMetadata' finalState mp = do
+  let ip = ptrToIntPtr mp
+  s <- get
+  put s { visitedMetadata = S.insert ip (visitedMetadata s) }
   metaTag <- liftIO $ cMetaTypeTag mp
   tag <- liftIO $ cMetaTag mp
   content <- case metaTag of
@@ -1553,7 +1576,7 @@ translateMetadata' mp = do
       col <- liftIO $ cMetaLocationColumn mp
       scope <- liftIO $ cMetaLocationScope mp
 
-      scope' <- translateMetadata scope
+      scope' <- translateMetadataRec finalState scope
       return MetaSourceLocation { metaSourceRow = line
                                 , metaSourceCol = col
                                 , metaSourceScope = scope'
@@ -1575,10 +1598,10 @@ translateMetadata' mp = do
       isProt <- liftIO $ cMetaTypeIsProtected mp
       isPriv <- liftIO $ cMetaTypeIsPrivate mp
 
-      f' <- maybeTranslateMetadata f
-      ctxt' <- translateMetadata ctxt
-      parent' <- maybeTranslateMetadata parent
-      cu' <- maybeTranslateMetadata cu
+      f' <- maybeTranslateMetadataRec finalState f
+      ctxt' <- translateMetadataRec finalState ctxt
+      parent' <- maybeTranslateMetadataRec finalState parent
+      cu' <- maybeTranslateMetadataRec finalState cu
 
       return MetaDWDerivedType { metaDerivedTypeContext = ctxt'
                                , metaDerivedTypeName = name
@@ -1618,13 +1641,13 @@ translateMetadata' mp = do
       isPriv <- liftIO $ cMetaTypeIsPrivate mp
       isByRef <- liftIO $ cMetaTypeIsByRefStruct mp
 
-      ctxt' <- translateMetadata ctxt
-      f' <- maybeTranslateMetadata f
-      parent' <- maybeTranslateMetadata parent
-      members' <- maybeTranslateMetadata members
-      ctype' <- maybeTranslateMetadata ctype
-      tparams' <- maybeTranslateMetadata tparams
-      cu' <- maybeTranslateMetadata cu
+      ctxt' <- translateMetadataRec finalState ctxt
+      f' <- maybeTranslateMetadataRec finalState f
+      parent' <- maybeTranslateMetadataRec finalState parent
+      members' <- maybeTranslateMetadataRec finalState members
+      ctype' <- maybeTranslateMetadataRec finalState ctype
+      tparams' <- maybeTranslateMetadataRec finalState tparams
+      cu' <- maybeTranslateMetadataRec finalState cu
 
       return MetaDWCompositeType { metaCompositeTypeTag = tag
                                  , metaCompositeTypeContext = ctxt'
@@ -1659,8 +1682,8 @@ translateMetadata' mp = do
       flags <- liftIO $ cMetaTypeFlags mp
       encoding <- liftIO $ cMetaTypeEncoding mp
 
-      ctxt' <- translateMetadata ctxt
-      f' <- maybeTranslateMetadata f
+      ctxt' <- translateMetadataRec finalState ctxt
+      f' <- maybeTranslateMetadataRec finalState f
 
       return MetaDWBaseType { metaBaseTypeContext = ctxt'
                             , metaBaseTypeName = name
@@ -1683,9 +1706,9 @@ translateMetadata' mp = do
       cplxAddr <- liftIO $ cMetaVariableAddrElements mp
       byRef <- liftIO $ cMetaVariableIsBlockByRefVar mp
 
-      ctxt' <- translateMetadata ctxt
-      file' <- translateMetadata file
-      ty' <- translateMetadata ty
+      ctxt' <- translateMetadataRec finalState ctxt
+      file' <- translateMetadataRec finalState file
+      ty' <- translateMetadataRec finalState ty
 
       return MetaDWLocal { metaLocalTag = tag
                          , metaLocalContext = ctxt'
@@ -1718,10 +1741,10 @@ translateMetadata' mp = do
       isExplicit <- liftIO $ cMetaSubprogramIsExplicit mp
       isPrototyped <- liftIO $ cMetaSubprogramIsPrototyped mp
 
-      ctxt' <- translateMetadata ctxt
-      compUnit' <- translateMetadata compUnit
-      ty' <- translateMetadata ty
-      baseType' <- maybeTranslateMetadata baseType
+      ctxt' <- translateMetadataRec finalState ctxt
+      compUnit' <- translateMetadataRec finalState compUnit
+      ty' <- translateMetadataRec finalState ty
+      baseType' <- maybeTranslateMetadataRec finalState baseType
 
       return MetaDWSubprogram { metaSubprogramContext = ctxt'
                               , metaSubprogramName = name
@@ -1751,9 +1774,9 @@ translateMetadata' mp = do
       isLocal <- liftIO $ cMetaGlobalIsLocal mp
       def <- liftIO $ cMetaGlobalIsDefinition mp
 
-      ctxt' <- translateMetadata ctxt
-      file' <- translateMetadata file
-      ty' <- translateMetadata ty
+      ctxt' <- translateMetadataRec finalState ctxt
+      file' <- translateMetadataRec finalState file
+      ty' <- translateMetadataRec finalState ty
 
       return MetaDWVariable { metaGlobalVarContext = ctxt'
                             , metaGlobalVarName = name
@@ -1770,7 +1793,7 @@ translateMetadata' mp = do
       dir <- cMetaFileDirectory mp
       cu <- liftIO $ cMetaFileCompileUnit mp
 
-      cu' <- translateMetadata cu
+      cu' <- translateMetadataRec finalState cu
 
       return MetaDWFile { metaFileSourceFile = file
                         , metaFileSourceDir = dir
@@ -1801,8 +1824,8 @@ translateMetadata' mp = do
       cu <- liftIO $ cMetaNamespaceCompileUnit mp
       line <- liftIO $ cMetaNamespaceLine mp
 
-      ctxt' <- translateMetadata ctxt
-      cu' <- translateMetadata cu
+      ctxt' <- translateMetadataRec finalState ctxt
+      cu' <- translateMetadataRec finalState cu
 
       return MetaDWNamespace { metaNamespaceContext = ctxt'
                              , metaNamespaceName = name
@@ -1814,7 +1837,7 @@ translateMetadata' mp = do
       line <- liftIO $ cMetaLexicalBlockLine mp
       col <- liftIO $ cMetaLexicalBlockColumn mp
 
-      ctxt' <- translateMetadata ctxt
+      ctxt' <- translateMetadataRec finalState ctxt
 
       return MetaDWLexicalBlock { metaLexicalBlockRow = line
                                 , metaLexicalBlockCol = col
@@ -1834,7 +1857,7 @@ translateMetadata' mp = do
                               }
     MetaArray -> do
       elts <- liftIO $ cMetaArrayElts mp
-      elts' <- mapM translateMetadata elts
+      elts' <- mapM (translateMetadataRec finalState) elts
       return $ MetadataList elts'
     MetaTemplatetypeparameter -> do
       ctxt <- liftIO $ cMetaTemplateTypeContext mp
@@ -1843,8 +1866,8 @@ translateMetadata' mp = do
       line <- liftIO $ cMetaTemplateTypeLine mp
       col <- liftIO $ cMetaTemplateTypeColumn mp
 
-      ctxt' <- translateMetadata ctxt
-      ty' <- translateMetadata ty
+      ctxt' <- translateMetadataRec finalState ctxt
+      ty' <- translateMetadataRec finalState ty
 
       return MetaDWTemplateTypeParameter { metaTemplateTypeParameterContext = ctxt'
                                          , metaTemplateTypeParameterType = ty'
@@ -1860,8 +1883,8 @@ translateMetadata' mp = do
       line <- liftIO $ cMetaTemplateValueLine mp
       col <- liftIO $ cMetaTemplateValueColumn mp
 
-      ctxt' <- translateMetadata ctxt
-      ty' <- translateMetadata ty
+      ctxt' <- translateMetadataRec finalState ctxt
+      ty' <- translateMetadataRec finalState ty
 
       return MetaDWTemplateValueParameter { metaTemplateValueParameterContext = ctxt'
                                           , metaTemplateValueParameterType = ty'
@@ -1875,6 +1898,6 @@ translateMetadata' mp = do
   let md = Metadata { metaValueContent = content
                     , metaValueUniqueId = uid
                     }
-  s <- get
-  put s { metaMap = M.insert ip md (metaMap s) }
+  st <- get
+  put st { metaMap = M.insert ip md (metaMap st) }
   return md
