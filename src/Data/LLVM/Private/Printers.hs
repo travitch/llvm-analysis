@@ -163,6 +163,33 @@ printMetadata md@Metadata { metaValueContent = MetadataList vals } =
           , intercalate ", " (map showMDName vals)
           , "}"
           ]
+printMetadata md@Metadata { metaValueContent = n@MetaDWNamespace {} } =
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 57
+          , ", ", showMDString (metaNamespaceName n)
+          , ", ", showMDName (metaNamespaceContext n)
+          , ", ", showMDName (metaNamespaceCompileUnit n)
+          , ", i32 ", show (metaNamespaceLine n)
+          , "}"
+          ]
+printMetadata md@Metadata { metaValueContent = t@MetaDWTemplateTypeParameter {} } =
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 0x2f
+          , ", ", showMDString (metaTemplateTypeParameterName t)
+          , ", i32 ", show (metaTemplateTypeParameterLine t)
+          , ", i32 ", show (metaTemplateTypeParameterCol t)
+          , ", ", showMDName (metaTemplateTypeParameterContext t)
+          , ", ", showMDName (metaTemplateTypeParameterType t)
+          , "}"
+          ]
+printMetadata md@Metadata { metaValueContent = t@MetaDWTemplateValueParameter {} } =
+  mconcat [ showUntypedMDName md, " = metadata !{i32 ", dbgTag 0x30
+          , ", ", showMDString (metaTemplateValueParameterName t)
+          , ", i32 ", show (metaTemplateValueParameterLine t)
+          , ", i32 ", show (metaTemplateValueParameterCol t)
+          , ", ", showMDName (metaTemplateValueParameterContext t)
+          , ", ", showMDName (metaTemplateValueParameterType t)
+          , ", i64 ", show (metaTemplateValueParameterValue t)
+          , "}"
+          ]
 printMetadata md@Metadata { metaValueContent = MetadataValueConstant v } =
   mconcat [ showUntypedMDName md, " = metadata !{", printValue v, "}" ]
 printMetadata md@Metadata { metaValueContent = MetadataDiscarded } =

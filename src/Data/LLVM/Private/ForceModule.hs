@@ -316,6 +316,7 @@ forceMetadataT m@(MetaDWDerivedType {}) = do
   metaForceIfNeeded (metaDerivedTypeContext m)
   mapM_ (maybe (return ()) metaForceIfNeeded) [ metaDerivedTypeFile m
                                               , metaDerivedTypeParent m
+                                              , metaDerivedTypeCompileUnit m
                                               ]
 forceMetadataT m@(MetaDWCompositeType {}) = do
   metaCompositeTypeName m `seq` m `seq` return ()
@@ -323,6 +324,9 @@ forceMetadataT m@(MetaDWCompositeType {}) = do
   mapM_ (maybe (return ()) metaForceIfNeeded) [ metaCompositeTypeFile m
                                               , metaCompositeTypeParent m
                                               , metaCompositeTypeMembers m
+                                              , metaCompositeTypeCompileUnit m
+                                              , metaCompositeTypeContainer m
+                                              , metaCompositeTypeTemplateParams m
                                               ]
 forceMetadataT m@(MetaDWSubrange {}) = do
   m `seq` return ()
@@ -337,6 +341,21 @@ forceMetadataT m@(MetaDWLocal {}) = do
 forceMetadataT m@(MetadataList ms) = do
   m `seq` return ()
   mapM_ metaForceIfNeeded ms
+forceMetadataT m@(MetaDWNamespace {}) = do
+  m `seq` return ()
+  mapM_ metaForceIfNeeded [ metaNamespaceContext m
+                          , metaNamespaceCompileUnit m
+                          ]
+forceMetadataT m@(MetaDWTemplateTypeParameter {}) = do
+  m `seq` return ()
+  mapM_ metaForceIfNeeded [ metaTemplateTypeParameterContext m
+                          , metaTemplateTypeParameterType m
+                          ]
+forceMetadataT m@(MetaDWTemplateValueParameter {}) = do
+  m `seq` return ()
+  mapM_ metaForceIfNeeded [ metaTemplateValueParameterContext m
+                          , metaTemplateValueParameterType m
+                          ]
 forceMetadataT m@(MetadataValueConstant v) = do
   -- v will actually be forced by the value expander, so we can just
   -- force the constructor for it here.

@@ -114,8 +114,6 @@ data MetadataT =
   | MetaDWLexicalBlock { metaLexicalBlockRow :: !Int32
                        , metaLexicalBlockCol :: !Int32
                        , metaLexicalBlockContext :: Metadata
-                       -- , metaLexicalBlockFile :: Metadata
-                       -- , metaLexicalBlockDepth :: !Int32
                        }
   | MetaDWNamespace { metaNamespaceContext :: Metadata
                     , metaNamespaceName :: !ByteString
