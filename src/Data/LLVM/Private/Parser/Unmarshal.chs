@@ -384,7 +384,9 @@ optionalField accessor p = do
 -- collected)
 shareString :: (a -> IO CString) -> a -> KnotMonad ByteString
 shareString accessor ptr = do
-  str <- liftIO $ accessor ptr >>= BS.packCString
+  sp <- liftIO $ accessor ptr
+  when (sp == nullPtr) (error "Null ptr in string")
+  str <- liftIO $ BS.packCString sp
   s <- get
   let cache = stringCache s
   case M.lookup str cache of

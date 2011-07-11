@@ -14,7 +14,7 @@ main = do
   either putStrLn printAllFuncArgs llvmModule
 
 printAllFuncArgs :: Module -> IO ()
-printAllFuncArgs m = mapM_ printFuncArgs $ moduleFunctions m
+printAllFuncArgs m = mapM_ printFuncArgs $ moduleDefinedFunctions m
 
 printFuncArgs :: Value -> IO ()
 printFuncArgs Value { valueContent = fc
