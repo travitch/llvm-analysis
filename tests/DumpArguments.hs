@@ -21,14 +21,13 @@ printFuncArgs Value { valueContent = fc
                     , valueName = Just n
                     } = do
   printf "Function [%s]:\n" (show n)
---  mapM_ printArgType args
-  -- where
-  --   args = functionParameters fc
+  mapM_ printArgType args
+  where
+    args = functionParameters fc
 
 metaType :: [Metadata] -> String
 metaType [] = "none"
 metaType (md:_) = show $ metaLocalType $ metaValueContent md
--- metaType md = show md
 
 printArgType :: Value -> IO ()
 printArgType a = do

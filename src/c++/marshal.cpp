@@ -690,8 +690,9 @@ static void makeMetaSubprogram(CModule *m, const MDNode *md, CMeta *meta) {
   meta->u.metaSubprogramInfo.isOptimized = ds.isOptimized();
   meta->u.metaSubprogramInfo.filename = strdup(ds.getFilename().str().c_str());
   meta->u.metaSubprogramInfo.directory = strdup(ds.getDirectory().str().c_str());
-  meta->u.metaSubprogramInfo.function = translateValue(m, ds.getFunction());
-  // meta->u.metaSubprogramInfo.templateParams = translateMetadata(m, ds.getTemplateParams());
+  const Value *func = ds.getFunction();
+  if(func)
+    meta->u.metaSubprogramInfo.function = translateValue(m, func);
 }
 
 static void makeMetaGlobalVariable(CModule *m, const MDNode *md, CMeta *meta) {
@@ -705,7 +706,9 @@ static void makeMetaGlobalVariable(CModule *m, const MDNode *md, CMeta *meta) {
   meta->u.metaGlobalInfo.globalType = translateMetadata(m, dg.getType());
   meta->u.metaGlobalInfo.isLocalToUnit = dg.isLocalToUnit();
   meta->u.metaGlobalInfo.isDefinition = dg.isDefinition();
-  meta->u.metaGlobalInfo.global = translateValue(m, dg.getConstant());
+  const Value *global = dg.getConstant();
+  if(global)
+    meta->u.metaGlobalInfo.global = translateValue(m, global);
 }
 
 static void makeMetaFile(CModule *m, const MDNode *md, CMeta *meta) {
@@ -1073,14 +1076,43 @@ static void buildInvokeInst(CModule *m, CValue *v, const InvokeInst *ii) {
 }
 
 static bool buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
-  if(const DbgDeclareInst *di = dynamic_cast<const DbgDeclareInst*>(ii)) {
-    CValue *addr = translateValue(m, di->getAddress());
-    CMeta *md = translateMetadata(m, di->getVariable());
+
+  /*
+    I wanted to use the Intrinsics directly here, but it didn't seem
+    to work.  I didn't look into the matter too closely, but these
+    instructions insisted that they were simply calls and I didn't
+    know how to convert them to intrinsics.
+   */
+
+//  if(const DbgDeclareInst *di = dynamic_cast<const DbgDeclareInst*>(ii)) {
+  if(ii->getCalledValue()->getNameStr() == "llvm.dbg.declare") {
+    CValue *addr = NULL;
+    if(const MDNode *addrWrapper = dynamic_cast<const MDNode*>(ii->getArgOperand(0))) {
+      const Value* realAddr = addrWrapper->getOperand(0);
+      // If the alloca was completely eliminated, this debug
+      // information can't be attached to anything as far as I can
+      // tell.
+      if(realAddr == NULL || dynamic_cast<const ConstantPointerNull*>(realAddr))
+        return false;
+
+      addr = translateValue(m, realAddr);
+    }
+    CMeta *md = NULL;
+    if(const MDNode *variableVal = dynamic_cast<const MDNode*>(ii->getArgOperand(1))) {
+      md = translateMetadata(m, variableVal);
+    }
+
+    if(!md) return false;
+
+    // CValue *addr = translateValue(m, di->getAddress());
+    // CMeta *md = translateMetadata(m, di->getVariable());
 
     // It should be the case that there should be exactly one of these
     // per alloca, and allocas should not have location info of their
     // own.
-    if(addr->md) throw "Address of MD already has metadata";
+    if(addr->md) {
+      return false;
+    } // throw "Address of MD already has metadata";
 
     addr->numMetadata = 1;
     addr->md = (CMeta**)calloc(1, sizeof(CMeta*));
@@ -1089,7 +1121,8 @@ static bool buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
     return false;
   }
 
-  if(const DbgValueInst *di = dynamic_cast<const DbgValueInst*>(ii)) {
+  // if(const DbgValueInst *di = dynamic_cast<const DbgValueInst*>(ii)) {
+  if(ii->getCalledValue()->getNameStr() == "llvm.dbg.value") {
     // In this case, we could see llvm.dbg.value "calls" for updates
     // to parameters.  We should only attach the *first* one we
     // encounter, which will be the one describing parameters or
@@ -1099,10 +1132,26 @@ static bool buildCallInst(CModule *m, CValue *v, const CallInst *ii) {
     // changes (that is apparent from the instruction stream).  I
     // could be convinced to change the behavior here if there is a
     // good use case.
-    CValue *val = translateValue(m, di->getValue());
+
+    CValue *val = NULL;
+    if(const MDNode *valWrapper = dynamic_cast<const MDNode*>(ii->getArgOperand(0))) {
+      const Value *realAddr = valWrapper->getOperand(0);
+      if(realAddr == NULL || dynamic_cast<const ConstantPointerNull*>(realAddr))
+        return false;
+
+      val = translateValue(m, realAddr);
+    }
+    // CValue *val = translateValue(m, di->getValue());
 
     if(val->numMetadata == 0) {
-      CMeta *md = translateMetadata(m, di->getVariable());
+      CMeta *md = NULL;
+      if(const MDNode *variable = dynamic_cast<const MDNode*>(ii->getArgOperand(2))) {
+        md = translateMetadata(m, variable);
+      }
+
+      if(!md) return false;
+
+      // CMeta *md = translateMetadata(m, di->getVariable());
       val->numMetadata = 1;
       val->md = (CMeta**)calloc(1, sizeof(CMeta*));
       val->md[0] = md;
@@ -1952,16 +2001,32 @@ static void attachFunctionMetadata(CModule *m, Module *M) {
 
   for(unsigned int i = 0; i < sp->getNumOperands(); ++i) {
     CMeta *md = translateMetadata(m, sp->getOperand(i));
-    if(md->tag != META_SUBPROGRAM) {
+    if(md->metaTag != META_SUBPROGRAM) {
       throw "Non-subprogram in llvm.dbg.sp";
     }
 
-    if(md->u.metaSubprogramInfo.function->numMetadata != 0) {
-      throw "Subprogram already has metadata";
+    // If there isn't a function listed to attach this to (why?) we
+    // can't do much.
+    if(md->u.metaSubprogramInfo.function == NULL)
+      continue;
+
+    int currentCapacity = md->u.metaSubprogramInfo.function->metaCapacity;
+    int metaCount = md->u.metaSubprogramInfo.function->numMetadata;
+    if(metaCount == 0) {
+      currentCapacity = 10;
+      md->u.metaSubprogramInfo.function->metaCapacity = currentCapacity;
+      md->u.metaSubprogramInfo.function->md =
+        (CMeta**)calloc(currentCapacity, sizeof(CMeta*));
     }
-    md->u.metaSubprogramInfo.function->numMetadata = 1;
-    md->u.metaSubprogramInfo.function->md = (CMeta**)calloc(1, sizeof(CMeta*));
-    md->u.metaSubprogramInfo.function->md[0] = md;
+    else if(metaCount == currentCapacity - 1) {
+      int newCapacity = 2 * currentCapacity;
+      CMeta **newMeta = (CMeta**)calloc(newCapacity, sizeof(CMeta*));
+      memcpy(newMeta, md->u.metaSubprogramInfo.function->md, currentCapacity);
+      md->u.metaSubprogramInfo.function->metaCapacity = newCapacity;
+    }
+
+    md->u.metaSubprogramInfo.function->md[metaCount] = md;
+    md->u.metaSubprogramInfo.function->numMetadata++;
   }
 }
 
@@ -1972,16 +2037,29 @@ static void attachGlobalMetadata(CModule *m, Module *M) {
 
   for(unsigned int i = 0; i < gv->getNumOperands(); ++i) {
     CMeta *md = translateMetadata(m, gv->getOperand(i));
-    if(md->tag != META_GLOBALVARIABLE) {
+    if(md->metaTag != META_GLOBALVARIABLE) {
       throw "Non-global in llvm.dbg.gv";
     }
 
-    if(md->u.metaGlobalInfo.global->numMetadata != 0) {
-      throw "Global already has metadata";
+    if(md->u.metaGlobalInfo.global == NULL)
+      continue;
+
+    int currentCapacity = md->u.metaGlobalInfo.global->metaCapacity;
+    int metaCount = md->u.metaGlobalInfo.global->numMetadata;
+    if(metaCount == 0) {
+      currentCapacity = 10;
+      md->u.metaGlobalInfo.global->metaCapacity = currentCapacity;
+      md->u.metaGlobalInfo.global->md = (CMeta**)calloc(currentCapacity, sizeof(CMeta*));
     }
-    md->u.metaGlobalInfo.global->numMetadata = 1;
-    md->u.metaGlobalInfo.global->md = (CMeta**)calloc(1, sizeof(CMeta*));
-    md->u.metaGlobalInfo.global->md[0] = md;
+    else if(metaCount == currentCapacity - 1) {
+      int newCapacity = 2 * currentCapacity;
+      CMeta **newMeta = (CMeta**)calloc(newCapacity, sizeof(CMeta*));
+      memcpy(newMeta, md->u.metaGlobalInfo.global->md, currentCapacity);
+      md->u.metaGlobalInfo.global->metaCapacity = newCapacity;
+    }
+
+    md->u.metaGlobalInfo.global->md[metaCount] = md;
+    md->u.metaGlobalInfo.global->numMetadata++;
   }
 }
 
@@ -2117,6 +2195,10 @@ extern "C" {
     catch(const string &msg) {
       ret->hasError = 1;
       ret->errMsg = strdup(msg.c_str());
+    }
+    catch(const char *msg) {
+      ret->hasError = 1;
+      ret->errMsg = strdup(msg);
     }
     catch(...) {
       ret->hasError = 1;

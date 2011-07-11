@@ -558,6 +558,7 @@ struct CValue_t {
   char *name;
   CMeta **md;
   int numMetadata;
+  int metaCapacity;
 
   void *data;
 };
