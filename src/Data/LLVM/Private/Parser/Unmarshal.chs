@@ -652,9 +652,9 @@ parseLLVMBitcodeFile opts bitcodefile = do
     exHandler :: TranslationException -> IO (Either String Module)
     exHandler ex = return $ Left (show ex)
     doParse m = do
-      idref <- newIORef 0
-      tref <- newIORef 0
-      mref <- newIORef 0
+      idref <- newIORef 1
+      tref <- newIORef 1
+      mref <- newIORef 1
       res <- evalStateT (mfix (tieKnot m)) (emptyState idref tref mref)
 
       disposeCModule m
