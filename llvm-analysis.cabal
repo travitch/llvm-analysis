@@ -32,6 +32,7 @@ library
                    Data.LLVM.Analysis.PointsTo.TrivialFunction,
                    Data.LLVM.CallGraph,
                    Data.LLVM.CFG,
+                   Data.LLVM.ICFG,
                    Data.LLVM.Testing,
                    Data.LLVM.Types,
                    Data.LLVM.Visualization

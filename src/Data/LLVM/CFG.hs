@@ -2,7 +2,7 @@
 module Data.LLVM.CFG (
   -- * Types
   CFG(..),
-  EdgeCondition(..),
+  CFGEdge(..),
   CFGType,
   HasCFG(..),
   -- * Constructors
@@ -16,9 +16,9 @@ import Text.Printf
 
 import Data.LLVM.Types
 
-type CFGType = Gr Value EdgeCondition
+type CFGType = Gr Value CFGEdge
 
-instance Labellable EdgeCondition where
+instance Labellable CFGEdge where
   toLabel = (Label . StrLabel) . show
 
 -- | The control flow graph representation
@@ -31,7 +31,7 @@ data CFG = CFG { cfgGraph :: CFGType
                }
 
 -- | The types of edges that appear in the 'CFG'
-data EdgeCondition =
+data CFGEdge =
   UnconditionalEdge
   -- ^ An unconditional jump from somewhere
   | DefaultEdge
@@ -48,7 +48,7 @@ data EdgeCondition =
     -- ^ Jump from the given indirect branch value
   deriving (Ord, Eq)
 
-instance Show EdgeCondition where
+instance Show CFGEdge where
   show UnconditionalEdge = ""
   show DefaultEdge = "<default>"
   show (TrueEdge v) = printf "%s is true" (show v)

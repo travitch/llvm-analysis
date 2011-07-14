@@ -40,7 +40,7 @@ import Data.LLVM.Types
 -- analysis object itself that is passed to one of the dataflow
 -- functions acts as the initial state.
 class BoundedMeetSemiLattice a => DataflowAnalysis a where
-  transfer :: a -> Value -> [EdgeCondition] -> a
+  transfer :: a -> Value -> [CFGEdge] -> a
   -- ^ The transfer function of this analysis.  It is given the
   -- current set of facts, the current instruction, and a list of
   -- incoming edges.
@@ -57,8 +57,8 @@ backwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b) => a -> b -> Value -> a
 backwardDataflow = dataflowAnalysis lsuc lpre cfgEntryNode
 
 dataflowAnalysis :: (Eq a, DataflowAnalysis a, HasCFG b) =>
-                    (CFGType -> Node -> [(Node, EdgeCondition)]) ->
-                    (CFGType -> Node -> [(Node, EdgeCondition)]) ->
+                    (CFGType -> Node -> [(Node, CFGEdge)]) ->
+                    (CFGType -> Node -> [(Node, CFGEdge)]) ->
                     (CFG -> Node) -> a -> b -> Value -> a
 dataflowAnalysis predFunc succFunc finalNodeFunc analysis f target =
   lookupFact finalStates (valueUniqueId target)

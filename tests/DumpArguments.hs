@@ -1,6 +1,5 @@
 import System.Environment ( getArgs )
 
-import Data.Either
 import Text.Printf
 
 import Data.LLVM
@@ -20,7 +19,7 @@ printFuncArgs :: Value -> IO ()
 printFuncArgs Value { valueContent = fc
                     , valueName = Just n
                     } = do
-  printf "Function [%s]:\n" (show n)
+  _ <- printf "Function [%s]:\n" (show n)
   mapM_ printArgType args
   where
     args = functionParameters fc

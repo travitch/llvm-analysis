@@ -95,8 +95,8 @@ callGraphRepr (CallGraph g) = g
 --
 -- FIXME: Function pointers can be bitcasted - be sure to respect
 -- those when adding indirect edges.
-mkCallGraph :: (PointsToAnalysis a) => Module -> a -> String -> CallGraph
-mkCallGraph m pta entryPoint =
+mkCallGraph :: (PointsToAnalysis a) => Module -> a -> [Value] -> CallGraph
+mkCallGraph m pta entryPoints =
   CallGraph $ mkGraph allNodes (unique allEdges)
   where
     allNodes = concat [ knownNodes, unknownNodes, externNodes ]
