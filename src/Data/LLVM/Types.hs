@@ -1,11 +1,10 @@
+{-# OPTIONS_HADDOCK hide #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Types (
   Module(..),
   moduleDefinedFunctions,
   moduleGlobals,
-  module Data.LLVM.Private.Types.Referential,
-  module Data.LLVM.Attributes,
-  module Data.LLVM.Identifiers,
+  module ReEx
   ) where
 
 import Control.DeepSeq
@@ -16,9 +15,9 @@ import Data.ByteString.Char8 ( ByteString )
 
 import Data.LLVM.Private.ForceModule
 import Data.LLVM.Private.Printers
-import Data.LLVM.Attributes
-import Data.LLVM.Identifiers
-import Data.LLVM.Private.Types.Referential
+import Data.LLVM.Attributes as ReEx
+import Data.LLVM.Identifiers as ReEx
+import Data.LLVM.Private.Types.Referential as ReEx
 
 -- | This is the top-level representation of a program in LLVM.  This
 -- is the type returned from all of the parsers, and all analysis
@@ -50,7 +49,7 @@ isNotExternal _ = False
 
 -- | Implementation of the Show instance
 printModule :: Module -> String
-printModule Module { moduleIdentifier = ident
+printModule Module { moduleIdentifier = _
                    , moduleDataLayout = layout
                    , moduleTarget = triple
                    , moduleAssembly = asm

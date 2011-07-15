@@ -251,9 +251,8 @@ forceGlobalValueT g@(GlobalDeclaration {}) = do
 forceGlobalValueT g@(GlobalAlias {}) = do
   globalAliasLinkage g `seq` globalAliasVisibility g `seq` g `seq` return ()
   forceValueIfConstant (globalAliasValue g)
-forceGlobalValueT e@ExternalValue = do
-  e `seq` return ()
-forceGlobalValueT e@(ExternalFunction atts) = do
+forceGlobalValueT e@ExternalValue = e `seq` return ()
+forceGlobalValueT e@(ExternalFunction atts) =
   atts `deepseq` e `seq` return ()
 
 forceBasicBlock :: Value -> ForceMonad ()
@@ -286,7 +285,7 @@ forceMetadataT m@(MetaSourceLocation {}) = do
 forceMetadataT m@(MetaDWLexicalBlock {}) = do
   m `seq` return ()
   mapM_ metaForceIfNeeded [ metaLexicalBlockContext m ]
-forceMetadataT m@(MetaDWCompileUnit {}) = do
+forceMetadataT m@(MetaDWCompileUnit {}) =
   metaCompileUnitSourceFile m `seq` metaCompileUnitCompileDir m `seq`
     metaCompileUnitProducer m `seq` metaCompileUnitFlags m `seq` m `seq` return ()
 forceMetadataT m@(MetaDWFile {}) = do
@@ -328,9 +327,8 @@ forceMetadataT m@(MetaDWCompositeType {}) = do
                                               , metaCompositeTypeContainer m
                                               , metaCompositeTypeTemplateParams m
                                               ]
-forceMetadataT m@(MetaDWSubrange {}) = do
-  m `seq` return ()
-forceMetadataT m@(MetaDWEnumerator {}) = do
+forceMetadataT m@(MetaDWSubrange {}) = m `seq` return ()
+forceMetadataT m@(MetaDWEnumerator {}) =
   metaEnumeratorName m `seq` m `seq` return ()
 forceMetadataT m@(MetaDWLocal {}) = do
   metaLocalName m `seq` m `seq` return ()

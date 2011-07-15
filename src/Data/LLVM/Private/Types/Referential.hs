@@ -16,6 +16,7 @@ import Data.ByteString.Char8 ( ByteString )
 import Data.GraphViz
 import Data.Hashable
 import Data.Int
+import Data.Ord ( comparing )
 import Text.Printf
 
 import Data.LLVM.Attributes
@@ -64,7 +65,7 @@ data Type = TypeInteger !Int
 instance Ord Type where
   t1 `compare` t2 = case t1 == t2 of
     True -> EQ
-    False -> hash t1 `compare` hash t2
+    False -> comparing hash t1 t2
 
 instance Hashable Type where
   hash (TypeInteger i) = 1 `combine` hash i
@@ -259,7 +260,7 @@ instance Eq Metadata where
   mv1 == mv2 = metaValueUniqueId mv1 == metaValueUniqueId mv2
 
 instance Ord Metadata where
-  mv1 `compare` mv2 = metaValueUniqueId mv1 `compare` metaValueUniqueId mv2
+  mv1 `compare` mv2 = comparing metaValueUniqueId mv1 mv2
 
 instance Hashable Metadata where
   hash md = fromIntegral $ metaValueUniqueId md
@@ -280,13 +281,13 @@ instance Eq Value where
   v1 == v2 = valueUniqueId v1 == valueUniqueId v2
 
 instance Ord Value where
-  v1 `compare` v2 = valueUniqueId v1 `compare` valueUniqueId v2
+  v1 `compare` v2 = comparing valueUniqueId v1 v2
 
 maxInt :: UniqueId
 maxInt = fromIntegral (maxBound :: Int)
 
 instance Hashable Value where
-  hash Value { valueUniqueId = i } = fromIntegral $ (i `mod` maxInt)
+  hash Value { valueUniqueId = i } = fromIntegral (i `mod` maxInt)
 
 instance Labellable Value where
   toLabel = (Label . StrLabel) . show . valueName

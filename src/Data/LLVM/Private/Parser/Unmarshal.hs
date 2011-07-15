@@ -92,32 +92,23 @@ emptyState r1 r2 r3 =
             , stringCache = M.empty
             }
 
-nextId :: KnotMonad Int
-nextId = do
+genId :: (KnotState -> IORef Int) -> KnotMonad Int
+genId accessor = do
   s <- get
-  let r = idSrc s
+  let r = accessor s
   thisId <- liftIO $ readIORef r
   liftIO $ modifyIORef r (+1)
 
   return thisId
+
+nextId :: KnotMonad Int
+nextId = genId idSrc
 
 nextTypeId :: KnotMonad Int
-nextTypeId = do
-  s <- get
-  let r = typeIdSrc s
-  thisId <- liftIO $ readIORef r
-  liftIO $ modifyIORef r (+1)
-
-  return thisId
+nextTypeId = genId typeIdSrc
 
 nextMetaId :: KnotMonad Int
-nextMetaId = do
-  s <- get
-  let r = metaIdSrc s
-  thisId <- liftIO $ readIORef r
-  liftIO $ modifyIORef r (+1)
-
-  return thisId
+nextMetaId = genId metaIdSrc
 
 -- | Parse the named LLVM bitcode file into the LLVM form of the IR (a
 -- 'Module').  In the case of an error, a descriptive string will be
@@ -223,7 +214,7 @@ translateTypeRec finalState tp = do
 
           return t
 
-        (True, TYPE_NAMED) -> do
+        (True, TYPE_NAMED) ->
           -- Otherwise, if we *have* seen it before, we can just look
           -- it up.  This handles the case of seeing the same named
           -- type for the first time within e.g., a TypeStruct
@@ -700,10 +691,10 @@ translateBranchInst finalState dataPtr = do
       val' <- translateConstOrRef finalState val
       fbranch <- translateConstOrRef finalState f
       tbranch <- translateConstOrRef finalState t
-      return $ BranchInst { branchCondition = val'
-                           , branchTrueTarget = tbranch
-                           , branchFalseTarget = fbranch
-                           }
+      return BranchInst { branchCondition = val'
+                        , branchTrueTarget = tbranch
+                        , branchFalseTarget = fbranch
+                        }
     _ -> throw InvalidBranchInst
 
 translateSwitchInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
@@ -723,10 +714,10 @@ translateSwitchInst finalState dataPtr = do
           tpairs acc [] = return $ reverse acc
           tpairs _ _ = throw InvalidSwitchLayout
       cases' <- tpairs [] cases
-      return $ SwitchInst { switchValue = val'
-                           , switchDefaultTarget = def'
-                           , switchCases = cases'
-                           }
+      return SwitchInst { switchValue = val'
+                        , switchDefaultTarget = def'
+                        , switchCases = cases'
+                        }
     _ -> throw InvalidSwitchLayout
 
 translateIndirectBrInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
@@ -736,9 +727,9 @@ translateIndirectBrInst finalState dataPtr = do
     (addr:targets) -> do
       addr' <- translateConstOrRef finalState addr
       targets' <- mapM (translateConstOrRef finalState) targets
-      return $ IndirectBranchInst { indirectBranchAddress = addr'
-                                  , indirectBranchTargets = targets'
-                                  }
+      return IndirectBranchInst { indirectBranchAddress = addr'
+                                , indirectBranchTargets = targets'
+                                }
     _ -> throw InvalidIndirectBranchOperands
 
 translateInvokeInst :: KnotState -> CallInfoPtr -> KnotMonad ValueT
@@ -755,15 +746,15 @@ translateInvokeInst finalState dataPtr = do
   n' <- translateConstOrRef finalState ndest
   u' <- translateConstOrRef finalState udest
 
-  return $ InvokeInst { invokeConvention = cc
-                      , invokeParamAttrs = [] -- FIXME
-                      , invokeFunction = f'
-                      , invokeArguments = zip args' (repeat []) -- FIXME
-                      , invokeAttrs = [] -- FIXME
-                      , invokeNormalLabel = n'
-                      , invokeUnwindLabel = u'
-                      , invokeHasSRet = hasSRet
-                      }
+  return InvokeInst { invokeConvention = cc
+                    , invokeParamAttrs = [] -- FIXME
+                    , invokeFunction = f'
+                    , invokeArguments = zip args' (repeat []) -- FIXME
+                    , invokeAttrs = [] -- FIXME
+                    , invokeNormalLabel = n'
+                    , invokeUnwindLabel = u'
+                    , invokeHasSRet = hasSRet
+                    }
 
 translateFlaggedBinaryOp :: KnotState -> (ArithFlags -> Value -> Value -> ValueT) ->
                             InstInfoPtr -> KnotMonad ValueT
@@ -823,12 +814,12 @@ translateStoreInst finalState dataPtr = do
   ops <- mapM (translateConstOrRef finalState) opPtrs
 
   case ops of
-    [val, ptr] -> return $ StoreInst { storeIsVolatile = isVol
-                                     , storeValue = val
-                                     , storeAddress = ptr
-                                     , storeAlignment = align
-                                     , storeAddrSpace = addrSpace
-                                     }
+    [val, ptr] -> return StoreInst { storeIsVolatile = isVol
+                                   , storeValue = val
+                                   , storeAddress = ptr
+                                   , storeAlignment = align
+                                   , storeAddrSpace = addrSpace
+                                   }
     _ -> throw $ InvalidBinaryOp (length ops)
 
 translateGEPInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
@@ -840,11 +831,11 @@ translateGEPInst finalState dataPtr = do
   ops <- mapM (translateConstOrRef finalState) opPtrs
 
   case ops of
-    (val:indices) -> return $ GetElementPtrInst { getElementPtrInBounds = inBounds
-                                                , getElementPtrValue = val
-                                                , getElementPtrIndices = indices
-                                                , getElementPtrAddrSpace = addrSpace
-                                                }
+    (val:indices) -> return GetElementPtrInst { getElementPtrInBounds = inBounds
+                                              , getElementPtrValue = val
+                                              , getElementPtrIndices = indices
+                                              , getElementPtrAddrSpace = addrSpace
+                                              }
     _ -> throw $ InvalidGEPInst (length ops)
 
 translateCastInst :: KnotState -> (Value -> ValueT) -> InstInfoPtr -> KnotMonad ValueT
@@ -889,21 +880,21 @@ translateCallInst finalState dataPtr = do
   val <- translateConstOrRef finalState vptr
   args <- mapM (translateConstOrRef finalState) aptrs
 
-  return $ CallInst { callIsTail = isTail
-                    , callConvention = cc
-                    , callParamAttrs = [] -- FIXME
-                    , callFunction = val
-                    , callArguments = zip args (repeat []) -- FIXME
-                    , callAttrs = [] -- FIXME
-                    , callHasSRet = hasSRet
-                    }
+  return CallInst { callIsTail = isTail
+                  , callConvention = cc
+                  , callParamAttrs = [] -- FIXME
+                  , callFunction = val
+                  , callArguments = zip args (repeat []) -- FIXME
+                  , callAttrs = [] -- FIXME
+                  , callHasSRet = hasSRet
+                  }
 
 translateSelectInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
 translateSelectInst finalState dataPtr = do
   opPtrs <- liftIO $ cInstructionOperands dataPtr
   ops <- mapM (translateConstOrRef finalState) opPtrs
   case ops of
-    [cond, trueval, falseval] -> do
+    [cond, trueval, falseval] ->
       return $ SelectInst cond trueval falseval
     _ -> throw $ InvalidSelectArgs (length ops)
 
@@ -920,10 +911,10 @@ translateExtractElementInst finalState dataPtr = do
   opPtrs <- liftIO $ cInstructionOperands dataPtr
   ops <- mapM (translateConstOrRef finalState) opPtrs
   case ops of
-    [vec, idx] -> do
-      return $ ExtractElementInst { extractElementVector = vec
-                                  , extractElementIndex = idx
-                                  }
+    [vec, idx] ->
+      return ExtractElementInst { extractElementVector = vec
+                                , extractElementIndex = idx
+                                }
     _ -> throw $ InvalidExtractElementInst (length ops)
 
 translateInsertElementInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
@@ -931,11 +922,11 @@ translateInsertElementInst finalState dataPtr = do
   opPtrs <- liftIO $ cInstructionOperands dataPtr
   ops <- mapM (translateConstOrRef finalState) opPtrs
   case ops of
-    [vec, val, idx] -> do
-      return $ InsertElementInst { insertElementVector = vec
-                                 , insertElementValue = val
-                                 , insertElementIndex = idx
-                                 }
+    [vec, val, idx] ->
+      return InsertElementInst { insertElementVector = vec
+                               , insertElementValue = val
+                               , insertElementIndex = idx
+                               }
     _ -> throw $ InvalidInsertElementInst (length ops)
 
 translateShuffleVectorInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
@@ -943,11 +934,11 @@ translateShuffleVectorInst finalState dataPtr = do
   opPtrs <- liftIO $ cInstructionOperands dataPtr
   ops <- mapM (translateConstOrRef finalState) opPtrs
   case ops of
-    [v1, v2, vecMask] -> do
-      return $ ShuffleVectorInst { shuffleVectorV1 = v1
-                                 , shuffleVectorV2 = v2
-                                 , shuffleVectorMask = vecMask
-                                 }
+    [v1, v2, vecMask] ->
+      return ShuffleVectorInst { shuffleVectorV1 = v1
+                               , shuffleVectorV2 = v2
+                               , shuffleVectorMask = vecMask
+                               }
     _ -> throw $ InvalidShuffleVectorInst (length ops)
 
 translateExtractValueInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
@@ -956,9 +947,9 @@ translateExtractValueInst finalState dataPtr = do
   indices <- liftIO $ cInstructionIndices dataPtr
   ops <- mapM (translateConstOrRef finalState) opPtrs
   case ops of
-    [agg] -> return $ ExtractValueInst { extractValueAggregate = agg
-                                       , extractValueIndices = indices
-                                       }
+    [agg] -> return ExtractValueInst { extractValueAggregate = agg
+                                     , extractValueIndices = indices
+                                     }
     _ -> throw $ InvalidExtractValueInst (length ops)
 
 translateInsertValueInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
@@ -968,10 +959,10 @@ translateInsertValueInst finalState dataPtr = do
   ops <- mapM (translateConstOrRef finalState) opPtrs
   case ops of
     [agg, val] ->
-      return $ InsertValueInst { insertValueAggregate = agg
-                               , insertValueValue = val
-                               , insertValueIndices = indices
-                               }
+      return InsertValueInst { insertValueAggregate = agg
+                             , insertValueValue = val
+                             , insertValueIndices = indices
+                             }
     _ -> throw $ InvalidInsertValueInst (length ops)
 
 translateConstantExpr :: KnotState -> ConstExprPtr -> KnotMonad ValueT
