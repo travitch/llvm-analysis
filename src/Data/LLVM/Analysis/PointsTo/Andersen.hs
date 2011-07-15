@@ -1,6 +1,6 @@
 module Data.LLVM.Analysis.PointsTo.Andersen (
   -- * Types
-  AndersenAnalysis,
+--  AndersenAnalysis,
   -- * Constructor
   runPointsToAnalysis
   ) where
@@ -10,11 +10,12 @@ import Data.List ( sort )
 import Data.Maybe ( fromJust )
 import Data.Set ( Set )
 import qualified Data.Set as S
-import Language.Datalog
+-- import Language.Datalog
 
 import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Types
 
+{-
 -- | The wrapper around the result of an Andersen's analysis.  It is
 -- an instance of the 'PointsToAnalysis' typeclass and is intended to
 -- be used through that interface.
@@ -26,7 +27,7 @@ instance PointsToAnalysis AndersenAnalysis where
 
 instance Show AndersenAnalysis where
   show = showAllResults
-
+-}
 -- | A wrapper type to shove values of different types into the
 -- Datalog engine.  MemLoc serves to mark certain values as pointing
 -- to memory locations.  It basically seeds the analysis with initial
@@ -48,6 +49,7 @@ toLLVMValue (LLVMValue v) = v
 toLLVMValue (MemLoc v) = v
 toLLVMValue _ = error "Non-llvm value, corrupt domains"
 
+{-
 -- | The actual definition of Andersen's points-to analysis.  It takes
 -- a whole 'Module' from which it extracts facts.
 andersen :: Module -> Datalog LogicValue (QueryResult LogicValue)
@@ -107,13 +109,14 @@ andersen m = do
   --                                 ]
 
   queryDatabase pointsToR {-fieldPointsTo-} [ v1, h1 ]
-
+-}
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
 -- results.
-runPointsToAnalysis :: Module -> AndersenAnalysis
-runPointsToAnalysis m = AndersenAnalysis $ evalDatalog (andersen m)
+runPointsToAnalysis :: Module -> Int
+runPointsToAnalysis m = undefined -- AndersenAnalysis $ evalDatalog (andersen m)
 
+{-
 andersenMayAlias :: AndersenAnalysis -> Value -> Value -> Bool
 andersenMayAlias a v1 v2 =
   (andersenPointsTo a v1 `S.intersection` andersenPointsTo a v2) /= S.empty
@@ -176,3 +179,4 @@ showAllResults (AndersenAnalysis res) =
     results = sort $ allResults res
     unval = show . fromJust . valueName . toLLVMValue
     toS [ v1, v2 ] = concat [unval v1, " -> ", unval v2 ]
+-}

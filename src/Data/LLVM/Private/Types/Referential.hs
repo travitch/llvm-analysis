@@ -18,9 +18,9 @@ import Data.Hashable
 import Data.Int
 import Text.Printf
 
-import Data.LLVM.Private.Types.Attributes
-import Data.LLVM.Private.Types.Dwarf
-import Data.LLVM.Private.Types.Identifiers
+import Data.LLVM.Attributes
+import Data.LLVM.Dwarf
+import Data.LLVM.Identifiers
 
 -- | This is the version of LLVM's debug information that this library
 -- supports.

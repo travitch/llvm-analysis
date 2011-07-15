@@ -4,8 +4,8 @@ module Data.LLVM.Types (
   moduleDefinedFunctions,
   moduleGlobals,
   module Data.LLVM.Private.Types.Referential,
-  module Data.LLVM.Private.Types.Attributes,
-  module Data.LLVM.Private.Types.Identifiers,
+  module Data.LLVM.Attributes,
+  module Data.LLVM.Identifiers,
   ) where
 
 import Control.DeepSeq
@@ -16,8 +16,8 @@ import Data.ByteString.Char8 ( ByteString )
 
 import Data.LLVM.Private.ForceModule
 import Data.LLVM.Private.Printers
-import Data.LLVM.Private.Types.Attributes
-import Data.LLVM.Private.Types.Identifiers
+import Data.LLVM.Attributes
+import Data.LLVM.Identifiers
 import Data.LLVM.Private.Types.Referential
 
 -- | This is the top-level representation of a program in LLVM.  This
