@@ -35,6 +35,7 @@ data Module = Module { moduleIdentifier :: ByteString
                      , moduleAliases :: [Value]
                      , moduleGlobalVariables :: [Value]
                      , moduleFunctions :: [Value]
+                     , moduleNextId :: Int
                      }
 
 -- | Extract a list of only those functions that are *defined* in the

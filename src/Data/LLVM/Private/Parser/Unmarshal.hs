@@ -155,6 +155,8 @@ tieKnot m finalState = do
   aliases' <- mapM (translateAlias finalState) aliases
   funcs' <- mapM (translateFunction finalState) funcs
 
+  s <- get
+  lastId <- liftIO $ readIORef (idSrc s)
   let ir = Module { moduleIdentifier = modIdent
                   , moduleDataLayout = dataLayout
                   , moduleTarget = triple
@@ -162,8 +164,8 @@ tieKnot m finalState = do
                   , moduleAliases = aliases'
                   , moduleGlobalVariables = vars'
                   , moduleFunctions = funcs'
+                  , moduleNextId = lastId + 1
                   }
-  s <- get
   return s { result = Just ir }
 
 translateType :: KnotState -> TypePtr -> KnotMonad Type
