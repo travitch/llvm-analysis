@@ -800,10 +800,10 @@ translateLoadInst finalState dataPtr = do
   ops <- mapM (translateConstOrRef finalState) opPtrs
 
   case ops of
-    [addr] -> return $ LoadInst { loadIsVolatile = vol
-                                , loadAddress = addr
-                                , loadAlignment = align
-                                }
+    [addr] -> return LoadInst { loadIsVolatile = vol
+                              , loadAddress = addr
+                              , loadAlignment = align
+                              }
     _ -> throw $ InvalidUnaryOp (length ops)
 
 translateStoreInst :: KnotState -> InstInfoPtr -> KnotMonad ValueT
