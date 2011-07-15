@@ -1,4 +1,10 @@
-module Data.LLVM.ICFG where
+module Data.LLVM.ICFG (
+  -- * Types
+  ICFG(..),
+  EdgeType(..),
+  -- * Constructor
+  mkICFG
+  ) where
 
 import Data.Graph.Inductive
 import Data.HashMap.Strict ( HashMap )
@@ -6,12 +12,13 @@ import qualified Data.HashMap.Strict as M
 
 import Data.LLVM.Types
 import Data.LLVM.CFG
-import Data.LLVM.CallGraph
 import Data.LLVM.Analysis.PointsTo
 
 data EdgeType = CallToEntry
               | ReturnToCall
               | CallToReturn
+              | CallToExtern
+              | ReturnFromExtern
               | IntraEdge CFGEdge
 
 data ICFG = ICFG { icfgGraph :: Gr Value EdgeType
@@ -19,35 +26,73 @@ data ICFG = ICFG { icfgGraph :: Gr Value EdgeType
                  , icfgModule :: Module
                  }
 
-mkICFG :: (PointsToAnalysis a) => Module -> a -> [Value] -> ICFG
-mkICFG m pta entries = mkICFG' m entries cfgs callGraph
-  where
-    funcs = moduleDefinedFunctions m
-    cfgs = zip funcs $ map mkCFG funcs
-    callGraph = mkCallGraph m pta entries
-
--- FIXME: This does not handle invoke instructions yet.
-
-mkICFG' :: Module -> [Value] -> [(Value, CFG)] -> CallGraph -> ICFG
-mkICFG' m entries cfgs cg =
+-- | Build the interprocedural CFG for the given 'Module'.  The ICFG
+-- has all of the instructions in the module as nodes, augmented by a
+-- special "return" node for each call node.  There are several types
+-- of edges:
+--
+-- * Standard intraprocedural edges as in a CFG
+--
+-- * Edges from calls to the entry node of the target function(s)
+--
+-- * Edges from ret instructions to the special "return" node of the
+--   corresponding call node that led to the function
+--
+-- * Edges from call nodes to their corresponding special "return"
+--   node.  These are used to propagate information about local
+--   variables
+--
+-- * Edges to and from called external functions.  The external
+--   function is represented by two nodes: a fake entry and fake exit.
+--
+-- This graph is meant for use in interprocedural analysis.  The
+-- @entryPoints@ parameter directs interprocedural analyses where they
+-- should start.  If no entry points are specified, the 'Module' will
+-- be considered to be a library and all functions will be considered
+-- as entry points (with multiple entries permitted for each).
+--
+-- Additionally, if no entry points are specified (or there are calls
+-- to dlopen), there will be edges to Unknown functions that are called
+-- through function pointers.
+mkICFG :: (PointsToAnalysis a, HasCFG b) => Module
+          -> a       -- ^ A points-to analysis
+          -> [b]     -- ^ Values with control-flow graphs (either functions or pre-computed CFGs)
+          -> [Value] -- ^ Entry points.  This could be just main or a larger list for a library
+          -> ICFG
+mkICFG m pta fcfgs entryPoints =
   ICFG { icfgGraph = mkGraph allNodes allEdges
-       , icfgEntryPoints = entries
+       , icfgEntryPoints = entryPoints
        , icfgModule = m
        }
   where
-    allNodes = concat [ cfgNodes, callReturnNodes ]
-    allEdges = concat [ cfgEdges', callEdges, returnEdges, callReturnEdges ]
+    allNodes = cfgNodes ++ callReturnNodes
+    -- ^ The only extra nodes in the ICFG are call return nodes
+    -- (representing the place to which flow resumes after a function
+    -- call)
 
-    cfgNodes = concatMap (labNodes . cfgGraph . snd) cfgs
-    cfgEdges = concatMap (labEdges . cfgGraph . snd) cfgs
-    cfgEdges' = map convertEdge cfgEdges
+    allEdges = concat [ intraIcfgEdges, callEdges, returnEdges, callReturnEdges ]
+    -- ^ The ICFG adds call/return edges on top of the original
+    -- intraprocedural edges.
+
+    cfgs = map getCFG fcfgs
+    funcCfgs = map (\x -> (cfgFunction x, x)) cfgs
+    funcCfgMap = M.fromList funcCfgs
+
+    cfgNodes = concatMap (labNodes . cfgGraph) cfgs
+    cfgEdges = concatMap (labEdges . cfgGraph) cfgs
+    intraIcfgEdges = map convertEdge cfgEdges
 
     callNodes = filter isCall cfgNodes
 
     callReturnNodes = map transformCallToReturnNode callNodes
-    callEdges = undefined
-    returnEdges = undefined
     callReturnEdges = map makeCallToReturnEdge callNodes
+    callEdges = map (makeCallEdge pta funcCfgMap) callNodes
+    returnEdges = undefined
+
+-- FIXME: This does not handle invoke instructions yet.
+
+makeCallEdge :: (PointsToAnalysis a) => a -> HashMap Value CFG -> LNode Value -> LEdge EdgeType
+makeCallEdge pta valCfgs (n, v) = undefined
 
 makeCallToReturnEdge :: LNode Value -> LEdge EdgeType
 makeCallToReturnEdge (nid, _) = (nid, -nid, CallToReturn)

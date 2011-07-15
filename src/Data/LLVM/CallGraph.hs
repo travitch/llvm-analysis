@@ -32,6 +32,7 @@ module Data.LLVM.CallGraph (
   callGraphRepr
   ) where
 
+import Control.Arrow ( (&&&) )
 import Data.Graph.Inductive
 import Data.GraphViz
 import qualified Data.Set as S
@@ -54,7 +55,7 @@ data CallNode = DefinedFunction Value
 
 instance Show CallNode where
   show (DefinedFunction v) = show $ fromJust (valueName v)
-  show (ExtFunction v) = "extern " ++ (show $ fromJust (valueName v))
+  show (ExtFunction v) = "extern " ++ show (fromJust (valueName v))
   show UnknownFunction = "unknown"
 
 instance Labellable CallNode where
@@ -103,7 +104,8 @@ mkCallGraph m pta entryPoints =
     (allEdges, unknownNodes) = buildEdges pta funcs
     -- ^ Build up all of the edges and accumulate unknown nodes as
     -- they are created on-the-fly
-    knownNodes = map (\v -> (valueUniqueId v, DefinedFunction v)) funcs
+    -- knownNodes = map (\v -> (valueUniqueId v, DefinedFunction v)) funcs
+    knownNodes = map (valueUniqueId &&& DefinedFunction) funcs
     -- ^ Add nodes for unknown functions (one unknown node for each
     -- type signature in an indirect call).  The unknown nodes can use
     -- negative numbers for nodeids since actual Value IDs start at 0.
@@ -147,7 +149,7 @@ buildFuncEdges pta v@Value { valueContent = f } = concat es
 getCallee :: ValueT -> Value
 getCallee CallInst { callFunction = f } = f
 getCallee InvokeInst { invokeFunction = f } = f
-getCallee _ = error $ "Not a function in getCallee"
+getCallee _ = error "Not a function in getCallee"
 
 buildCallEdges :: (PointsToAnalysis a) => a -> Value -> Value -> [LEdge CallEdge]
 buildCallEdges pta caller Value { valueContent = c } = build' (getCallee c)
