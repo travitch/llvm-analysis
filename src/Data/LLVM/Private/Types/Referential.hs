@@ -1,14 +1,22 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE TypeSynonymInstances, ExistentialQuantification #-}
 module Data.LLVM.Private.Types.Referential (
   Type(..),
   UniqueId,
+  IsValue(..),
   Value(..),
-  ValueT(..),
+  ValueContent(..),
+  Function(..),
+  BasicBlock(..),
+  Argument(..),
+  Instruction(..),
+  GlobalVariable(..),
+  ExternalValue(..),
+  ExternalFunction(..),
   Metadata(..),
-  MetadataT(..),
-  valueIsFunction,
-  blockInstructions,
+  MetadataContent(..),
+  -- valueIsFunction,
+  -- blockInstructions,
   llvmDebugVersion
   ) where
 
@@ -107,7 +115,7 @@ instance Eq Type where
   TypeNamed s1 _ == TypeNamed s2 _ = s1 == s2
   _ == _ = False
 
-data MetadataT =
+data MetadataContent =
   MetaSourceLocation { metaSourceRow :: !Int32
                      , metaSourceCol :: !Int32
                      , metaSourceScope :: Metadata
@@ -252,7 +260,7 @@ type UniqueId = Int
 -- unique identifier (similar to the 'Value' wrapper).  Almost all
 -- 'Metadata' has an 'Identifier'.  The only exception seems to be a
 -- few 'Value' constants (such as Ints and null).
-data Metadata = Metadata { metaValueContent :: MetadataT
+data Metadata = Metadata { metaValueContent :: MetadataContent
                          , metaValueUniqueId :: !UniqueId
                          }
 
@@ -270,12 +278,29 @@ instance Hashable Metadata where
 -- point.  All references will be resolved as part of the graph, but
 -- the name will be useful for visualization purposes and
 -- serialization.
+  {-
 data Value = Value { valueType :: Type
                    , valueName :: !(Maybe Identifier)
                    , valueMetadata :: [Metadata]
                    , valueContent :: ValueT
                    , valueUniqueId :: !UniqueId
                    }
+-}
+data Value = forall a . IsValue a => Value a
+
+class IsValue a where
+  valueType :: a -> Type
+  valueName :: a -> Maybe Identifier
+  valueMetadata :: a -> [Metadata]
+  valueContent :: a -> ValueContent
+  valueUniqueId :: a -> UniqueId
+
+instance IsValue Value where
+  valueType = valueType
+  valueName = valueName
+  valueMetadata = valueMetadata
+  valueContent = valueContent
+  valueUniqueId = valueUniqueId
 
 instance Eq Value where
   v1 == v2 = valueUniqueId v1 == valueUniqueId v2
@@ -287,57 +312,234 @@ maxInt :: UniqueId
 maxInt = fromIntegral (maxBound :: Int)
 
 instance Hashable Value where
-  hash Value { valueUniqueId = i } = fromIntegral (i `mod` maxInt)
+  hash v = fromIntegral (valueUniqueId v `mod` maxInt)
 
 instance Labellable Value where
   toLabel = (Label . StrLabel) . show . valueName
 
+data Function = Function { functionType :: Type
+                         , functionName :: !Identifier
+                         , functionMetadata :: [Metadata]
+                         , functionUniqueId :: !UniqueId
+                         , functionParameters :: [Argument]
+                         , functionBody :: [Value] -- A list of basic blocks
+                         , functionLinkage :: !LinkageType
+                         , functionVisibility :: !VisibilityStyle
+                         , functionCC :: !CallingConvention
+                         , functionRetAttrs :: [ParamAttribute]
+                         , functionAttrs :: [FunctionAttribute]
+                         , functionSection :: !(Maybe ByteString)
+                         , functionAlign :: !Int64
+                         , functionGCName :: !(Maybe ByteString)
+                         }
+functionIsVararg :: Function -> Bool
+functionIsVararg Function { functionType = TypeFunction _ _ isva } = isva
+functionIsVararg v = error $ printf "Value %d is not a function" (valueUniqueId v)
+
+instance IsValue Function where
+  valueType = functionType
+  valueName = Just . functionName
+  valueMetadata = functionMetadata
+  valueContent = FunctionC
+  valueUniqueId = functionUniqueId
+
+data Argument = Argument { argumentType :: Type
+                         , argumentName :: !Identifier
+                         , argumentMetadata :: [Metadata]
+                         , argumentUniqueId :: !UniqueId
+                         , argumentParamAttrs :: [ParamAttribute]
+                         }
+
+instance IsValue Argument where
+  valueType = argumentType
+  valueName = Just . argumentName
+  valueMetadata = argumentMetadata
+  valueContent = ArgumentC
+  valueUniqueId = argumentUniqueId
+
+data BasicBlock = BasicBlock { basicBlockType :: Type
+                             , basicBlockName :: !Identifier
+                             , basicBlockMetadata :: [Metadata]
+                             , basicBlockUniqueId :: !UniqueId
+                             , basicBlockInstructions :: [Instruction]
+                             }
+
+instance IsValue BasicBlock where
+  valueType = basicBlockType
+  valueName = Just . basicBlockName
+  valueMetadata = basicBlockMetadata
+  valueContent = BasicBlockC
+  valueUniqueId = basicBlockUniqueId
+
+data GlobalVariable = GlobalVariable { globalVariableType :: Type
+                                     , globalVariableName :: !Identifier
+                                     , globalVariableMetadata :: [Metadata]
+                                     , globalVariableUniqueId :: !UniqueId
+                                     , globalVariableLinkage :: !LinkageType
+                                     , globalVariableVisibility :: !VisibilityStyle
+                                     , globalVariableInitializer :: Maybe Value
+                                     , globalVariableAlignment :: !Int64
+                                     , globalVariableSection :: !(Maybe ByteString)
+                                     , globalVariableIsThreadLocal :: !Bool
+                                     , globalVariableIsConstant :: !Bool
+                                     }
+
+instance IsValue GlobalVariable where
+  valueType = globalVariableType
+  valueName = Just . globalVariableName
+  valueMetadata = globalVariableMetadata
+  valueContent = GlobalVariableC
+  valueUniqueId = globalVariableUniqueId
+
+data GlobalAlias = GlobalAlias { globalAliasTarget :: Value
+                               , globalAliasLinkage :: !LinkageType
+                               , globalAliasVisibility :: !VisibilityStyle
+                               }
+
+instance IsValue GlobalAlias where
+  valueType = valueType . globalAliasTarget
+  valueName = valueName . globalAliasTarget
+  valueMetadata = valueMetadata . globalAliasTarget
+  valueContent = GlobalAliasC
+  valueUniqueId = valueUniqueId . globalAliasTarget
+
+data ExternalValue = ExternalValue { externalValueType :: Type
+                                   , externalValueName :: !Identifier
+                                   , externalValueMetadata :: [Metadata]
+                                   , externalValueUniqueId :: !UniqueId
+                                   }
+
+instance IsValue ExternalValue where
+  valueType = externalValueType
+  valueName = Just . externalValueName
+  valueMetadata = externalValueMetadata
+  valueContent = ExternalValueC
+  valueUniqueId = externalValueUniqueId
+
+data ExternalFunction = ExternalFunction { externalFunctionType :: Type
+                                         , externalFunctionName :: !Identifier
+                                         , externalFunctionMetadata :: [Metadata]
+                                         , externalFunctionUniqueId :: !UniqueId
+                                         , externalFunctionAttrs :: [FunctionAttribute]
+                                         }
+
+instance IsValue ExternalFunction where
+  valueType = externalFunctionType
+  valueName = Just . externalFunctionName
+  valueMetadata = externalFunctionMetadata
+  valueContent = ExternalFunctionC
+  valueUniqueId = externalFunctionUniqueId
+
+
+data Instruction = RetInst { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , retInstValue :: Maybe Value
+                           }
+                 | UnconditionalBranchInst { instructionType :: Type
+                                           , instructionName :: !(Maybe Identifier)
+                                           , instructionMetadata :: [Metadata]
+                                           , instructionUniqueId :: !UniqueId
+                                           , unconditionalBranchTarget :: BasicBlock
+                                           }
+                 | BranchInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              , branchCondition :: Value
+                              , branchTrueTarget :: Value
+                              , branchFalseTarget :: Value
+                              }
+                 | SwitchInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              , switchValue :: Value
+                              , switchDefaultTarget :: Value
+                              , switchCases :: [(Value, Value)]
+                              }
+                 | IndirectBranchInst { instructionType :: Type
+                                      , instructionName :: !(Maybe Identifier)
+                                      , instructionMetadata :: [Metadata]
+                                      , instructionUniqueId :: !UniqueId
+                                      , indirectBranchAddress :: Value
+                                      , indirectBranchTargets :: [Value]
+                                      }
+                   -- ^ The target must be derived from a blockaddress constant
+                   -- The list is a list of possible target destinations
+                 | UnwindInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              }
+                 | UnreachableInst { instructionType :: Type
+                                   , instructionName :: !(Maybe Identifier)
+                                   , instructionMetadata :: [Metadata]
+                                   , instructionUniqueId :: !UniqueId
+                                   }
+                 | ExtractElementInst { instructionType :: Type
+                                      , instructionName :: !(Maybe Identifier)
+                                      , instructionMetadata :: [Metadata]
+                                      , instructionUniqueId :: !UniqueId
+                                      , extractElementVector :: Value
+                                      , extractElementIndex :: Value
+                                      }
+                 | InsertElementInst { instructionType :: Type
+                                     , instructionName :: !(Maybe Identifier)
+                                     , instructionMetadata :: [Metadata]
+                                     , instructionUniqueId :: !UniqueId
+                                     , insertElementVector :: Value
+                                     , insertElementValue :: Value
+                                     , insertElementIndex :: Value
+                                     }
+                 | ShuffleVectorInst { instructionType :: Type
+                                     , instructionName :: !(Maybe Identifier)
+                                     , instructionMetadata :: [Metadata]
+                                     , instructionUniqueId :: !UniqueId
+                                     , shuffleVectorV1 :: Value
+                                     , shuffleVectorV2 :: Value
+                                     , shuffleVectorMask :: Value
+                                     }
+                 | ExtractValueInst { instructionType :: Type
+                                    , instructionName :: !(Maybe Identifier)
+                                    , instructionMetadata :: [Metadata]
+                                    , instructionUniqueId :: !UniqueId
+                                    , extractValueAggregate :: Value
+                                    , extractValueIndices :: [Int]
+                                    }
+                 | InsertValueInst { instructionType :: Type
+                                   , instructionName :: !(Maybe Identifier)
+                                   , instructionMetadata :: [Metadata]
+                                   , instructionUniqueId :: !UniqueId
+                                   , insertValueAggregate :: Value
+                                   , insertValueValue :: Value
+                                   , insertValueIndices :: [Int]
+                                   }
+                 | AllocaInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              , allocaNumElements :: Value
+                              , allocaAlign :: !Int64
+                              }
+instance IsValue Instruction where
+  valueType = instructionType
+  valueName = instructionName
+  valueMetadata = instructionMetadata
+  valueContent = InstructionC
+  valueUniqueId = instructionUniqueId
+
 -- Functions have parameters if they are not external
-data ValueT = Function { functionParameters :: [Value] -- A list of arguments
-                       , functionBody :: [Value] -- A list of basic blocks
-                       , functionLinkage :: !LinkageType
-                       , functionVisibility :: !VisibilityStyle
-                       , functionCC :: !CallingConvention
-                       , functionRetAttrs :: [ParamAttribute]
-                       , functionAttrs :: [FunctionAttribute]
-                       , functionSection :: !(Maybe ByteString)
-                       , functionAlign :: !Int64
-                       , functionGCName :: !(Maybe ByteString)
-                       , functionIsVararg :: !Bool
-                       }
-            | GlobalDeclaration { globalVariableLinkage :: !LinkageType
-                                , globalVariableVisibility :: !VisibilityStyle
-                                , globalVariableInitializer :: Maybe Value
-                                , globalVariableAlignment :: !Int64
-                                , globalVariableSection :: !(Maybe ByteString)
-                                , globalVariableIsThreadLocal :: !Bool
-                                , globalVariableIsConstant :: !Bool
-                                }
-            | GlobalAlias { globalAliasLinkage :: !LinkageType
-                          , globalAliasVisibility :: !VisibilityStyle
-                          , globalAliasValue :: Value
-                          }
-            | ExternalValue
-            | ExternalFunction [FunctionAttribute]
-            | BasicBlock [Value]
-            | Argument [ParamAttribute]
-            | RetInst (Maybe Value)
-            | UnconditionalBranchInst Value
-            | BranchInst { branchCondition :: Value
-                         , branchTrueTarget :: Value
-                         , branchFalseTarget :: Value
-                         }
-            | SwitchInst { switchValue :: Value
-                         , switchDefaultTarget :: Value
-                         , switchCases :: [(Value, Value)]
-                         }
-              -- The target must be derived from a blockaddress constant
-              -- The list is a list of possible target destinations
-            | IndirectBranchInst { indirectBranchAddress :: Value
-                                 , indirectBranchTargets :: [Value]
-                                 }
-            | UnwindInst
-            | UnreachableInst
+data ValueContent = FunctionC Function
+                  | ArgumentC Argument
+                  | BasicBlockC BasicBlock
+                  | GlobalVariableC GlobalVariable
+                  | GlobalAliasC GlobalAlias
+                  | ExternalValueC ExternalValue
+                  | ExternalFunctionC ExternalFunction
+                  | InstructionC Instruction
+
             | AddInst !ArithFlags Value Value
             | SubInst !ArithFlags Value Value
             | MulInst !ArithFlags Value Value
@@ -349,25 +551,6 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
             | AndInst Value Value
             | OrInst Value Value
             | XorInst Value Value
-            | ExtractElementInst { extractElementVector :: Value
-                                 , extractElementIndex :: Value
-                                 }
-            | InsertElementInst { insertElementVector :: Value
-                                , insertElementValue :: Value
-                                , insertElementIndex :: Value
-                                }
-            | ShuffleVectorInst { shuffleVectorV1 :: Value
-                                , shuffleVectorV2 :: Value
-                                , shuffleVectorMask :: Value
-                                }
-            | ExtractValueInst { extractValueAggregate :: Value
-                               , extractValueIndices :: [Int]
-                               }
-            | InsertValueInst { insertValueAggregate :: Value
-                              , insertValueValue :: Value
-                              , insertValueIndices :: [Int]
-                              }
-            | AllocaInst Value !Int64
               -- ^ Type being allocated, number of elements, alignment
             | LoadInst { loadIsVolatile :: !Bool
                        , loadAddress :: Value
@@ -444,22 +627,22 @@ data ValueT = Function { functionParameters :: [Value] -- A list of arguments
             | ConstantPointerNull
             | ConstantStruct [Value]
             | ConstantVector [Value]
-            | ConstantValue ValueT
+            | ConstantValue ValueContent
             | InlineAsm !ByteString !ByteString
-            deriving (Eq)
+--            deriving (Eq)
 
 
 -- | Get the instructions for a BasicBlock.
-blockInstructions :: Value -> [Value]
-blockInstructions Value { valueContent = BasicBlock is } = is
-blockInstructions v = error $ printf "Value is not a basic block: %d" uid
-  where
-    uid :: Integer
-    uid = fromIntegral $ valueUniqueId v
+-- blockInstructions :: Value -> [Value]
+-- blockInstructions Value { valueContent = BasicBlock is } = is
+-- blockInstructions v = error $ printf "Value is not a basic block: %d" uid
+--   where
+--     uid :: Integer
+--     uid = fromIntegral $ valueUniqueId v
 
--- | This simple helper tests whether or not the given 'Value' is a
--- Function definition
-valueIsFunction :: Value -> Bool
-valueIsFunction Value { valueContent = Function {} } = True
-valueIsFunction _ = False
+-- -- | This simple helper tests whether or not the given 'Value' is a
+-- -- Function definition
+-- valueIsFunction :: Value -> Bool
+-- valueIsFunction Value { valueContent = Function {} } = True
+-- valueIsFunction _ = False
 
