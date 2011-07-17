@@ -316,7 +316,7 @@ data Function = Function { functionType :: Type
                          , functionMetadata :: [Metadata]
                          , functionUniqueId :: !UniqueId
                          , functionParameters :: [Argument]
-                         , functionBody :: [Value] -- A list of basic blocks
+                         , functionBody :: [BasicBlock]
                          , functionLinkage :: !LinkageType
                          , functionVisibility :: !VisibilityStyle
                          , functionCC :: !CallingConvention

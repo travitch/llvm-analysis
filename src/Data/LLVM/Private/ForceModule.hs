@@ -1,4 +1,13 @@
-module Data.LLVM.Private.ForceModule ( ForceMonad, forceGlobal ) where
+module Data.LLVM.Private.ForceModule (
+  -- * Types
+  ForceMonad,
+  -- * Functions
+  forceFunction,
+  forceGlobalVariable,
+  forceGlobalAlias,
+  forceExternalValue,
+  forceExternalFunction,
+  ) where
 
 import Control.DeepSeq
 import Control.Monad.State.Strict
@@ -9,260 +18,198 @@ import Data.LLVM.Private.Types.Referential
 
 type ForceMonad = State (HashSet Value, HashSet Metadata)
 
+forceInstruction :: Instruction -> ForceMonad ()
+forceInstruction i = do
+  instructionType i `seq` i `seq` return ()
+  mapM_ metaForceIfNeeded (instructionMetadata i)
+  case i of
+    RetInst { retInstValue = rv } -> maybe (return ()) forceValueIfConstant rv
+    UnconditionalBranchInst { unconditionalBranchTarget = t } ->
+      t `seq` return ()
+    BranchInst { branchCondition = c
+               , branchTrueTarget = tt
+               , branchFalseTarget = ft
+               } ->
+      mapM_ forceValueIfConstant [ c, tt, ft ]
+    SwitchInst { switchValue = sv
+               , switchDefaultTarget = dt
+               , switchCases = cs
+               } -> do
+      mapM_ forceValueIfConstant [ sv, dt ]
+      let forceValPair (v1, v2) = mapM_ forceValueIfConstant [ v1, v2 ]
+      mapM_ forceValPair cs
+    IndirectBranchInst { indirectBranchAddress = addr
+                       , indirectBranchTargets = targets
+                       } ->
+      mapM_ forceValueIfConstant (addr : targets)
+    UnwindInst { } -> return ()
+    UnreachableInst { } -> return ()
+    ExtractElementInst { extractElementVector = vec
+                       , extractElementIndex = idx
+                       } ->
+      mapM_ forceValueIfConstant [ vec, idx ]
+    InsertElementInst { insertElementVector = vec
+                      , insertElementValue = val
+                      , insertElementIndex = idx
+                      } ->
+      mapM_ forceValueIfConstant [ vec, val, idx ]
+    ShuffleVectorInst { shuffleVectorV1 = v1
+                      , shuffleVectorV2 = v2
+                      , shuffleVectorMask = mask
+                      } ->
+      mapM_ forceValueIfConstant [ v1, v2, mask ]
+    ExtractValueInst { extractValueAggregate = agg
+                     , extractValueIndices = idxs
+                     } -> do
+      forceValueIfConstant agg
+      idxs `deepseq` return ()
+    InsertValueInst { insertValueAggregate = agg
+                    , insertValueValue = val
+                    , insertValueIndices = idxs
+                    } -> do
+      mapM_ forceValueIfConstant [ agg, val ]
+      idxs `deepseq` return ()
+    AllocaInst { allocaNumElements = elems } -> forceValueIfConstant elems
+    LoadInst { loadAddress = addr } -> forceValueIfConstant addr
+    StoreInst { storeValue = val
+              , storeAddress = addr } ->
+      mapM_ forceValueIfConstant [ val, addr ]
+    AddInst { binaryLhs = v1
+            , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    SubInst { binaryLhs = v1
+            , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    MulInst { binaryLhs = v1
+            , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    DivInst { binaryLhs = v1
+            , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    RemInst { binaryLhs = v1
+            , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    ShlInst { binaryLhs = v1
+            , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    LshrInst { binaryLhs = v1
+             , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    AshrInst { binaryLhs = v1
+             , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    AndInst { binaryLhs = v1
+            , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    OrInst { binaryLhs = v1
+           , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    XorInst { binaryLhs = v1
+            , binaryRhs = v2 } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    TruncInst { castedValue = cv } -> forceValueIfConstant cv
+    ZExtInst { castedValue = cv } -> forceValueIfConstant cv
+    SExtInst { castedValue = cv } -> forceValueIfConstant cv
+    FPTruncInst { castedValue = cv } -> forceValueIfConstant cv
+    FPExtInst { castedValue = cv } -> forceValueIfConstant cv
+    FPToSIInst { castedValue = cv } -> forceValueIfConstant cv
+    FPToUIInst { castedValue = cv } -> forceValueIfConstant cv
+    SIToFPInst { castedValue = cv } -> forceValueIfConstant cv
+    UIToFPInst { castedValue = cv } -> forceValueIfConstant cv
+    PtrToIntInst { castedValue = cv } -> forceValueIfConstant cv
+    IntToPtrInst { castedValue = cv } -> forceValueIfConstant cv
+    BitcastInst { castedValue = cv } -> forceValueIfConstant cv
+    ICmpInst { cmpV1 = v1
+             , cmpV2 = v2
+             } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    FCmpInst { cmpV1 = v1
+             , cmpV2 = v2
+             } -> mapM_ forceValueIfConstant [ v1, v2 ]
+    SelectInst { selectCondition = c
+               , selectTrueValue = tv
+               , selectFalseValue = fv
+               } -> mapM_ forceValueIfConstant [ c, tv, fv ]
+    CallInst { callFunction = f
+             , callAttrs = fattrs
+             , callArguments = args
+             , callParamAttrs = paramAttrs
+             } -> do
+      paramAttrs `deepseq` fattrs `deepseq` return ()
+      forceValueIfConstant f
+      let forceArg (v, ps) = forceValueIfConstant v >> ps `deepseq` return ()
+      mapM_ forceArg args
+    GetElementPtrInst { getElementPtrValue = v
+                      , getElementPtrIndices = idxs
+                      } -> mapM_ forceValueIfConstant (v:idxs)
+    InvokeInst { invokeFunction = f
+               , invokeParamAttrs = paramAttrs
+               , invokeArguments = args
+               , invokeAttrs = attrs
+               , invokeNormalLabel = normal
+               , invokeUnwindLabel = unwind
+               } -> do
+      paramAttrs `deepseq` attrs `deepseq` return ()
+      mapM_ forceValueIfConstant [ f, normal, unwind ]
+      let forceArg (v, ps) = forceValueIfConstant v >> ps `deepseq` return ()
+      mapM_ forceArg args
+    VaArgInst { vaArgValue = v } -> forceValueIfConstant v
+    PhiNode { phiIncomingValues = vs } -> do
+      let forcePair (v1, v2) = forceValueIfConstant v1 >> forceValueIfConstant v2
+      mapM_ forcePair vs
 
--- | Force each type of global as much as is safe.
-forceGlobal :: Value -> ForceMonad ()
-forceGlobal v = do
-  -- The unique id field is strict and will be forced when we force this constructor.
-  valueName v `deepseq` v `seq` return ()
-  -- Expand the metadata, if there is any
-  mapM_ metaForceIfNeeded (valueMetadata v)
-  forceGlobalValueT (valueContent v)
-  return ()
 
-isConstant :: Value -> Bool
-isConstant v = case valueContent v of
-  Argument _ -> True
-  ConstantAggregateZero -> True
-  ConstantArray _ -> True
-  ConstantFP _ -> True
-  ConstantInt _ -> True
-  ConstantString _ -> True
-  ConstantPointerNull -> True
-  ConstantStruct _ -> True
-  ConstantVector _ -> True
-  ConstantValue _ -> True
-  _ -> False
-
-forceInstruction :: Value -> ForceMonad ()
-forceInstruction v = do
-  valueName v `deepseq` valueUniqueId v `deepseq` v `seq` return ()
-  mapM_ metaForceIfNeeded (valueMetadata v)
-  forceValueT (valueContent v)
 
 forceValueIfConstant :: Value -> ForceMonad ()
 forceValueIfConstant v = do
   valueName v `deepseq` valueUniqueId v `deepseq` v `seq` return ()
   mapM_ metaForceIfNeeded (valueMetadata v)
-  case isConstant v of
-    True -> forceValueT (valueContent v)
-    False -> valueContent v `seq` return ()
+  case valueContent v of
+    ConstantC c -> forceConstant c
+    _ -> valueContent v `seq` return ()
 
-forceValueT :: ValueT -> ForceMonad ()
-forceValueT c =
-  case c of
-    Function {} -> return () -- Forced separately
-    GlobalDeclaration {} -> return ()
-    GlobalAlias {} -> return ()
-    ExternalValue -> return ()
-    BasicBlock _ -> return () -- Nothing to do and forced separately
-    ExternalFunction _ -> return ()
-    Argument atts -> atts `deepseq` c `seq` return ()
-    UndefValue -> c `seq` return ()
-    ConstantAggregateZero -> c `seq` return ()
-    ConstantArray vs -> do
-      mapM_ forceValueIfConstant vs
-      c `seq` return ()
-    ConstantFP d -> d `seq` c `seq` return ()
-    ConstantInt i -> i `seq` c `seq` return ()
-    ConstantString s -> s `seq` c `seq` return ()
-    ConstantPointerNull -> c `seq` return ()
-    ConstantStruct vs -> do
-      mapM_ forceValueIfConstant vs
-      c `seq` return ()
-    ConstantVector vs -> do
-      mapM_ forceValueIfConstant vs
-      c `seq` return ()
-    ConstantValue v' -> do
-      forceValueT v'
-      c `seq` return ()
-    InlineAsm s1 s2 -> s1 `seq` s2 `seq` c `seq` return ()
-    RetInst mv -> case mv of
-      Nothing -> return ()
-      Just r -> r `seq` c `seq` return ()
-    UnconditionalBranchInst i -> do
-      forceValueIfConstant i
-      c `seq` return ()
-    BranchInst {} -> do
-      mapM_ forceValueIfConstant [ branchCondition c
-                                 , branchTrueTarget c
-                                 , branchFalseTarget c
-                                 ]
-      c `seq` return ()
-    SwitchInst {} -> do
-      mapM_ forceValueIfConstant [ switchValue c
-                                 , switchDefaultTarget c
-                                 ]
-      c `seq` return ()
-      let forceValPair (v1, v2) = mapM_ forceValueIfConstant [ v1, v2 ]
-      mapM_ forceValPair (switchCases c)
-    IndirectBranchInst {} -> do
-      forceValueIfConstant (indirectBranchAddress c)
-      c `seq` return ()
-      mapM_ forceValueIfConstant (indirectBranchTargets c)
-    UnwindInst -> c `seq` return ()
-    UnreachableInst -> c `seq` return ()
-    AddInst flags v1 v2 -> do
-      flags `deepseq` c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    SubInst flags v1 v2 -> do
-      flags `deepseq` c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    MulInst flags v1 v2 -> do
-      flags `deepseq` c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    DivInst v1 v2 -> do
-      c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    RemInst v1 v2 -> do
-      c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    ShlInst v1 v2 -> do
-      c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    LshrInst v1 v2 -> do
-      c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    AshrInst v1 v2 -> do
-      c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    AndInst v1 v2 -> do
-      c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    OrInst v1 v2 -> do
-      c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    XorInst v1 v2 -> do
-      c `seq` return ()
-      mapM_ forceValueIfConstant [ v1, v2 ]
-    ExtractElementInst {} -> do
-      mapM_ forceValueIfConstant [ extractElementVector c
-                                 , extractElementIndex c
-                                 ]
-      c `seq` return ()
-    InsertElementInst {} -> do
-      mapM_ forceValueIfConstant [ insertElementVector c
-                                 , insertElementValue c
-                                 , insertElementIndex c
-                                 ]
-      c `seq` return ()
-    ShuffleVectorInst {} -> do
-      mapM_ forceValueIfConstant [ shuffleVectorV1 c
-                                 , shuffleVectorV2 c
-                                 , shuffleVectorMask c
-                                 ]
-      c `seq` return ()
-    ExtractValueInst {} -> do
-      forceValueIfConstant (extractValueAggregate c)
-      mapM_ (`seq` return ()) (extractValueIndices c)
-      c `seq` return ()
-    InsertValueInst {} -> do
-      mapM_ forceValueIfConstant [ insertValueAggregate c
-                                 , insertValueValue c
-                                 ]
-      insertValueIndices c `deepseq` c `seq` return ()
-    AllocaInst v i -> do
-      forceValueIfConstant v
-      i `seq` c `seq` return ()
-    LoadInst {} -> do
-      forceValueIfConstant (loadAddress c)
-      c `seq` return ()
-    StoreInst {} -> do
-      mapM_ forceValueIfConstant [ storeValue c, storeAddress c ]
-      c `seq` return ()
-    TruncInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    ZExtInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    SExtInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    FPTruncInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    FPExtInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    FPToUIInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    FPToSIInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    UIToFPInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    SIToFPInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    PtrToIntInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    IntToPtrInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    BitcastInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    ICmpInst cond v1 v2 -> do
-      mapM_ forceValueIfConstant [ v1, v2 ]
-      cond `seq` c `seq` return ()
-    FCmpInst cond v1 v2 -> do
-      mapM_ forceValueIfConstant [ v1, v2 ]
-      cond `seq` c `seq` return ()
-    PhiNode vs -> do
-      let seqp (v1, v2) = mapM_ forceValueIfConstant [ v1, v2 ]
-      mapM_ seqp vs
-      c `seq` return ()
-    SelectInst v1 v2 v3 -> do
-      mapM_ forceValueIfConstant [ v1, v2, v3 ]
-      c `seq` return ()
-    GetElementPtrInst {} -> do
-      mapM_ forceValueIfConstant $ getElementPtrValue c : getElementPtrIndices c
-      getElementPtrInBounds c `seq` c `seq` return ()
-    CallInst {} -> do
-      mapM_ forceValueIfConstant $ callFunction c : map fst (callArguments c)
-      callParamAttrs c `deepseq` c `seq` return ()
-    InvokeInst {} -> do
-      let vs = invokeNormalLabel c : invokeUnwindLabel c :
-                 invokeFunction c : map fst (invokeArguments c)
-      mapM_ forceValueIfConstant vs
-      invokeParamAttrs c `deepseq` c `seq` return ()
-    VaArgInst v -> do
-      forceValueIfConstant v
-      c `seq` return ()
-    BlockAddress v1 v2 -> do
-      mapM_ forceValueIfConstant [ v1, v2 ]
-      c `seq` return ()
+forceConstant :: Constant -> ForceMonad ()
+forceConstant c = case constantType c `seq` c of
+  UndefValue { } -> return ()
+  ConstantAggregateZero { } -> return ()
+  ConstantPointerNull { } -> return ()
+  BlockAddress { } -> blockAddressFunction c `seq` blockAddressBlock c `seq` return ()
+  ConstantArray { } -> mapM_ forceValueIfConstant (constantArrayValues c)
+  ConstantFP { } -> return ()
+  ConstantInt { } -> return ()
+  ConstantString { } -> return ()
+  ConstantStruct { } -> mapM_ forceValueIfConstant (constantStructValues c)
+  ConstantVector { } -> mapM_ forceValueIfConstant (constantVectorValues c)
+  ConstantValue { } -> forceInstruction (constantInstruction c)
+  InlineAsm { } -> return ()
 
-forceGlobalValueT :: ValueT -> ForceMonad ()
-forceGlobalValueT f@(Function {})= do
-  -- It is safe to deepseq the parameters since they can't contain
-  -- cyclic stuff, and the Function owns them.
+forceFunction :: Function -> ForceMonad ()
+forceFunction f = do
   functionRetAttrs f `deepseq` functionAttrs f `deepseq`
     functionSection f `seq` f `seq` return ()
   mapM_ forceBasicBlock (functionBody f)
-  mapM_ forceValueIfConstant (functionParameters f)
-forceGlobalValueT g@(GlobalDeclaration {}) = do
-  globalVariableSection g `seq` g `seq` return ()
-  maybe (return ()) forceValueIfConstant (globalVariableInitializer g)
-forceGlobalValueT g@(GlobalAlias {}) = do
-  globalAliasLinkage g `seq` globalAliasVisibility g `seq` g `seq` return ()
-  forceValueIfConstant (globalAliasValue g)
-forceGlobalValueT e@ExternalValue = e `seq` return ()
-forceGlobalValueT e@(ExternalFunction atts) =
-  atts `deepseq` e `seq` return ()
+  mapM_ forceArgument (functionParameters f)
+  mapM_ metaForceIfNeeded (functionMetadata f)
 
-forceBasicBlock :: Value -> ForceMonad ()
-forceBasicBlock v = do
-  valueName v `deepseq` v `seq` return ()
-  mapM_ metaForceIfNeeded (valueMetadata v)
-  let c = valueContent v
-  case c of
-    BasicBlock is -> mapM_ forceInstruction is
+forceArgument :: Argument -> ForceMonad ()
+forceArgument a = do
+  argumentParamAttrs a `deepseq` argumentType a `seq` a `seq` return ()
+  mapM_ metaForceIfNeeded (argumentMetadata a)
 
+forceGlobalVariable :: GlobalVariable -> ForceMonad ()
+forceGlobalVariable gv = do
+  globalVariableType gv `seq` gv `seq` return ()
+  mapM_ metaForceIfNeeded (globalVariableMetadata gv)
+  maybe (return ()) forceValueIfConstant (globalVariableInitializer gv)
+
+forceGlobalAlias :: GlobalAlias -> ForceMonad ()
+forceGlobalAlias ga = do
+  ga `seq` return ()
+  forceValueIfConstant (globalAliasTarget ga)
+
+forceExternalValue :: ExternalValue -> ForceMonad ()
+forceExternalValue ev = do
+  externalValueType ev `seq` ev `seq` return ()
+  mapM_ metaForceIfNeeded (externalValueMetadata ev)
+
+forceExternalFunction :: ExternalFunction -> ForceMonad ()
+forceExternalFunction ef = do
+  externalFunctionAttrs ef `deepseq` externalFunctionType ef `seq` ef `seq` return ()
+  mapM_ metaForceIfNeeded (externalFunctionMetadata ef)
+
+forceBasicBlock :: BasicBlock -> ForceMonad ()
+forceBasicBlock b = do
+  valueName b `deepseq` valueType b `seq` b `seq` return ()
+  mapM_ metaForceIfNeeded (valueMetadata b)
+  mapM_ forceInstruction (basicBlockInstructions b)
 
 metaForceIfNeeded :: Metadata -> ForceMonad ()
 metaForceIfNeeded m = do
@@ -278,7 +225,7 @@ metaForceIfNeeded m = do
       md `seq` return ()
       forceMetadataT (metaValueContent md)
 
-forceMetadataT :: MetadataT -> ForceMonad ()
+forceMetadataT :: MetadataContent -> ForceMonad ()
 forceMetadataT m@(MetaSourceLocation {}) = do
   m `seq` return ()
   metaForceIfNeeded (metaSourceScope m)
