@@ -13,6 +13,7 @@ module Data.LLVM.Private.Types.Referential (
   GlobalVariable(..),
   ExternalValue(..),
   ExternalFunction(..),
+  Constant(..),
   Metadata(..),
   MetadataContent(..),
   -- valueIsFunction,
@@ -523,12 +524,307 @@ data Instruction = RetInst { instructionType :: Type
                               , allocaNumElements :: Value
                               , allocaAlign :: !Int64
                               }
+                 | LoadInst { instructionType :: Type
+                            , instructionName :: !(Maybe Identifier)
+                            , instructionMetadata :: [Metadata]
+                            , instructionUniqueId :: !UniqueId
+                            , loadIsVolatile :: !Bool
+                            , loadAddress :: Value
+                            , loadAlignmnet :: !Int64
+                            }
+                 | StoreInst { instructionType :: Type
+                             , instructionName :: !(Maybe Identifier)
+                             , instructionMetadata :: [Metadata]
+                             , instructionUniqueId :: !UniqueId
+                             , storeIsVolatile :: !Bool
+                             , storeValue :: Value
+                             , storeAddress :: Value
+                             , storeAlignment :: !Int64
+                             , storeAddressSpace :: !Int
+                             }
+                 | AddInst { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , binaryArithFlags :: !ArithFlags
+                           , binaryLhs :: Value
+                           , binaryRhs :: Value
+                           }
+                 | SubInst { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , binaryArithFlags :: !ArithFlags
+                           , binaryLhs :: Value
+                           , binaryRhs :: Value
+                           }
+                 | MulInst { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , binaryArithFlags :: !ArithFlags
+                           , binaryLhs :: Value
+                           , binaryRhs :: Value
+                           }
+                 | DivInst { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , binaryLhs :: Value
+                           , binaryRhs :: Value
+                           }
+                 | RemInst { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , binaryLhs :: Value
+                           , binaryRhs :: Value
+                           }
+                 | ShlInst { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , binaryLhs :: Value
+                           , binaryRhs :: Value
+                           }
+                 | LshrInst { instructionType :: Type
+                            , instructionName :: !(Maybe Identifier)
+                            , instructionMetadata :: [Metadata]
+                            , instructionUniqueId :: !UniqueId
+                            , binaryLhs :: Value
+                            , binaryRhs :: Value
+                            }
+                 | AshrInst { instructionType :: Type
+                            , instructionName :: !(Maybe Identifier)
+                            , instructionMetadata :: [Metadata]
+                            , instructionUniqueId :: !UniqueId
+                            , binaryLhs :: Value
+                            , binaryRhs :: Value
+                           }
+                 | AndInst { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , binaryLhs :: Value
+                           , binaryRhs :: Value
+                           }
+                 | OrInst { instructionType :: Type
+                          , instructionName :: !(Maybe Identifier)
+                          , instructionMetadata :: [Metadata]
+                          , instructionUniqueId :: !UniqueId
+                          , binaryLhs :: Value
+                          , binaryRhs :: Value
+                          }
+                 | XorInst { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , binaryLhs :: Value
+                           , binaryRhs :: Value
+                           }
+                 | TruncInst { instructionType :: Type
+                             , instructionName :: !(Maybe Identifier)
+                             , instructionMetadata :: [Metadata]
+                             , instructionUniqueId :: !UniqueId
+                             , castedValue :: Value
+                             }
+                 | ZExtInst { instructionType :: Type
+                            , instructionName :: !(Maybe Identifier)
+                            , instructionMetadata :: [Metadata]
+                            , instructionUniqueId :: !UniqueId
+                            , castedValue :: Value
+                            }
+                 | SExtInst { instructionType :: Type
+                            , instructionName :: !(Maybe Identifier)
+                            , instructionMetadata :: [Metadata]
+                            , instructionUniqueId :: !UniqueId
+                            , castedValue :: Value
+                            }
+                 | FPTruncInst { instructionType :: Type
+                               , instructionName :: !(Maybe Identifier)
+                               , instructionMetadata :: [Metadata]
+                               , instructionUniqueId :: !UniqueId
+                               , castedValue :: Value
+                               }
+                 | FPExtInst { instructionType :: Type
+                             , instructionName :: !(Maybe Identifier)
+                             , instructionMetadata :: [Metadata]
+                             , instructionUniqueId :: !UniqueId
+                             , castedValue :: Value
+                             }
+                 | FPToSIInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              , castedValue :: Value
+                              }
+                 | FPToUIInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              , castedValue :: Value
+                              }
+                 | SIToFPInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              , castedValue :: Value
+                              }
+                 | UIToFPInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              , castedValue :: Value
+                              }
+                 | PtrToIntInst { instructionType :: Type
+                                , instructionName :: !(Maybe Identifier)
+                                , instructionMetadata :: [Metadata]
+                                , instructionUniqueId :: !UniqueId
+                                , castedValue :: Value
+                                }
+                 | IntToPtrInst { instructionType :: Type
+                                , instructionName :: !(Maybe Identifier)
+                                , instructionMetadata :: [Metadata]
+                                , instructionUniqueId :: !UniqueId
+                                , castedValue :: Value
+                                }
+                 | BitcastInst { instructionType :: Type
+                               , instructionName :: !(Maybe Identifier)
+                               , instructionMetadata :: [Metadata]
+                               , instructionUniqueId :: !UniqueId
+                               , castedValue :: Value
+                               }
+                 | ICmpInst { instructionType :: Type
+                            , instructionName :: !(Maybe Identifier)
+                            , instructionMetadata :: [Metadata]
+                            , instructionUniqueId :: !UniqueId
+                            , cmpPredicate :: !CmpPredicate
+                            , cmpV1 :: Value
+                            , cmpV2 :: Value
+                            }
+                 | FCmpInst { instructionType :: Type
+                            , instructionName :: !(Maybe Identifier)
+                            , instructionMetadata :: [Metadata]
+                            , instructionUniqueId :: !UniqueId
+                            , cmpPredicate :: !CmpPredicate
+                            , cmpV1 :: Value
+                            , cmpV2 :: Value
+                            }
+                 | SelectInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              , selectCondition :: Value
+                              , selectTrueValue :: Value
+                              , selectFalseValue :: Value
+                              }
+                 | CallInst { instructionType :: Type
+                            , instructionName :: !(Maybe Identifier)
+                            , instructionMetadata :: [Metadata]
+                            , instructionUniqueId :: !UniqueId
+                            , callIsTail :: !Bool
+                            , callConvention :: !CallingConvention
+                            , callParamAttrs :: [ParamAttribute]
+                            , callFunction :: Value
+                            , callArguments :: [(Value, [ParamAttribute])]
+                            , callAttrs :: [FunctionAttribute]
+                            , callHasSRet :: !Bool
+                            }
+                 | GetElementPtrInst { instructionType :: Type
+                                     , instructionName :: !(Maybe Identifier)
+                                     , instructionMetadata :: [Metadata]
+                                     , instructionUniqueId :: !UniqueId
+                                     , getElementPtrInBounds :: !Bool
+                                     , getElementPtrValue :: Value
+                                     , getElementPtrIndices :: [Value]
+                                     , getElementPtrAddrSpace :: !Int
+                                     }
+                 | InvokeInst { instructionType :: Type
+                              , instructionName :: !(Maybe Identifier)
+                              , instructionMetadata :: [Metadata]
+                              , instructionUniqueId :: !UniqueId
+                              , invokeConvention :: !CallingConvention
+                              , invokeParamAttrs :: [ParamAttribute]
+                              , invokeFunction :: Value
+                              , invokeArguments :: [(Value, [ParamAttribute])]
+                              , invokeAttrs :: [FunctionAttribute]
+                              , invokeNormalLabel :: Value
+                              , invokeUnwindLabel :: Value
+                              , invokeHasSRet :: !Bool
+                              }
+                 | VaArgInst { instructionType :: Type
+                             , instructionName :: !(Maybe Identifier)
+                             , instructionMetadata :: [Metadata]
+                             , instructionUniqueId :: !UniqueId
+                             , vaArgValue :: Value
+                             }
+                 | PhiNode { instructionType :: Type
+                           , instructionName :: !(Maybe Identifier)
+                           , instructionMetadata :: [Metadata]
+                           , instructionUniqueId :: !UniqueId
+                           , phiIncomingValues :: [(Value, Value)]
+                           }
 instance IsValue Instruction where
   valueType = instructionType
   valueName = instructionName
   valueMetadata = instructionMetadata
   valueContent = InstructionC
   valueUniqueId = instructionUniqueId
+
+data Constant = UndefValue { constantType :: Type
+                           , constantUniqueId :: !UniqueId
+                           }
+              | ConstantAggregateZero { constantType :: Type
+                                      , constantUniqueId :: !UniqueId
+                                      }
+              | ConstantPointerNull { constantType :: Type
+                                    , constantUniqueId :: !UniqueId
+                                    }
+              | BlockAddress { constantType :: Type
+                             , constantUniqueId :: !UniqueId
+                             , blockAddressFunction :: Function
+                             , blockAddressBlock :: BasicBlock
+                             }
+              | ConstantArray { constantType :: Type
+                              , constantUniqueId :: !UniqueId
+                              , constantArrayValues :: [Value]
+                              }
+              | ConstantFP { constantType :: Type
+                           , constantUniqueId :: !UniqueId
+                           , constantFPValue :: !Double
+                           }
+              | ConstantInt { constantType :: Type
+                            , constantUniqueId :: !UniqueId
+                            , constantIntValue :: !Integer
+                            }
+              | ConstantString { constantType :: Type
+                               , constantUniqueId :: !UniqueId
+                               , constantStringValue :: !ByteString
+                               }
+              | ConstantStruct { constantType :: Type
+                               , constantUniqueId :: !UniqueId
+                               , constantStructValues :: [Value]
+                               }
+              | ConstantVector { constantType :: Type
+                               , constantUniqueId :: !UniqueId
+                               , constantVectorValues :: [Value]
+                               }
+              | ConstantValue { constantType :: Type
+                              , constantUniqueId :: !UniqueId
+                              , constantInstruction :: Instruction
+                              }
+              | InlineAsm { constantType :: Type
+                          , constantUniqueId :: !UniqueId
+                          , inlineAsm :: !ByteString
+                          , inlineAsmConstraints :: !ByteString
+                          }
+
+instance IsValue Constant where
+  valueType = constantType
+  valueName _ = Nothing
+  valueMetadata _ = []
+  valueContent = ConstantC
+  valueUniqueId = constantUniqueId
 
 -- Functions have parameters if they are not external
 data ValueContent = FunctionC Function
@@ -539,110 +835,6 @@ data ValueContent = FunctionC Function
                   | ExternalValueC ExternalValue
                   | ExternalFunctionC ExternalFunction
                   | InstructionC Instruction
+                  | ConstantC Constant
 
-            | AddInst !ArithFlags Value Value
-            | SubInst !ArithFlags Value Value
-            | MulInst !ArithFlags Value Value
-            | DivInst Value Value -- Does not encode the exact flag of sdiv.  Convince me to
-            | RemInst Value Value
-            | ShlInst Value Value
-            | LshrInst Value Value
-            | AshrInst Value Value
-            | AndInst Value Value
-            | OrInst Value Value
-            | XorInst Value Value
-              -- ^ Type being allocated, number of elements, alignment
-            | LoadInst { loadIsVolatile :: !Bool
-                       , loadAddress :: Value
-                       , loadAlignment :: !Int64
-                       }
-              -- ^ Volatile flag, address being loaded, alignment
-            | StoreInst { storeIsVolatile :: !Bool
-                        , storeValue :: Value
-                        , storeAddress :: Value
-                        , storeAlignment :: !Int64
-                        , storeAddrSpace :: !Int
-                        }
-              -- ^ Volatile flag, value being stored, address of the destination, alignment, addrspace
-            | TruncInst Value
-              -- ^ Value being truncated, result type
-            | ZExtInst Value
-              -- ^ Value being truncated, result type
-            | SExtInst Value
-              -- ^ Value being truncated, result type
-            | FPTruncInst Value
-              -- ^ Value being truncated, result type
-            | FPExtInst Value
-              -- ^ Value being truncated, result type
-            | FPToUIInst Value
-              -- ^ Value being truncated, result type
-            | FPToSIInst Value
-              -- ^ Value being truncated, result type
-            | UIToFPInst Value
-              -- ^ Value being truncated, result type
-            | SIToFPInst Value
-              -- ^ Value being truncated, result type
-            | PtrToIntInst Value
-              -- ^ Value being truncated, result type
-            | IntToPtrInst Value
-              -- ^ Value being truncated, result type
-            | BitcastInst Value
-              -- ^ Value being truncated, result type
-            | ICmpInst !CmpPredicate Value Value
-              -- ^ Type of comparison, values being compared
-            | FCmpInst !CmpPredicate Value Value
-              -- ^ Type of comparison, values being compared
-            | PhiNode [(Value, Value)]
-            | SelectInst Value Value Value
-            | GetElementPtrInst { getElementPtrInBounds :: !Bool
-                                , getElementPtrValue :: Value
-                                , getElementPtrIndices :: [Value]
-                                , getElementPtrAddrSpace :: !Int
-                                }
-            | CallInst { callIsTail :: !Bool
-                       , callConvention :: !CallingConvention
-                       , callParamAttrs :: [ParamAttribute]
-                       , callFunction :: Value
-                       , callArguments :: [(Value, [ParamAttribute])]
-                       , callAttrs :: [FunctionAttribute]
-                       , callHasSRet :: !Bool
-                       }
-            | InvokeInst { invokeConvention :: !CallingConvention
-                         , invokeParamAttrs :: [ParamAttribute]
-                         , invokeFunction :: Value
-                         , invokeArguments :: [(Value, [ParamAttribute])]
-                         , invokeAttrs :: [FunctionAttribute]
-                         , invokeNormalLabel :: Value
-                         , invokeUnwindLabel :: Value
-                         , invokeHasSRet :: !Bool
-                         }
-            | VaArgInst Value
-            | UndefValue
-            | BlockAddress Value Value -- Function, block -- type i8*, constant
-            | ConstantAggregateZero
-            | ConstantArray [Value]
-            | ConstantFP !Double
-            | ConstantInt !Integer
-            | ConstantString !ByteString
-            | ConstantPointerNull
-            | ConstantStruct [Value]
-            | ConstantVector [Value]
-            | ConstantValue ValueContent
-            | InlineAsm !ByteString !ByteString
---            deriving (Eq)
-
-
--- | Get the instructions for a BasicBlock.
--- blockInstructions :: Value -> [Value]
--- blockInstructions Value { valueContent = BasicBlock is } = is
--- blockInstructions v = error $ printf "Value is not a basic block: %d" uid
---   where
---     uid :: Integer
---     uid = fromIntegral $ valueUniqueId v
-
--- -- | This simple helper tests whether or not the given 'Value' is a
--- -- Function definition
--- valueIsFunction :: Value -> Bool
--- valueIsFunction Value { valueContent = Function {} } = True
--- valueIsFunction _ = False
 
