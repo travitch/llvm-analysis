@@ -11,13 +11,13 @@ module Data.LLVM.Private.Types.Referential (
   Argument(..),
   Instruction(..),
   GlobalVariable(..),
+  GlobalAlias(..),
   ExternalValue(..),
   ExternalFunction(..),
   Constant(..),
   Metadata(..),
   MetadataContent(..),
-  -- valueIsFunction,
-  -- blockInstructions,
+  functionIsVararg,
   llvmDebugVersion
   ) where
 
@@ -36,6 +36,7 @@ import Data.LLVM.Identifiers
 -- supports.
 llvmDebugVersion :: Integer
 llvmDebugVersion = 524288
+
 
 -- | The type system of LLVM
 data Type = TypeInteger !Int
@@ -279,14 +280,6 @@ instance Hashable Metadata where
 -- point.  All references will be resolved as part of the graph, but
 -- the name will be useful for visualization purposes and
 -- serialization.
-  {-
-data Value = Value { valueType :: Type
-                   , valueName :: !(Maybe Identifier)
-                   , valueMetadata :: [Metadata]
-                   , valueContent :: ValueT
-                   , valueUniqueId :: !UniqueId
-                   }
--}
 data Value = forall a . IsValue a => Value a
 
 class IsValue a where
@@ -394,12 +387,13 @@ instance IsValue GlobalVariable where
 
 data GlobalAlias = GlobalAlias { globalAliasTarget :: Value
                                , globalAliasLinkage :: !LinkageType
+                               , globalAliasName :: !Identifier
                                , globalAliasVisibility :: !VisibilityStyle
                                }
 
 instance IsValue GlobalAlias where
   valueType = valueType . globalAliasTarget
-  valueName = valueName . globalAliasTarget
+  valueName = Just . globalAliasName
   valueMetadata = valueMetadata . globalAliasTarget
   valueContent = GlobalAliasC
   valueUniqueId = valueUniqueId . globalAliasTarget
@@ -530,7 +524,7 @@ data Instruction = RetInst { instructionType :: Type
                             , instructionUniqueId :: !UniqueId
                             , loadIsVolatile :: !Bool
                             , loadAddress :: Value
-                            , loadAlignmnet :: !Int64
+                            , loadAlignment :: !Int64
                             }
                  | StoreInst { instructionType :: Type
                              , instructionName :: !(Maybe Identifier)
