@@ -16,18 +16,18 @@ import Text.Printf
 
 import Data.LLVM.Types
 
-type CFGType = Gr Value CFGEdge
+type CFGType = Gr Instruction CFGEdge
 
 instance Labellable CFGEdge where
   toLabel = (Label . StrLabel) . show
 
 -- | The control flow graph representation
 data CFG = CFG { cfgGraph :: CFGType
-               , cfgEntryValue :: Value
+               , cfgEntryValue :: Instruction
                , cfgEntryNode :: Node
-               , cfgExitValue :: Value
+               , cfgExitValue :: Instruction
                , cfgExitNode :: Node
-               , cfgFunction :: Value
+               , cfgFunction :: Function
                }
 
 -- | The types of edges that appear in the 'CFG'
@@ -64,9 +64,8 @@ class HasCFG a where
 instance HasCFG CFG where
   getCFG = id
 
-instance HasCFG Value where
-  getCFG v@Value { valueContent = Function {} } = mkCFG v
-  getCFG _ = error "Non-function Value passed to getCFG"
+instance HasCFG Function where
+  getCFG = mkCFG
 
 -- | Build a control flow graph for the given function.  Each
 -- instruction in the function body is a node in the graph.  Branching
@@ -75,7 +74,7 @@ instance HasCFG Value where
 --
 -- The other function, 'mkCompactCFG', has a basic-block-granularity
 -- CFG that can be easier to visualize.
-mkCFG :: Value -> CFG
+mkCFG :: Function -> CFG
 mkCFG func = CFG { cfgGraph = g
                  , cfgFunction = func
                  , cfgEntryValue = entryVal
@@ -88,17 +87,20 @@ mkCFG func = CFG { cfgGraph = g
     (exitVal : _) = reverse allInstructions
 
     g = mkGraph (concat cfgNodes) (concat $ concat cfgEdges)
-    body = functionBody $ valueContent func
-    allInstructions = concatMap blockInstructions body
+    body = functionBody func
+    allInstructions = concatMap basicBlockInstructions body
 
-    instIdent :: Value -> Int
+    instIdent :: Instruction -> Int
     instIdent = valueUniqueId
 
     -- | Only BasicBlocks are targets of jumps.  This function finds the
     -- identifier for the given block.
-    jumpTargetId :: Value -> Int
-    jumpTargetId Value { valueContent = BasicBlock (t:_) } = instIdent t
-    jumpTargetId v = error $ printf "Value is not a basic block %s" (show v)
+    jumpTargetId :: BasicBlock -> Int
+    jumpTargetId bb = instIdent t
+      where
+        (t:_) = basicBlockInstructions bb
+    -- jumpTargetId Value { valueContent = BasicBlock (t:_) } = instIdent t
+    -- jumpTargetId v = error $ printf "Value is not a basic block %s" (show v)
 
     caseEdge thisNodeId cond (val, dest) =
       (thisNodeId, jumpTargetId dest, EqualityEdge cond val)
@@ -107,31 +109,32 @@ mkCFG func = CFG { cfgGraph = g
 
     (cfgNodes, cfgEdges) = unzip $ map buildBlockGraph body
 
-    buildBlockGraph Value { valueContent = BasicBlock blockInsts@(_:successors) } =
-      foldl' buildGraphInst ([], []) instsAndSuccessors
+    buildBlockGraph bb = foldl' buildGraphInst ([], []) instsAndSuccessors
       where
+        blockInsts = basicBlockInstructions bb
+        (_:successors) = blockInsts
         instsAndSuccessors = if null successors
                              then terminator
                              else offsetPairs ++ terminator
         offsetPairs = zip blockInsts $ map Just successors
         terminator = [(last blockInsts, Nothing)]
-    buildBlockGraph v = error $ "Not a BasicBlock: " ++ show v
 
-    buildGraphInst (nodeAcc, edgeAcc) (v@Value { valueContent = c }, Nothing) =
+    -- buildGraphInst (nodeAcc, edgeAcc) (v@Value { valueContent = c }, Nothing) =
+    buildGraphInst (nodeAcc, edgeAcc) (inst, Nothing) =
       (thisNode : nodeAcc, theseEdges : edgeAcc)
       where
-        thisNodeId = instIdent v
-        thisNode = (thisNodeId, v)
+        thisNodeId = instIdent inst
+        thisNode = (thisNodeId, inst)
         -- Note: branch targets are all basic blocks.  The
         -- lookup function handles grabbing the first real
         -- instruction from the basic block.
-        theseEdges = case c of
+        theseEdges = case inst of
           -- Returns have no intraprocedural edges
-          RetInst _ -> []
+          RetInst {} -> []
           -- Unwinds also have no intraprocedural edges
-          UnwindInst -> []
+          UnwindInst {} -> []
           -- A single target (no label needed)
-          UnconditionalBranchInst tgt ->
+          UnconditionalBranchInst { unconditionalBranchTarget = tgt } ->
             [ (thisNodeId, jumpTargetId tgt, UnconditionalEdge) ]
           -- Two edges (cond is true, cond is false)
           BranchInst { branchCondition = cond
@@ -152,19 +155,11 @@ mkCFG func = CFG { cfgGraph = g
                              } ->
             map (indirectEdge thisNodeId addr) targets
           -- No edges from the unreachable instruction, either
-          UnreachableInst -> []
-          _ -> error ("Last instruction in a block should be a jump: " ++ show v)
-    buildGraphInst (nodeAcc, edgeAcc) (v@Value { valueContent = c }, Just successor) =
+          UnreachableInst {} -> []
+          _ -> error ("Last instruction in a block should be a terminator: " ++ show (Value inst))
+    buildGraphInst (nodeAcc, edgeAcc) (inst, Just successor) =
       (thisNode : nodeAcc, theseEdges : edgeAcc)
       where
-        thisNodeId = instIdent v
-        thisNode = (thisNodeId, v)
-        theseEdges = case c of
-          Function {} -> error "Functions should not be in the CFG"
-          GlobalDeclaration {} -> error "Globals should not be in the CFG"
-          GlobalAlias {} -> error "Global aliases should not be in the CFG"
-          ExternalValue -> error "External values should not be in the CFG"
-          ExternalFunction _ -> error "External functions should not be in the CFG"
-          BasicBlock _ -> error "Basic blocks should not be in the CFG"
-          Argument _ -> error "Arguments should not be in the CFG"
-          _ -> [(thisNodeId, instIdent successor, UnconditionalEdge)]
+        thisNodeId = instIdent inst
+        thisNode = (thisNodeId, inst)
+        theseEdges = [(thisNodeId, instIdent successor, UnconditionalEdge)]

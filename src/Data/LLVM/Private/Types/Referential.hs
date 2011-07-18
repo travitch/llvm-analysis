@@ -445,23 +445,23 @@ data Instruction = RetInst { instructionType :: Type
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
                               , branchCondition :: Value
-                              , branchTrueTarget :: Value
-                              , branchFalseTarget :: Value
+                              , branchTrueTarget :: BasicBlock
+                              , branchFalseTarget :: BasicBlock
                               }
                  | SwitchInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
                               , switchValue :: Value
-                              , switchDefaultTarget :: Value
-                              , switchCases :: [(Value, Value)]
+                              , switchDefaultTarget :: BasicBlock
+                              , switchCases :: [(Value, BasicBlock)]
                               }
                  | IndirectBranchInst { instructionType :: Type
                                       , instructionName :: !(Maybe Identifier)
                                       , instructionMetadata :: [Metadata]
                                       , instructionUniqueId :: !UniqueId
                                       , indirectBranchAddress :: Value
-                                      , indirectBranchTargets :: [Value]
+                                      , indirectBranchTargets :: [BasicBlock]
                                       }
                    -- ^ The target must be derived from a blockaddress constant
                    -- The list is a list of possible target destinations

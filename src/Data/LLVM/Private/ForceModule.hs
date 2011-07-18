@@ -29,19 +29,22 @@ forceInstruction i = do
     BranchInst { branchCondition = c
                , branchTrueTarget = tt
                , branchFalseTarget = ft
-               } ->
-      mapM_ forceValueIfConstant [ c, tt, ft ]
+               } -> do
+      forceValueIfConstant c
+      tt `seq` ft `seq` i `seq` return ()
     SwitchInst { switchValue = sv
                , switchDefaultTarget = dt
                , switchCases = cs
                } -> do
-      mapM_ forceValueIfConstant [ sv, dt ]
-      let forceValPair (v1, v2) = mapM_ forceValueIfConstant [ v1, v2 ]
+      dt `seq` i `seq` return ()
+      forceValueIfConstant sv
+      let forceValPair (v1, v2) = v2 `seq` forceValueIfConstant v1
       mapM_ forceValPair cs
     IndirectBranchInst { indirectBranchAddress = addr
                        , indirectBranchTargets = targets
-                       } ->
-      mapM_ forceValueIfConstant (addr : targets)
+                       } -> do
+      foldr seq (return ()) targets
+      forceValueIfConstant addr
     UnwindInst { } -> return ()
     UnreachableInst { } -> return ()
     ExtractElementInst { extractElementVector = vec

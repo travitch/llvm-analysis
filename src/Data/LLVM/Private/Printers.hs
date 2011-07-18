@@ -293,8 +293,8 @@ printValue v = case valueContent v of
                  , branchFalseTarget = fTarget
                  } ->
         compose [ "br", printConstOrName cond
-                , ",", printConstOrName tTarget
-                , ",", printConstOrName fTarget
+                , ",", printConstOrName (Value tTarget)
+                , ",", printConstOrName (Value fTarget)
                 ]
       SwitchInst { switchValue = val
                  , switchDefaultTarget = defTarget
@@ -302,15 +302,15 @@ printValue v = case valueContent v of
                  } ->
         let caseDests = unwords $ map printPair cases
             printPair (caseVal, caseDest) =
-              mconcat [ printConstOrName caseVal, ", ", printConstOrName caseDest ]
-        in compose [ "switch", printConstOrName val, ",", printConstOrName defTarget
+              mconcat [ printConstOrName caseVal, ", ", printConstOrName (Value caseDest) ]
+        in compose [ "switch", printConstOrName val, ",", printConstOrName (Value defTarget)
                    , "[", caseDests, "]"
                    ]
       IndirectBranchInst { indirectBranchAddress = addr
                          , indirectBranchTargets = targets
                          } ->
         compose [ "indirectbr", printConstOrName addr
-                , "[", intercalate ", " $ map printConstOrName targets, "]"
+                , "[", intercalate ", " $ map (printConstOrName . Value) targets, "]"
                 ]
       UnwindInst { } -> "unwind"
       UnreachableInst { } -> "unreachable"
