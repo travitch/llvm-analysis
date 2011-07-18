@@ -337,6 +337,9 @@ instance IsValue Function where
   valueContent = FunctionC
   valueUniqueId = functionUniqueId
 
+instance Eq Function where
+  f1 == f2 = functionUniqueId f1 == functionUniqueId f2
+
 data Argument = Argument { argumentType :: Type
                          , argumentName :: !Identifier
                          , argumentMetadata :: [Metadata]
@@ -365,6 +368,11 @@ instance IsValue BasicBlock where
   valueContent = BasicBlockC
   valueUniqueId = basicBlockUniqueId
 
+
+instance Eq BasicBlock where
+  f1 == f2 = basicBlockUniqueId f1 == basicBlockUniqueId f2
+
+
 data GlobalVariable = GlobalVariable { globalVariableType :: Type
                                      , globalVariableName :: !Identifier
                                      , globalVariableMetadata :: [Metadata]
@@ -385,6 +393,11 @@ instance IsValue GlobalVariable where
   valueContent = GlobalVariableC
   valueUniqueId = globalVariableUniqueId
 
+
+instance Eq GlobalVariable where
+  f1 == f2 = globalVariableUniqueId f1 == globalVariableUniqueId f2
+
+
 data GlobalAlias = GlobalAlias { globalAliasTarget :: Value
                                , globalAliasLinkage :: !LinkageType
                                , globalAliasName :: !Identifier
@@ -400,6 +413,11 @@ instance IsValue GlobalAlias where
   valueContent = GlobalAliasC
   valueUniqueId = globalAliasUniqueId
 
+
+instance Eq GlobalAlias where
+  f1 == f2 = globalAliasUniqueId f1 == globalAliasUniqueId f2
+
+
 data ExternalValue = ExternalValue { externalValueType :: Type
                                    , externalValueName :: !Identifier
                                    , externalValueMetadata :: [Metadata]
@@ -412,6 +430,9 @@ instance IsValue ExternalValue where
   valueMetadata = externalValueMetadata
   valueContent = ExternalValueC
   valueUniqueId = externalValueUniqueId
+
+instance Eq ExternalValue where
+  f1 == f2 = externalValueUniqueId f1 == externalValueUniqueId f2
 
 data ExternalFunction = ExternalFunction { externalFunctionType :: Type
                                          , externalFunctionName :: !Identifier
@@ -426,6 +447,9 @@ instance IsValue ExternalFunction where
   valueMetadata = externalFunctionMetadata
   valueContent = ExternalFunctionC
   valueUniqueId = externalFunctionUniqueId
+
+instance Eq ExternalFunction where
+  f1 == f2 = externalFunctionUniqueId f1 == externalFunctionUniqueId f2
 
 
 data Instruction = RetInst { instructionType :: Type

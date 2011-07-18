@@ -36,7 +36,6 @@ import Control.Arrow ( (&&&) )
 import Data.Graph.Inductive
 import Data.GraphViz
 import qualified Data.Set as S
-import Data.Maybe ( fromJust )
 
 import Data.LLVM.Types
 import Data.LLVM.Analysis.PointsTo
@@ -45,17 +44,19 @@ import Data.LLVM.Analysis.PointsTo
 type CGType = Gr CallNode CallEdge
 
 -- | The nodes are actually a wrapper type:
-data CallNode = DefinedFunction Value
-                -- ^ An actual function (either defined or an External)
-              | ExtFunction Value
+data CallNode = DefinedFunction Function
+                -- ^ An actual function defined in this 'Module'
+              | ExtFunction ExternalFunction
+                -- ^ An externally-defined function with a declaration
+                -- in the 'Module'
               | UnknownFunction
                 -- ^ A function called indirectly that may not have
-                -- any definition within the 'Module'
+                -- any definition or declaration within the 'Module'
               deriving (Eq)
 
 instance Show CallNode where
-  show (DefinedFunction v) = show $ fromJust (valueName v)
-  show (ExtFunction v) = "extern " ++ show (fromJust (valueName v))
+  show (DefinedFunction v) = show $ functionName v
+  show (ExtFunction v) = "extern " ++ show (externalFunctionName v)
   show UnknownFunction = "unknown"
 
 instance Labellable CallNode where
@@ -110,9 +111,9 @@ mkCallGraph m pta entryPoints =
     -- type signature in an indirect call).  The unknown nodes can use
     -- negative numbers for nodeids since actual Value IDs start at 0.
 
-    externNodes = map mkExternFunc $ filter isExternFunc (moduleGlobals m)
+    externNodes = map mkExternFunc $ moduleExternalFunctions m
 
-    funcs = moduleFunctions m
+    funcs = moduleDefinedFunctions m
 
 unique :: (Ord a) => [a] -> [a]
 unique = S.toList . S.fromList
@@ -121,50 +122,46 @@ unique = S.toList . S.fromList
 unknownNodeId :: Node
 unknownNodeId = -100
 
-isExternFunc :: Value -> Bool
-isExternFunc Value { valueContent = ExternalFunction _ } = True
-isExternFunc _ = False
-
-mkExternFunc :: Value -> LNode CallNode
+mkExternFunc :: ExternalFunction -> LNode CallNode
 mkExternFunc v = (valueUniqueId v, ExtFunction v)
 
-buildEdges :: (PointsToAnalysis a) => a -> [Value] -> ([LEdge CallEdge], [LNode CallNode])
+buildEdges :: (PointsToAnalysis a) => a -> [Function] -> ([LEdge CallEdge], [LNode CallNode])
 buildEdges pta funcs = do
   let es = map (buildFuncEdges pta) funcs
       unknownNodes = [(unknownNodeId, UnknownFunction)]
   (concat es, unknownNodes)
 
-isCall :: Value -> Bool
-isCall Value { valueContent = CallInst {} } = True
-isCall Value { valueContent = InvokeInst {} } = True
+isCall :: Instruction -> Bool
+isCall CallInst {} = True
+isCall InvokeInst {} = True
 isCall _ = False
 
-buildFuncEdges :: (PointsToAnalysis a) => a -> Value -> [LEdge CallEdge]
-buildFuncEdges pta v@Value { valueContent = f } = concat es
+buildFuncEdges :: (PointsToAnalysis a) => a -> Function -> [LEdge CallEdge]
+buildFuncEdges pta f = concat es
   where
-    insts = concatMap blockInstructions $ functionBody f
+    insts = concatMap basicBlockInstructions $ functionBody f
     calls = filter isCall insts
-    es = map (buildCallEdges pta v) calls
+    es = map (buildCallEdges pta f) calls
 
-getCallee :: ValueT -> Value
+getCallee :: Instruction -> Value
 getCallee CallInst { callFunction = f } = f
 getCallee InvokeInst { invokeFunction = f } = f
 getCallee _ = error "Not a function in getCallee"
 
-buildCallEdges :: (PointsToAnalysis a) => a -> Value -> Value -> [LEdge CallEdge]
-buildCallEdges pta caller Value { valueContent = c } = build' (getCallee c)
+buildCallEdges :: (PointsToAnalysis a) => a -> Function -> Instruction -> [LEdge CallEdge]
+buildCallEdges pta caller callInst = build' (getCallee callInst)
   where
     callerId = valueUniqueId caller
     build' calledFunc =
       case valueContent calledFunc of
-        Function {} ->
+        FunctionC _ ->
           [(callerId, valueUniqueId calledFunc, DirectCall)]
-        GlobalAlias { globalAliasValue = aliasee } ->
+        GlobalAliasC GlobalAlias { globalAliasTarget = aliasee } ->
           [(callerId, valueUniqueId aliasee, DirectCall)]
-        ExternalFunction _ -> [(callerId, valueUniqueId calledFunc, DirectCall)]
+        ExternalFunctionC _ -> [(callerId, valueUniqueId calledFunc, DirectCall)]
         -- Functions can be bitcasted before being called - trace
         -- through those to find the underlying function
-        BitcastInst bcv -> build' bcv
+        InstructionC BitcastInst { castedValue = bcv } -> build' bcv
         _ -> let targets = S.toList $ pointsTo pta calledFunc
                  indirectEdges = map (\t -> (callerId, valueUniqueId t, IndirectCall)) targets
                  unknownEdge = (callerId, unknownNodeId, UnknownCall)

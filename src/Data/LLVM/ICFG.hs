@@ -16,15 +16,18 @@ import Data.LLVM.Types
 import Data.LLVM.CFG
 import Data.LLVM.Analysis.PointsTo
 
-data EdgeType = CallToEntry Value
-              | ReturnToCall Value
+data NodeType = INode Instruction
+              | ExternNode (Maybe ExternalFunction)
+
+data EdgeType = CallToEntry Function
+              | ReturnToCall Function
               | CallToReturn
-              | CallToExtern (Maybe Value)
-              | ReturnFromExtern (Maybe Value)
+              | CallToExtern (Maybe ExternalFunction)
+              | ReturnFromExtern (Maybe ExternalFunction)
               | IntraEdge CFGEdge
 
-data ICFG = ICFG { icfgGraph :: Gr Value EdgeType
-                 , icfgEntryPoints :: [Value]
+data ICFG = ICFG { icfgGraph :: Gr Instruction EdgeType
+                 , icfgEntryPoints :: [Function]
                  , icfgModule :: Module
                  }
 
@@ -135,19 +138,22 @@ makeCallEdges pta valCfgs unknownCallNode (n, v) = case (isDirectCall v, unknown
               (-calleeEntryId, n, ReturnToCall cf)) : acc
 
 -- | Get the value called by a Call or Invoke instruction
-calledValue :: Value -> Value
-calledValue Value { valueContent = CallInst { callFunction = v } } = v
-calledValue Value { valueContent = InvokeInst { invokeFunction = v } } = v
+calledValue :: Instruction -> Value
+calledValue CallInst { callFunction = v } = v
+calledValue InvokeInst { invokeFunction = v } = v
 
 -- | Return True if the given call (or invoke) instruction is a call
 -- to a statically known function (rather than a function pointer).
-isDirectCall :: Value -> Bool
-isDirectCall ci = case cv of
-  Value { valueContent = Function {} } -> True
-  Value { valueContent = GlobalDeclaration {} } -> True
-  Value { valueContent = GlobalAlias {} } -> True
-  Value { valueContent = ExternalFunction {} } -> True
+isDirectCall :: Instruction -> Bool
+isDirectCall ci = case valueContent cv of
+  FunctionC _ -> True
+  ExternalFunctionC _ -> True
   _ -> False
+  -- Value { valueContent = Function {} } -> True
+  -- Value { valueContent = GlobalDeclaration {} } -> True
+  -- Value { valueContent = GlobalAlias {} } -> True
+  -- Value { valueContent = ExternalFunction {} } -> True
+  -- _ -> False
   where
     cv = calledValue ci
 

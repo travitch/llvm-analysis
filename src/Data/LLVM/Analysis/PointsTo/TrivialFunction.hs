@@ -36,20 +36,18 @@ instance PointsToAnalysis TrivialFunction where
 -- | Run the points-to analysis and return its results in an opaque
 -- handle.
 runPointsToAnalysis :: Module -> TrivialFunction
-runPointsToAnalysis m =
-  TrivialFunction $ foldr buildMap M.empty (moduleGlobals m)
+runPointsToAnalysis m = TrivialFunction finalMap
+  where
+    externMap = foldr buildMap M.empty (moduleExternalFunctions m)
+    finalMap = foldr buildMap externMap (moduleDefinedFunctions m)
 
 -- | Add function-typed values to the result map.
-buildMap :: Value -> HashMap Type (Set Value) -> HashMap Type (Set Value)
-buildMap v@Value { valueContent = ExternalValue } m =
-  case M.lookup (valueType v) m of
-    Nothing -> M.insert (valueType v) (S.singleton v) m
-    Just s -> M.insert (valueType v) (S.insert v s) m
-buildMap v@Value { valueContent = Function {} } m =
-  case M.lookup (valueType v) m of
-    Nothing -> M.insert (valueType v) (S.singleton v) m
-    Just s -> M.insert (valueType v) (S.insert v s) m
-buildMap _ m = m
+buildMap :: (IsValue a) => a -> HashMap Type (Set Value) -> HashMap Type (Set Value)
+buildMap v m = case M.lookup vtype m of
+  Nothing -> M.insert vtype (S.singleton (Value v)) m
+  Just s -> M.insert vtype (S.insert (Value v) s) m
+  where
+    vtype = valueType v
 
 trivialMayAlias :: TrivialFunction -> Value -> Value -> Bool
 trivialMayAlias _ v1 v2 = valueType v1 == valueType v2
