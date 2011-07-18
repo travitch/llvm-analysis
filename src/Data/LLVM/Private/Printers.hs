@@ -478,7 +478,7 @@ printValue v = case valueContent v of
                , callAttrs = cattrs
                , callHasSRet = _
                } ->
-        let rtype = case instructionType i of
+        let rtype = case valueType f of
               TypeFunction r _ _ -> r
               TypePointer (TypeFunction r _ _) _ -> r
         in compose [ printInstNamePrefix i
