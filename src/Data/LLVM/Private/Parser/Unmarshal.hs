@@ -16,6 +16,7 @@ import Control.Monad.State
 import Data.ByteString.Char8 ( ByteString )
 import qualified Data.ByteString.Char8 as BS
 import Data.IORef
+import Data.List ( partition )
 import Data.Map ( Map )
 import Data.Set ( Set )
 import qualified Data.Map as M
@@ -47,6 +48,7 @@ data TranslationException = TooManyReturnValues
                           | InvalidGEPInst !Int
                           | InvalidExtractValueInst !Int
                           | InvalidInsertValueInst !Int
+                          | InvalidTag String ValueTag
                           deriving (Show, Typeable)
 instance Exception TranslationException
 
@@ -139,6 +141,20 @@ parseLLVMBitcodeFile opts bitcodefile = do
         Just r -> return $ Right (r `deepseq` r)
         Nothing -> return $ Left "No module in result"
 
+isExternVar :: ValuePtr -> KnotMonad Bool
+isExternVar vp = do
+  dataPtr <- liftIO $ cValueData vp
+  let dataPtr' = castPtr dataPtr
+  liftIO $ cGlobalIsExternal dataPtr'
+
+
+
+isExternFunc :: ValuePtr -> KnotMonad Bool
+isExternFunc vp = do
+  dataPtr <- liftIO $ cValueData vp
+  let dataPtr' = castPtr dataPtr
+  liftIO $ cFunctionIsExternal dataPtr'
+
 
 tieKnot :: ModulePtr -> KnotState -> KnotMonad KnotState
 tieKnot m finalState = do
@@ -151,9 +167,14 @@ tieKnot m finalState = do
   aliases <- liftIO $ cModuleGlobalAliases m
   funcs <- liftIO $ cModuleFunctions m
 
-  vars' <- mapM (translateGlobalVariable finalState) vars
-  aliases' <- mapM (translateAlias finalState) aliases
-  funcs' <- mapM (translateFunction finalState) funcs
+  (externVs, globalVs) <- (liftM partition) isExternVar vars
+  (externFs, globalFs) <- (liftM partition) isExternFunc funcs
+
+  globalVars <- mapM (translateGlobalVariable finalState) globalVs
+  externVars <- mapM (translateExternalVariable finalState) externVs
+  globalAliases <- mapM (translateAlias finalState) aliases
+  definedFuncs <- mapM (translateFunction finalState) globalFs
+  externFuncs <- mapM (translateExternalFunction finalState) externFs
 
   s <- get
   lastId <- liftIO $ readIORef (idSrc s)
@@ -161,9 +182,11 @@ tieKnot m finalState = do
                   , moduleDataLayout = dataLayout
                   , moduleTarget = triple
                   , moduleAssembly = Assembly inlineAsm
-                  , moduleAliases = aliases'
-                  , moduleGlobalVariables = vars'
-                  , moduleFunctions = funcs'
+                  , moduleAliases = globalAliases
+                  , moduleGlobalVariables = globalVars
+                  , moduleDefinedFunctions = definedFuncs
+                  , moduleExternalValues = externVars
+                  , moduleExternalFunctions = externFuncs
                   , moduleNextId = lastId + 1
                   }
   return s { result = Just ir }
@@ -308,10 +331,9 @@ recordValue vp v = do
       oldMap = valueMap s
   put s { valueMap = M.insert key v oldMap }
 
-translateAlias :: KnotState -> ValuePtr -> KnotMonad Value
+translateAlias :: KnotState -> ValuePtr -> KnotMonad GlobalAlias
 translateAlias finalState vp = do
   name <- liftIO $ cValueName vp
-  typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
   metaPtr <- liftIO $ cValueMetadata vp
   let dataPtr' = castPtr dataPtr
@@ -323,26 +345,41 @@ translateAlias finalState vp = do
   aliasee <- liftIO $ cGlobalAliasee dataPtr'
 
   ta <- translateConstOrRef finalState aliasee
-  tt <- translateType finalState typePtr
 
   uid <- nextId
 
   let ga = GlobalAlias { globalAliasLinkage = link
                        , globalAliasVisibility = vis
-                       , globalAliasValue = ta
+                       , globalAliasTarget = ta
+                       , globalAliasName = name
+                       , globalAliasMetadata = mds
+                       , globalAliasUniqueId = uid
                        }
-      v = Value { valueType = tt
-                , valueName = name
-                , valueMetadata = mds
-                , valueContent = ga
-                , valueUniqueId = uid
-                }
 
-  recordValue vp v
+  recordValue vp (Value ga)
 
-  return v
+  return ga
 
-translateGlobalVariable :: KnotState -> ValuePtr -> KnotMonad Value
+translateExternalVariable :: KnotState -> ValuePtr -> KnotMonad ExternalValue
+translateExternalVariable finalState vp = do
+  name <- liftIO $ cValueName vp
+  typePtr <- liftIO $ cValueType vp
+  metaPtr <- liftIO $ cValueMetadata vp
+  tt <- translateType finalState typePtr
+
+  mds <- mapM (translateMetadata finalState) metaPtr
+  uid <- nextId
+
+  let ev = ExternalValue { externalValueType = tt
+                         , externalValueName = name
+                         , externalValueMetadata = mds
+                         , externalValueUniqueId = uid
+                         }
+  recordValue vp (Value ev)
+  return ev
+
+
+translateGlobalVariable :: KnotState -> ValuePtr -> KnotMonad GlobalVariable
 translateGlobalVariable finalState vp = do
   name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
@@ -354,51 +391,62 @@ translateGlobalVariable finalState vp = do
   uid <- nextId
 
   let dataPtr' = castPtr dataPtr
-      basicVal = Value { valueName = name
-                       , valueType = tt
-                       , valueMetadata = mds
-                       , valueContent = ExternalValue
-                       , valueUniqueId = uid
-                       }
-  isExtern <- liftIO $ cGlobalIsExternal dataPtr'
+  align <- liftIO $ cGlobalAlignment dataPtr'
+  vis <- liftIO $ cGlobalVisibility dataPtr'
+  link <- liftIO $ cGlobalLinkage dataPtr'
+  section <- liftIO $ cGlobalSection dataPtr'
+  isThreadLocal <- liftIO $ cGlobalIsThreadLocal dataPtr'
+  initializer <- liftIO $ cGlobalInitializer dataPtr'
+  isConst <- liftIO $ cGlobalIsConstant dataPtr'
 
-  case isExtern of
-    True -> do
-      recordValue vp basicVal
-      return basicVal
+  ti <- case initializer == nullPtr of
+    True -> return Nothing
     False -> do
-      align <- liftIO $ cGlobalAlignment dataPtr'
-      vis <- liftIO $ cGlobalVisibility dataPtr'
-      link <- liftIO $ cGlobalLinkage dataPtr'
-      section <- liftIO $ cGlobalSection dataPtr'
-      isThreadLocal <- liftIO $ cGlobalIsThreadLocal dataPtr'
-      initializer <- liftIO $ cGlobalInitializer dataPtr'
-      isConst <- liftIO $ cGlobalIsConstant dataPtr'
+      tv <- translateConstOrRef finalState initializer
+      return $ Just tv
 
-      ti <- case initializer == nullPtr of
-        True -> return Nothing
-        False -> do
-          tv <- translateConstOrRef finalState initializer
-          return $ Just tv
+  let gv = GlobalVariable { globalVariableLinkage = link
+                          , globalVariableVisibility = vis
+                          , globalVariableInitializer = ti
+                          , globalVariableAlignment = align
+                          , globalVariableSection = section
+                          , globalVariableIsThreadLocal = isThreadLocal
+                          , globalVariableIsConstant = isConst
+                          , globalVariableMetadata = mds
+                          , globalVariableType = tt
+                          , globalVariableName = name
+                          , globalVariableUniqueId = uid
+                          }
+  recordValue vp (Value gv)
+  return gv
 
-      let gv = GlobalDeclaration { globalVariableLinkage = link
-                                 , globalVariableVisibility = vis
-                                 , globalVariableInitializer = ti
-                                 , globalVariableAlignment = align
-                                 , globalVariableSection = section
-                                 , globalVariableIsThreadLocal = isThreadLocal
-                                 , globalVariableIsConstant = isConst
-                                 }
-          v = basicVal { valueContent = gv }
-      recordValue vp v
-      return v
+translateExternalFunction :: KnotState -> ValuePtr -> KnotMonad ExternalFunction
+translateExternalFunction finalState vp = do
+  name <- liftIO $ cValueName vp
+  typePtr <- liftIO $ cValueType vp
+  metaPtr <- liftIO $ cValueMetadata vp
+  tt <- translateType finalState typePtr
+
+  mds <- mapM (translateMetadata finalState) metaPtr
+
+  uid <- nextId
+
+  let ef = ExternalFunction { externalFunctionType = tt
+                            , externalFunctionName = name
+                            , externalFunctionMetadata = mds
+                            , externalFunctionUniqueId = uid
+                            , externalFunctionAttrs = [] -- FIXME: Need to figure out how to find attrs
+                            }
+  recordValue vp (Value ef)
+  return ef
+
 
 resetLocalIdCounter :: KnotMonad ()
 resetLocalIdCounter = do
   s <- get
   put s { localId = 0 }
 
-translateFunction :: KnotState -> ValuePtr -> KnotMonad Value
+translateFunction :: KnotState -> ValuePtr -> KnotMonad Function
 translateFunction finalState vp = do
   name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
@@ -413,47 +461,50 @@ translateFunction finalState vp = do
   resetLocalIdCounter
 
   let dataPtr' = castPtr dataPtr
-      basicVal = Value { valueName = name
-                       , valueType = tt
-                       , valueMetadata = mds
-                       , valueContent = ExternalFunction [] -- FIXME: there are attributes here
-                       , valueUniqueId = uid
-                       }
-  isExtern <- liftIO $ cFunctionIsExternal dataPtr'
+      -- basicVal = Value { valueName = name
+      --                  , valueType = tt
+      --                  , valueMetadata = mds
+      --                  , valueContent = ExternalFunction [] -- FIXME: there are attributes here
+      --                  , valueUniqueId = uid
+      --                  }
+  -- isExtern <- liftIO $ cFunctionIsExternal dataPtr'
 
-  case isExtern of
-    True -> do
-      recordValue vp basicVal
-      return basicVal
-    False -> do
-      align <- liftIO $ cFunctionAlignment dataPtr'
-      vis <- liftIO $ cFunctionVisibility dataPtr'
-      link <- liftIO $ cFunctionLinkage dataPtr'
-      section <- liftIO $ cFunctionSection dataPtr'
-      cc <- liftIO $ cFunctionCallingConvention dataPtr'
-      gcname <- liftIO $ cFunctionGCName dataPtr'
-      args <- liftIO $ cFunctionArguments dataPtr'
-      blocks <- liftIO $ cFunctionBlocks dataPtr'
-      isVarArg <- liftIO $ cFunctionIsVarArg dataPtr'
+  -- case isExtern of
+  --   True -> do
+  --     recordValue vp basicVal
+  --     return basicVal
+  --   False -> do
+  align <- liftIO $ cFunctionAlignment dataPtr'
+  vis <- liftIO $ cFunctionVisibility dataPtr'
+  link <- liftIO $ cFunctionLinkage dataPtr'
+  section <- liftIO $ cFunctionSection dataPtr'
+  cc <- liftIO $ cFunctionCallingConvention dataPtr'
+  gcname <- liftIO $ cFunctionGCName dataPtr'
+  args <- liftIO $ cFunctionArguments dataPtr'
+  blocks <- liftIO $ cFunctionBlocks dataPtr'
+  isVarArg <- liftIO $ cFunctionIsVarArg dataPtr'
 
-      args' <- mapM (translateValue finalState) args
-      blocks' <- mapM (translateValue finalState) blocks
+  args' <- mapM (translateArgument finalState) args
+  blocks' <- mapM (translateBasicBlock finalState) blocks
 
-      let f = Function { functionParameters = args'
-                       , functionBody = blocks'
-                       , functionLinkage = link
-                       , functionVisibility = vis
-                       , functionCC = cc
-                       , functionRetAttrs = [] -- FIXME
-                       , functionAttrs = [] -- FIXME
-                       , functionSection = section
-                       , functionAlign = align
-                       , functionGCName = gcname
-                       , functionIsVararg = isVarArg
-                       }
-          v = basicVal { valueContent = f }
-      recordValue vp v
-      return v
+  let f = Function { functionParameters = args'
+                   , functionBody = blocks'
+                   , functionLinkage = link
+                   , functionVisibility = vis
+                   , functionCC = cc
+                   , functionRetAttrs = [] -- FIXME
+                   , functionAttrs = [] -- FIXME
+                   , functionSection = section
+                   , functionAlign = align
+                   , functionGCName = gcname
+                   , functionIsVararg = isVarArg
+                   , functionType = tt
+                   , functionName = name
+                   , functionMetadata = mds
+                   , functionUniqueId = uid
+                   }
+  recordValue vp (Value f)
+  return f
 
 constantBracket :: KnotMonad ValueT -> KnotMonad ValueT
 constantBracket c = do
@@ -615,8 +666,21 @@ translateConstOrRef finalState vp = do
       return $ M.findWithDefault (throw (KnotTyingFailure tag)) ip (valueMap finalState)
 
 
-translateArgument :: KnotState -> ArgInfoPtr -> KnotMonad ValueT
-translateArgument _ dataPtr = do
+translateArgument :: KnotState -> ValuePtr -> KnotMonad Argument
+translateArgument finalState vp = do
+  tag <- liftIO $ cValueTag vp
+  Just name <- liftIO $ cValueName vp
+  typePtr <- liftIO $ cValueType vp
+  dataPtr <- liftIO $ cValueData vp
+  metaPtr <- liftIO $ cValueMetadata vp
+
+  mds <- mapM (translateMetadata finalState) metaPtr
+  uid <- nextId
+
+  when (tag /= ValArgument) (throw $ InvalidTag "Argument" tag)
+
+  tt <- translateType finalState typePtr
+
   hasSRet <- liftIO $ cArgInfoHasSRet dataPtr
   hasByVal <- liftIO $ cArgInfoHasByVal dataPtr
   hasNest <- liftIO $ cArgInfoHasNest dataPtr
@@ -629,13 +693,42 @@ translateArgument _ dataPtr = do
              , attrOrNothing hasNoAlias PANoAlias
              , attrOrNothing hasNoCapture PANoCapture
              ]
-  return $ Argument (catMaybes atts)
+  let a = Argument { argumentType = tt
+                   , argumentName = name
+                   , argumentMetadata = mds
+                   , argumentUniqueId = uid
+                   , argumentParamAttrs = catMaybes atts
+                   }
+  recordValue vp (Value a)
+  return a
 
-translateBasicBlock :: KnotState -> BasicBlockPtr -> KnotMonad ValueT
-translateBasicBlock finalState dataPtr = do
+
+translateBasicBlock :: KnotState -> ValuePtr -> KnotMonad BasicBlock
+translateBasicBlock finalState vp = do
+  tag <- liftIO $ cValueTag vp
+  name <- liftIO $ cValueName vp
+  typePtr <- liftIO $ cValueType vp
+  dataPtr <- liftIO $ cValueData vp
+  metaPtr <- liftIO $ cValueMetadata vp
+
+  mds <- mapM (translateMetadata finalState) metaPtr
+
+  when (tag /= ValBasicblock) (throw $ InvalidTag "BasicBlock" tag)
+
+
+  uid <- nextId
+  tt <- translateType finalState typePtr
+
   insts <- liftIO $ cBasicBlockInstructions dataPtr
-  tinsts <- mapM (translateValue finalState) insts
-  return $ BasicBlock tinsts
+  tinsts <- mapM (translateInstruction finalState) insts
+  let bb = BasicBlock { basicBlockType = tt
+                      , basicBlockName = name
+                      , basicBlockMetadata = mds
+                      , basicBlockUniqueId = uid
+                      , basicBlockInstructions = tinsts
+                      }
+  recordValue vp (Value bb)
+  return bb
 
 translateInlineAsm :: KnotState -> InlineAsmInfoPtr -> KnotMonad ValueT
 translateInlineAsm _ dataPtr = do

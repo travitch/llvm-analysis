@@ -373,11 +373,12 @@ printValue v = case valueContent v of
                 ]
       AllocaInst { allocaNumElements = elems
                  , allocaAlign = align
-                 , instructionType = TypePointer ty _
+                 , instructionType = t -- TypePointer ty _
                  } ->
         let count = case valueContent elems of
               ConstantC ConstantInt { constantIntValue = 1 } -> ""
               _ -> ", " ++ printConstOrName elems
+            TypePointer ty _ = t
         in   compose [ printInstNamePrefix i
                      , "alloca"
                      , printType ty
@@ -540,7 +541,7 @@ printConstant c = case c of
     mconcat [ "<", intercalate ", " $ map printConstOrName vs, ">" ]
   ConstantValue { constantInstruction = i } ->
     mconcat [ printType (constantType c), " ", printConstInst i ]
-  InlineAsm { inlineAsm = asm
+  InlineAsm { inlineAsmString = asm
             , inlineAsmConstraints = constraints
             } ->
     mconcat [ "asm \"", unpack asm, "\", \"", unpack constraints, "\"" ]

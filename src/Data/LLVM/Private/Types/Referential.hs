@@ -389,14 +389,16 @@ data GlobalAlias = GlobalAlias { globalAliasTarget :: Value
                                , globalAliasLinkage :: !LinkageType
                                , globalAliasName :: !Identifier
                                , globalAliasVisibility :: !VisibilityStyle
+                               , globalAliasMetadata :: [Metadata]
+                               , globalAliasUniqueId :: !UniqueId
                                }
 
 instance IsValue GlobalAlias where
   valueType = valueType . globalAliasTarget
   valueName = Just . globalAliasName
-  valueMetadata = valueMetadata . globalAliasTarget
+  valueMetadata = globalAliasMetadata
   valueContent = GlobalAliasC
-  valueUniqueId = valueUniqueId . globalAliasTarget
+  valueUniqueId = globalAliasUniqueId
 
 data ExternalValue = ExternalValue { externalValueType :: Type
                                    , externalValueName :: !Identifier
@@ -809,7 +811,7 @@ data Constant = UndefValue { constantType :: Type
                               }
               | InlineAsm { constantType :: Type
                           , constantUniqueId :: !UniqueId
-                          , inlineAsm :: !ByteString
+                          , inlineAsmString :: !ByteString
                           , inlineAsmConstraints :: !ByteString
                           }
 

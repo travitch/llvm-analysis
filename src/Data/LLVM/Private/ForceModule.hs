@@ -194,6 +194,7 @@ forceGlobalAlias :: GlobalAlias -> ForceMonad ()
 forceGlobalAlias ga = do
   ga `seq` return ()
   forceValueIfConstant (globalAliasTarget ga)
+  mapM_ metaForceIfNeeded (globalAliasMetadata ga)
 
 forceExternalValue :: ExternalValue -> ForceMonad ()
 forceExternalValue ev = do

@@ -2,7 +2,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.LLVM.Types (
   Module(..),
-  moduleDefinedFunctions,
   moduleGlobals,
   module ReEx
   ) where
@@ -32,21 +31,18 @@ data Module = Module { moduleIdentifier :: ByteString
                        -- generated for
                      , moduleAssembly :: Assembly
                        -- ^ Module-level assembly declarations
-                     , moduleAliases :: [Value]
-                     , moduleGlobalVariables :: [Value]
-                     , moduleFunctions :: [Value]
+                     , moduleDefinedFunctions :: [Function]
+                     , moduleGlobalVariables :: [GlobalVariable]
+                     , moduleExternalValues :: [ExternalValue]
+                     , moduleExternalFunctions :: [ExternalFunction]
+                     , moduleAliases :: [GlobalAlias]
                      , moduleNextId :: Int
                      }
 
--- | Extract a list of only those functions that are *defined* in the
--- module (not external).
-moduleDefinedFunctions :: Module -> [Value]
-moduleDefinedFunctions = filter isNotExternal . moduleFunctions
-
-isNotExternal :: Value -> Bool
-isNotExternal Value { valueContent = Function {} } = True
-isNotExternal Value { valueContent = GlobalDeclaration {} } = True
-isNotExternal _ = False
+-- isNotExternal :: Value -> Bool
+-- isNotExternal Value { valueContent = Function {} } = True
+-- isNotExternal Value { valueContent = GlobalDeclaration {} } = True
+-- isNotExternal _ = False
 
 -- | Implementation of the Show instance
 printModule :: Module -> String
@@ -56,7 +52,9 @@ printModule Module { moduleIdentifier = _
                    , moduleAssembly = asm
                    , moduleAliases = aliases
                    , moduleGlobalVariables = vars
-                   , moduleFunctions = funcs
+                   , moduleDefinedFunctions = funcs
+                   , moduleExternalValues = evars
+                   , moduleExternalFunctions = efuncs
                    } =
   concat [ layoutS, "\n", tripleS, "\n", asmS, "\n"
          , aliasesS, "\n", varS, "\n", funcS, "\n"
@@ -65,16 +63,18 @@ printModule Module { moduleIdentifier = _
     layoutS = concat [ "target datalayout = \"", show layout, "\"" ]
     tripleS = concat [ "target triple = \"", show triple, "\"" ]
     asmS = printAsm asm
-    aliasesS = intercalate "\n\n" $ map printValue aliases
-    varS = intercalate "\n\n" $ map printValue vars
-    funcS = intercalate "\n\n" $ map printValue funcs
+    aliasesS = intercalate "\n\n" $ map (printValue . Value) aliases
+    varS = intercalate "\n\n" $ map (printValue . Value) vars
+    funcS = intercalate "\n\n" $ map (printValue . Value) funcs
 
 -- | Get a list of all types of globals in the Module (functions,
 -- aliases, and global variables)
 moduleGlobals :: Module -> [Value]
-moduleGlobals m = concat [ moduleAliases m
-                         , moduleGlobalVariables m
-                         , moduleFunctions m
+moduleGlobals m = concat [ map Value $ moduleAliases m
+                         , map Value $ moduleGlobalVariables m
+                         , map Value $ moduleDefinedFunctions m
+                         , map Value $ moduleExternalValues m
+                         , map Value $ moduleExternalFunctions m
                          ]
 
 instance Show Module where
@@ -88,7 +88,9 @@ instance NFData Module where
 -- traversing them infinitely.
 forceModule :: Module -> ForceMonad Module
 forceModule m = do
-  mapM_ forceGlobal (moduleAliases m)
-  mapM_ forceGlobal (moduleGlobalVariables m)
-  mapM_ forceGlobal (moduleFunctions m)
+  mapM_ forceGlobalAlias (moduleAliases m)
+  mapM_ forceGlobalVariable (moduleGlobalVariables m)
+  mapM_ forceFunction (moduleDefinedFunctions m)
+  mapM_ forceExternalValue (moduleExternalValues m)
+  mapM_ forceExternalFunction (moduleExternalFunctions m)
   return $ moduleAssembly m `deepseq` m `seq` m
