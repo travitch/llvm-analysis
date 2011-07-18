@@ -10,7 +10,7 @@ import Data.LLVM.CallGraph
 viewCFG :: CFG -> IO ()
 viewCFG cfg = do
   let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
-                                  , fmtEdge = \(_,_,l) -> [toLabel (Value l)]
+                                  , fmtEdge = \(_,_,l) -> [toLabel (l)]
                                   }
       dg = graphToDot params (cfgGraph cfg)
   _ <- runGraphvizCanvas' dg Gtk
@@ -18,8 +18,8 @@ viewCFG cfg = do
 
 viewCG :: CallGraph -> IO ()
 viewCG cg = do
-  let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
-                                  , fmtEdge = \(_,_,l) -> [toLabel (Value l)]
+  let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel (l)]
+                                  , fmtEdge = \(_,_,l) -> [toLabel (l)]
                                   }
       dg = graphToDot params (callGraphRepr cg)
   _ <- runGraphvizCanvas' dg Gtk

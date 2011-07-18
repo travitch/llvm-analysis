@@ -15,20 +15,18 @@ main = do
 printAllFuncArgs :: Module -> IO ()
 printAllFuncArgs m = mapM_ printFuncArgs $ moduleDefinedFunctions m
 
-printFuncArgs :: Value -> IO ()
-printFuncArgs Value { valueContent = fc
-                    , valueName = Just n
-                    } = do
-  _ <- printf "Function [%s]:\n" (show n)
+printFuncArgs :: Function -> IO ()
+printFuncArgs f = do
+  _ <- printf "Function [%s]:\n" (show $ functionName f)
   mapM_ printArgType args
   where
-    args = functionParameters fc
+    args = functionParameters f
 
 metaType :: [Metadata] -> String
 metaType [] = "none"
 metaType (md:_) = show $ metaLocalType $ metaValueContent md
 
-printArgType :: Value -> IO ()
+printArgType :: Argument -> IO ()
 printArgType a = do
   let n = maybe "" show (valueName a)
       mdType = metaType (valueMetadata a)

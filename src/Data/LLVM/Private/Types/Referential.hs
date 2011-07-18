@@ -273,7 +273,7 @@ instance Ord Metadata where
   mv1 `compare` mv2 = comparing metaValueUniqueId mv1 mv2
 
 instance Hashable Metadata where
-  hash md = fromIntegral $ metaValueUniqueId md
+  hash = fromIntegral . metaValueUniqueId
 
 -- | A wrapper around 'ValueT' values that tracks the 'Type', name,
 -- and attached metadata. valueName is mostly informational at this
@@ -302,11 +302,8 @@ instance Eq Value where
 instance Ord Value where
   v1 `compare` v2 = comparing valueUniqueId v1 v2
 
-maxInt :: UniqueId
-maxInt = fromIntegral (maxBound :: Int)
-
 instance Hashable Value where
-  hash v = fromIntegral (valueUniqueId v `mod` maxInt)
+  hash = fromIntegral . valueUniqueId
 
 instance Labellable Value where
   toLabel = (Label . StrLabel) . show . valueName
@@ -340,6 +337,9 @@ instance IsValue Function where
 instance Eq Function where
   f1 == f2 = functionUniqueId f1 == functionUniqueId f2
 
+instance Hashable Function where
+  hash = fromIntegral . functionUniqueId
+
 data Argument = Argument { argumentType :: Type
                          , argumentName :: !Identifier
                          , argumentMetadata :: [Metadata]
@@ -353,6 +353,9 @@ instance IsValue Argument where
   valueMetadata = argumentMetadata
   valueContent = ArgumentC
   valueUniqueId = argumentUniqueId
+
+instance Hashable Argument where
+  hash = fromIntegral . argumentUniqueId
 
 data BasicBlock = BasicBlock { basicBlockType :: Type
                              , basicBlockName :: !Identifier
@@ -368,6 +371,8 @@ instance IsValue BasicBlock where
   valueContent = BasicBlockC
   valueUniqueId = basicBlockUniqueId
 
+instance Hashable BasicBlock where
+  hash = fromIntegral . basicBlockUniqueId
 
 instance Eq BasicBlock where
   f1 == f2 = basicBlockUniqueId f1 == basicBlockUniqueId f2
@@ -393,10 +398,11 @@ instance IsValue GlobalVariable where
   valueContent = GlobalVariableC
   valueUniqueId = globalVariableUniqueId
 
-
 instance Eq GlobalVariable where
   f1 == f2 = globalVariableUniqueId f1 == globalVariableUniqueId f2
 
+instance Hashable GlobalVariable where
+  hash = fromIntegral . globalVariableUniqueId
 
 data GlobalAlias = GlobalAlias { globalAliasTarget :: Value
                                , globalAliasLinkage :: !LinkageType
@@ -413,10 +419,11 @@ instance IsValue GlobalAlias where
   valueContent = GlobalAliasC
   valueUniqueId = globalAliasUniqueId
 
-
 instance Eq GlobalAlias where
   f1 == f2 = globalAliasUniqueId f1 == globalAliasUniqueId f2
 
+instance Hashable GlobalAlias where
+  hash = fromIntegral . globalAliasUniqueId
 
 data ExternalValue = ExternalValue { externalValueType :: Type
                                    , externalValueName :: !Identifier
@@ -433,6 +440,9 @@ instance IsValue ExternalValue where
 
 instance Eq ExternalValue where
   f1 == f2 = externalValueUniqueId f1 == externalValueUniqueId f2
+
+instance Hashable ExternalValue where
+  hash = fromIntegral . externalValueUniqueId
 
 data ExternalFunction = ExternalFunction { externalFunctionType :: Type
                                          , externalFunctionName :: !Identifier
@@ -451,6 +461,8 @@ instance IsValue ExternalFunction where
 instance Eq ExternalFunction where
   f1 == f2 = externalFunctionUniqueId f1 == externalFunctionUniqueId f2
 
+instance Hashable ExternalFunction where
+  hash = fromIntegral . externalFunctionUniqueId
 
 data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
@@ -791,6 +803,12 @@ instance IsValue Instruction where
   valueContent = InstructionC
   valueUniqueId = instructionUniqueId
 
+instance Eq Instruction where
+  i1 == i2 = instructionUniqueId i1 == instructionUniqueId i2
+
+instance Hashable Instruction where
+  hash = fromIntegral . instructionUniqueId
+
 data Constant = UndefValue { constantType :: Type
                            , constantUniqueId :: !UniqueId
                            }
@@ -845,6 +863,12 @@ instance IsValue Constant where
   valueMetadata _ = []
   valueContent = ConstantC
   valueUniqueId = constantUniqueId
+
+instance Eq Constant where
+  c1 == c2 = constantUniqueId c1 == constantUniqueId c2
+
+instance Hashable Constant where
+  hash = fromIntegral . constantUniqueId
 
 -- Functions have parameters if they are not external
 data ValueContent = FunctionC Function
