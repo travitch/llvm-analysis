@@ -290,11 +290,11 @@ class IsValue a where
   valueUniqueId :: a -> UniqueId
 
 instance IsValue Value where
-  valueType = valueType
-  valueName = valueName
-  valueMetadata = valueMetadata
-  valueContent = valueContent
-  valueUniqueId = valueUniqueId
+  valueType (Value a) = valueType a
+  valueName (Value a) = valueName a
+  valueMetadata (Value a) = valueMetadata a
+  valueContent (Value a) = valueContent a
+  valueUniqueId (Value a) = valueUniqueId a
 
 instance Eq Value where
   v1 == v2 = valueUniqueId v1 == valueUniqueId v2
