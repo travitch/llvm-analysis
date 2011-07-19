@@ -67,16 +67,16 @@ mkICFG m pta fcfgs entryPoints =
        , icfgModule = m
        }
   where
-    allNodes = cfgNodes ++ callReturnNodes
+    allNodes = concat [ cfgNodes, callReturnNodes, externEntryNodes, externExitNodes ]
     -- ^ The only extra nodes in the ICFG are call return nodes
     -- (representing the place to which flow resumes after a function
     -- call)
 
-    allEdges = concat [ intraIcfgEdges, callEdges, returnEdges, callReturnEdges ]
+    allEdges = concat [ intraIcfgEdges, callEdges, returnEdges, callReturnEdges, externInternalEdges ]
     -- ^ The ICFG adds call/return edges on top of the original
     -- intraprocedural edges.
 
-    unknownCallNode = case entryPoints of
+    unknownCallNodeId = case entryPoints of
       [_] -> Nothing
       _ -> Just $ moduleNextId m
     -- ^ With a single entry point we have a closed system and
@@ -85,6 +85,11 @@ mkICFG m pta fcfgs entryPoints =
     -- represent calls to unknown functions explicitly. FIXME: Search
     -- for dlopen
 
+    externEntryNodes = map mkExternEntryNode (moduleExternalFunctions m)
+    externExitNodes = map mkExternExitNode (moduleExternalFunctions m)
+    externInternalEdges = map mkExternIntraEdge (moduleExternalFunctions m)
+
+    -- FIXME: Need an unknown node for each call site?
 
 
     cfgs = map getCFG fcfgs
@@ -100,8 +105,15 @@ mkICFG m pta fcfgs entryPoints =
 
     callReturnNodes = map transformCallToReturnNode callNodes
     callReturnEdges = map makeCallToReturnEdge callNodes
-    callEdgeMaker = makeCallEdges pta funcCfgMap unknownCallNode
+    callEdgeMaker = makeCallEdges pta funcCfgMap unknownCallNodeId
     (callEdges, returnEdges) = unzip $ concatMap callEdgeMaker callNodes
+
+mkExternEntryNode :: ExternalFunction -> LNode Instruction
+mkExternEntryNode ef = (valueUniqueId ef, undefined)
+mkExternExitNode :: ExternalFunction -> LNode Instruction
+mkExternExitNode ef = (-(valueUniqueId ef), undefined)
+mkExternIntraEdge :: ExternalFunction -> LEdge EdgeType
+mkExternIntraEdge ef = (valueUniqueId ef, -(valueUniqueId ef), IntraEdge UnconditionalEdge)
 
 -- FIXME: This does not handle invoke instructions yet.
 
