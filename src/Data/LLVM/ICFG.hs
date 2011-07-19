@@ -67,10 +67,13 @@ mkICFG m pta fcfgs entryPoints =
        , icfgModule = m
        }
   where
-    allNodes = concat [ cfgNodes, callReturnNodes, externEntryNodes, externExitNodes ]
+    mostNodes = concat [ cfgNodes, callReturnNodes, externEntryNodes, externExitNodes ]
     -- ^ The only extra nodes in the ICFG are call return nodes
     -- (representing the place to which flow resumes after a function
     -- call)
+    allNodes = case unknownCallNodeId of
+      Nothing -> mostNodes
+      Just uid -> (uid, undefined) : mostNodes
 
     allEdges = concat [ intraIcfgEdges, callEdges, returnEdges, callReturnEdges, externInternalEdges ]
     -- ^ The ICFG adds call/return edges on top of the original
@@ -86,9 +89,6 @@ mkICFG m pta fcfgs entryPoints =
     externEntryNodes = map mkExternEntryNode (moduleExternalFunctions m)
     externExitNodes = map mkExternExitNode (moduleExternalFunctions m)
     externInternalEdges = map mkExternIntraEdge (moduleExternalFunctions m)
-
-    -- FIXME: Need an unknown node for each call site?
-
 
     cfgs = map getCFG fcfgs
     funcCfgs = map (\x -> (cfgFunction x, x)) cfgs
@@ -117,8 +117,6 @@ usesDlopen :: Module -> Bool
 usesDlopen m = foldr dlfold False (moduleExternalFunctions m)
   where
     dlfold ef acc = acc || show (externalFunctionName ef) == "@dlopen"
-
--- FIXME: This does not handle invoke instructions yet.
 
 -- | The major workhorse that constructs interprocedural edges.  For
 -- the given call/invoke node, create an edge from the call to the
