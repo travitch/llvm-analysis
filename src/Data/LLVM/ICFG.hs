@@ -76,15 +76,13 @@ mkICFG m pta fcfgs entryPoints =
     -- ^ The ICFG adds call/return edges on top of the original
     -- intraprocedural edges.
 
-    unknownCallNodeId = case entryPoints of
-      [_] -> Nothing
+    unknownCallNodeId = case (entryPoints, usesDlopen m) of
+      ([_], False) -> Nothing
       _ -> Just $ moduleNextId m
     -- ^ With a single entry point we have a closed system and
     -- "unknown" functions can only be introduced through calls like
     -- dlopen and its Windows equivalents.  Otherwise we need to
-    -- represent calls to unknown functions explicitly. FIXME: Search
-    -- for dlopen
-
+    -- represent calls to unknown functions explicitly.
     externEntryNodes = map mkExternEntryNode (moduleExternalFunctions m)
     externExitNodes = map mkExternExitNode (moduleExternalFunctions m)
     externInternalEdges = map mkExternIntraEdge (moduleExternalFunctions m)
@@ -114,6 +112,11 @@ mkExternExitNode :: ExternalFunction -> LNode Instruction
 mkExternExitNode ef = (-(valueUniqueId ef), undefined)
 mkExternIntraEdge :: ExternalFunction -> LEdge EdgeType
 mkExternIntraEdge ef = (valueUniqueId ef, -(valueUniqueId ef), IntraEdge UnconditionalEdge)
+
+usesDlopen :: Module -> Bool
+usesDlopen m = foldr dlfold False (moduleExternalFunctions m)
+  where
+    dlfold ef acc = acc || show (externalFunctionName ef) == "@dlopen"
 
 -- FIXME: This does not handle invoke instructions yet.
 

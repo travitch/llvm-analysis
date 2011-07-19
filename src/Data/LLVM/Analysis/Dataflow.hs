@@ -48,12 +48,20 @@ class BoundedMeetSemiLattice a => DataflowAnalysis a where
 
 -- | Perform a forward dataflow analysis of the given type over a
 -- function or CFG.
-forwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b) => a -> b -> Instruction -> a
+forwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b)
+                   => a -- ^ The initial state of the analysis to run
+                   -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
+                   -> Instruction -- ^ The program point to retrieve facts for
+                   -> a
 forwardDataflow = dataflowAnalysis lpre lsuc cfgExitNode
 
 -- | Perform a backward dataflow analysis of the given type over a
 -- function or CFG.
-backwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b) => a -> b -> Instruction -> a
+backwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b)
+                    => a -- ^ The initial state of the analysis to run
+                    -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
+                    -> Instruction -- ^ The program point to retrieve facts for
+                    -> a
 backwardDataflow = dataflowAnalysis lsuc lpre cfgEntryNode
 
 dataflowAnalysis :: (Eq a, DataflowAnalysis a, HasCFG b) =>
