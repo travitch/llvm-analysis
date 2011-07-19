@@ -2,11 +2,14 @@ module Data.LLVM.ICFG (
   -- * Types
   ICFG(..),
   EdgeType(..),
+  NodeType(..),
   -- * Constructor
   mkICFG
   ) where
 
 import Data.Graph.Inductive
+import Data.GraphViz ( toLabel )
+import qualified Data.GraphViz as GV
 import Data.HashMap.Strict ( HashMap )
 import Data.Set ( Set )
 import qualified Data.HashMap.Strict as M
@@ -16,6 +19,10 @@ import Data.LLVM.Types
 import Data.LLVM.CFG
 import Data.LLVM.Analysis.PointsTo
 
+data NodeType = InstNode Instruction
+              | ExternalEntry (Maybe ExternalFunction)
+              | ExternalExit (Maybe ExternalFunction)
+
 data EdgeType = CallToEntry Function
               | ReturnToCall Function
               | CallToReturn
@@ -23,7 +30,20 @@ data EdgeType = CallToEntry Function
               | ReturnFromExtern (Maybe ExternalFunction)
               | IntraEdge CFGEdge
 
-data ICFG = ICFG { icfgGraph :: Gr Instruction EdgeType
+instance Show EdgeType where
+  show (CallToEntry f) = "(_" ++ show (functionName f)
+  show (ReturnToCall f) = ")_" ++ show (functionName f)
+  show CallToReturn = "<call-to-return>"
+  show (CallToExtern Nothing) = "(_unknown"
+  show (ReturnFromExtern Nothing) = ")_unknown"
+  show (CallToExtern (Just ef)) = "(_" ++ show (externalFunctionName ef)
+  show (ReturnFromExtern (Just ef)) = ")_" ++ show (externalFunctionName ef)
+  show (IntraEdge ce) = show ce
+
+instance GV.Labellable EdgeType where
+  toLabel = (GV.Label . GV.StrLabel) . show
+
+data ICFG = ICFG { icfgGraph :: Gr NodeType EdgeType
                  , icfgEntryPoints :: [Function]
                  , icfgModule :: Module
                  }
@@ -67,13 +87,16 @@ mkICFG m pta fcfgs entryPoints =
        , icfgModule = m
        }
   where
-    mostNodes = concat [ cfgNodes, callReturnNodes, externEntryNodes, externExitNodes ]
+    mostNodes = concat [ map convertNode cfgNodes
+                       , map convertNode callReturnNodes
+                       , externEntryNodes
+                       , externExitNodes ]
     -- ^ The only extra nodes in the ICFG are call return nodes
     -- (representing the place to which flow resumes after a function
     -- call)
     allNodes = case unknownCallNodeId of
       Nothing -> mostNodes
-      Just uid -> (uid, undefined) : mostNodes
+      Just uid -> (uid, ExternalEntry Nothing) : (-uid, ExternalExit Nothing) : mostNodes
 
     allEdges = concat [ intraIcfgEdges, callEdges, returnEdges, callReturnEdges, externInternalEdges ]
     -- ^ The ICFG adds call/return edges on top of the original
@@ -106,10 +129,10 @@ mkICFG m pta fcfgs entryPoints =
     callEdgeMaker = makeCallEdges pta funcCfgMap unknownCallNodeId
     (callEdges, returnEdges) = unzip $ concatMap callEdgeMaker callNodes
 
-mkExternEntryNode :: ExternalFunction -> LNode Instruction
-mkExternEntryNode ef = (valueUniqueId ef, undefined)
-mkExternExitNode :: ExternalFunction -> LNode Instruction
-mkExternExitNode ef = (-(valueUniqueId ef), undefined)
+mkExternEntryNode :: ExternalFunction -> LNode NodeType
+mkExternEntryNode ef = (valueUniqueId ef, ExternalEntry (Just ef))
+mkExternExitNode :: ExternalFunction -> LNode NodeType
+mkExternExitNode ef = (-(valueUniqueId ef), ExternalExit (Just ef))
 mkExternIntraEdge :: ExternalFunction -> LEdge EdgeType
 mkExternIntraEdge ef = (valueUniqueId ef, -(valueUniqueId ef), IntraEdge UnconditionalEdge)
 
@@ -201,3 +224,6 @@ convertEdge callNodes (src, dst, lbl) =
   case S.member src callNodes of
     False -> (src, dst, IntraEdge lbl)
     True -> (-src, dst, IntraEdge lbl)
+
+convertNode :: LNode Instruction -> LNode NodeType
+convertNode (nid, nv) = (nid, InstNode nv)

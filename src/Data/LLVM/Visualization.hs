@@ -1,11 +1,12 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Data.LLVM.Visualization ( viewCFG, viewCG ) where
+module Data.LLVM.Visualization ( viewCFG, viewCG, viewICFG ) where
 
 import Data.GraphViz
 
 import Data.LLVM.Types
 import Data.LLVM.CFG
 import Data.LLVM.CallGraph
+import Data.LLVM.ICFG
 
 viewCFG :: CFG -> IO ()
 viewCFG cfg = do
@@ -13,6 +14,21 @@ viewCFG cfg = do
                                   , fmtEdge = \(_,_,l) -> [toLabel (l)]
                                   }
       dg = graphToDot params (cfgGraph cfg)
+  _ <- runGraphvizCanvas' dg Gtk
+  return ()
+
+viewICFG :: ICFG -> IO ()
+viewICFG icfg = do
+  let params = nonClusteredParams {
+        fmtNode = \(_,l) -> case l of
+           ExternalEntry Nothing -> [toLabel "UnknownEntry"]
+           ExternalExit Nothing -> [toLabel "UnknownExit"]
+           ExternalEntry (Just ef) -> [toLabel ("ExteranlEntry: " ++ show (externalFunctionName ef))]
+           ExternalExit (Just ef) -> [toLabel ("ExteranlExit: " ++ show (externalFunctionName ef))]
+           InstNode i -> [toLabel (Value i)],
+        fmtEdge = \(_,_,l) -> [toLabel l]
+        }
+      dg = graphToDot params (icfgGraph icfg)
   _ <- runGraphvizCanvas' dg Gtk
   return ()
 
