@@ -170,12 +170,13 @@ makeCallEdges pta valCfgs unknownCallNode (n, v) =
           Nothing -> error ("Missing function CFG in reverse map " ++ show (valueUniqueId f))
           Just calleeCfg ->
             let calleeEntryId = valueUniqueId $ cfgEntryValue calleeCfg
+                calleeExitId = valueUniqueId $ cfgExitValue calleeCfg
             in ((n, calleeEntryId, CallToEntry f),
-                (-calleeEntryId, n, ReturnToCall f)) : acc
+                (calleeExitId, -n, ReturnToCall f)) : acc
         ExternalFunctionC ef ->
           let calleeEntryId = valueUniqueId ef
           in ((n, calleeEntryId, CallToExtern (Just ef)),
-              (-calleeEntryId, n, ReturnFromExtern (Just ef))) : acc
+              (-calleeEntryId, -n, ReturnFromExtern (Just ef))) : acc
         GlobalAliasC GlobalAlias { globalAliasTarget = t } -> mkCallEdge t acc
 
 -- | Get the value called by a Call or Invoke instruction
