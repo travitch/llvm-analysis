@@ -1,6 +1,7 @@
 import System.Environment ( getArgs )
 
 import Data.GraphViz
+import System.FilePath
 
 import Data.LLVM
 import Data.LLVM.ICFG
@@ -13,8 +14,13 @@ main = do
   Right m <- parseLLVMBitcodeFile defaultParserOptions fname
   let aa = runPointsToAnalysis m
       icfg = mkICFG m aa (moduleDefinedFunctions m) []
-  viewICFG icfg
+--  viewICFG icfg
+  let dg = graphToDot icfgParams (icfgGraph icfg)
+  -- res <- runGraphvizCommand dirCommand dg Png (fname <.> "png")
   _ <- getChar
+  -- putStrLn (show res)
+  let s= printDotGraph dg
+  putStrLn s
   return ()
   -- let g = callGraphRepr cg
   --     params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]

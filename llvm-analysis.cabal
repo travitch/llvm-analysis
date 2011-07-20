@@ -77,7 +77,7 @@ executable DumpArguments
 
 executable ViewICFG
   default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5, containers, graphviz
+  build-depends: llvm-analysis, base > 3 && < 5, containers, graphviz, filepath
   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
   ghc-prof-options: -auto-all
   main-is: ViewICFG.hs

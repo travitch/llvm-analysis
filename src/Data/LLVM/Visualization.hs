@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Data.LLVM.Visualization ( viewCFG, viewCG, viewICFG ) where
+module Data.LLVM.Visualization ( viewCFG, viewCG, viewICFG, icfgParams ) where
 
-import Data.GraphViz
+import Data.GraphViz hiding ( EdgeType )
 
 import Data.LLVM
 import Data.LLVM.CFG
@@ -17,18 +17,26 @@ viewCFG cfg = do
   _ <- runGraphvizCanvas' dg Gtk
   return ()
 
+icfgParams :: GraphvizParams NodeType EdgeType () NodeType
+icfgParams =
+  nonClusteredParams {
+    fmtNode = \(_,l) -> case l of
+       ExternalEntry Nothing -> [toLabel "UnknownEntry"]
+       ExternalExit Nothing -> [toLabel "UnknownExit"]
+       ExternalEntry (Just ef) -> [toLabel ("ExternalEntry: " ++ show (externalFunctionName ef))]
+       ExternalExit (Just ef) -> [toLabel ("ExternalExit: " ++ show (externalFunctionName ef))]
+       InstNode i -> [toLabel (Value i), Shape BoxShape],
+    fmtEdge = \(_,_,l) -> let lab = toLabel l
+                          in case l of
+                            CallToEntry _ -> [lab, Style [SItem Dashed []]]
+                            ReturnToCall _ -> [lab, Style [SItem Dashed []]]
+                            CallToReturn -> [lab, Style [SItem Dotted []]]
+                            IntraEdge _ -> [lab]
+    }
+
 viewICFG :: ICFG -> IO ()
 viewICFG icfg = do
-  let params = nonClusteredParams {
-        fmtNode = \(_,l) -> case l of
-           ExternalEntry Nothing -> [toLabel "UnknownEntry"]
-           ExternalExit Nothing -> [toLabel "UnknownExit"]
-           ExternalEntry (Just ef) -> [toLabel ("ExternalEntry: " ++ show (externalFunctionName ef))]
-           ExternalExit (Just ef) -> [toLabel ("ExternalExit: " ++ show (externalFunctionName ef))]
-           InstNode i -> [toLabel (Value i)],
-        fmtEdge = \(_,_,l) -> [toLabel l]
-        }
-      dg = graphToDot params (icfgGraph icfg)
+  let dg = graphToDot icfgParams (icfgGraph icfg)
   _ <- runGraphvizCanvas' dg Gtk
   return ()
 
