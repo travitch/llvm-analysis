@@ -508,8 +508,8 @@ printValue v = case valueContent v of
                 , printConstOrName f
                 , "(", intercalate ", " $ map printArgument args, ")"
                 , unwords $ map show attrs
-                , "to", printConstOrName nlabel
-                , "unwind", printConstOrName ulabel
+                , "to", printConstOrName (Value nlabel)
+                , "unwind", printConstOrName (Value ulabel)
                 ]
       VaArgInst { vaArgValue = va } ->
         compose [ printInstNamePrefix i
@@ -762,3 +762,6 @@ instance Show Value where
 
 instance Labellable Value where
   toLabel = (Label . StrLabel) . show
+
+instance Show Instruction where
+  show = printValue . Value

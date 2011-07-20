@@ -18,6 +18,8 @@ module Data.LLVM.Private.Types.Referential (
   Metadata(..),
   MetadataContent(..),
   functionIsVararg,
+  functionEntryInstruction,
+  functionExitInstruction,
   llvmDebugVersion
   ) where
 
@@ -323,6 +325,18 @@ functionIsVararg :: Function -> Bool
 functionIsVararg Function { functionType = TypeFunction _ _ isva } = isva
 functionIsVararg v = error $ printf "Value %d is not a function" (valueUniqueId v)
 
+functionEntryInstruction :: Function -> Instruction
+functionEntryInstruction f = e1
+  where
+    (bb1:_) = functionBody f
+    (e1:_) = basicBlockInstructions bb1
+
+functionExitInstruction :: Function -> Instruction
+functionExitInstruction f = e
+  where
+    (bb:_) = reverse (functionBody f)
+    (e:_) = reverse (basicBlockInstructions bb)
+
 instance IsValue Function where
   valueType = functionType
   valueName = Just . functionName
@@ -335,6 +349,9 @@ instance Eq Function where
 
 instance Hashable Function where
   hash = fromIntegral . functionUniqueId
+
+instance Ord Function where
+  f1 `compare` f2 = comparing functionUniqueId f1 f2
 
 data Argument = Argument { argumentType :: Type
                          , argumentName :: !Identifier
@@ -352,6 +369,12 @@ instance IsValue Argument where
 
 instance Hashable Argument where
   hash = fromIntegral . argumentUniqueId
+
+instance Eq Argument where
+  a1 == a2 = argumentUniqueId a1 == argumentUniqueId a2
+
+instance Ord Argument where
+  a1 `compare` a2 = comparing argumentUniqueId a1 a2
 
 data BasicBlock = BasicBlock { basicBlockType :: Type
                              , basicBlockName :: !Identifier
@@ -373,6 +396,8 @@ instance Hashable BasicBlock where
 instance Eq BasicBlock where
   f1 == f2 = basicBlockUniqueId f1 == basicBlockUniqueId f2
 
+instance Ord BasicBlock where
+  b1 `compare` b2 = comparing basicBlockUniqueId b1 b2
 
 data GlobalVariable = GlobalVariable { globalVariableType :: Type
                                      , globalVariableName :: !Identifier
@@ -400,6 +425,9 @@ instance Eq GlobalVariable where
 instance Hashable GlobalVariable where
   hash = fromIntegral . globalVariableUniqueId
 
+instance Ord GlobalVariable where
+  g1 `compare` g2 = comparing globalVariableUniqueId g1 g2
+
 data GlobalAlias = GlobalAlias { globalAliasTarget :: Value
                                , globalAliasLinkage :: !LinkageType
                                , globalAliasName :: !Identifier
@@ -421,6 +449,9 @@ instance Eq GlobalAlias where
 instance Hashable GlobalAlias where
   hash = fromIntegral . globalAliasUniqueId
 
+instance Ord GlobalAlias where
+  g1 `compare` g2 = comparing globalAliasUniqueId g1 g2
+
 data ExternalValue = ExternalValue { externalValueType :: Type
                                    , externalValueName :: !Identifier
                                    , externalValueMetadata :: [Metadata]
@@ -439,6 +470,9 @@ instance Eq ExternalValue where
 
 instance Hashable ExternalValue where
   hash = fromIntegral . externalValueUniqueId
+
+instance Ord ExternalValue where
+  e1 `compare` e2 = comparing externalValueUniqueId e1 e2
 
 data ExternalFunction = ExternalFunction { externalFunctionType :: Type
                                          , externalFunctionName :: !Identifier
@@ -459,6 +493,9 @@ instance Eq ExternalFunction where
 
 instance Hashable ExternalFunction where
   hash = fromIntegral . externalFunctionUniqueId
+
+instance Ord ExternalFunction where
+  f1 `compare` f2 = comparing externalFunctionUniqueId f1 f2
 
 data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
@@ -776,8 +813,8 @@ data Instruction = RetInst { instructionType :: Type
                               , invokeFunction :: Value
                               , invokeArguments :: [(Value, [ParamAttribute])]
                               , invokeAttrs :: [FunctionAttribute]
-                              , invokeNormalLabel :: Value
-                              , invokeUnwindLabel :: Value
+                              , invokeNormalLabel :: BasicBlock
+                              , invokeUnwindLabel :: BasicBlock
                               , invokeHasSRet :: !Bool
                               }
                  | VaArgInst { instructionType :: Type
@@ -804,6 +841,9 @@ instance Eq Instruction where
 
 instance Hashable Instruction where
   hash = fromIntegral . instructionUniqueId
+
+instance Ord Instruction where
+  i1 `compare` i2 = comparing instructionUniqueId i1 i2
 
 data Constant = UndefValue { constantType :: Type
                            , constantUniqueId :: !UniqueId
@@ -865,6 +905,9 @@ instance Eq Constant where
 
 instance Hashable Constant where
   hash = fromIntegral . constantUniqueId
+
+instance Ord Constant where
+  c1 `compare` c2 = comparing constantUniqueId c1 c2
 
 -- Functions have parameters if they are not external
 data ValueContent = FunctionC Function

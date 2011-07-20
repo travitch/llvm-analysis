@@ -140,8 +140,8 @@ forceInstruction i = do
                , invokeNormalLabel = normal
                , invokeUnwindLabel = unwind
                } -> do
-      paramAttrs `deepseq` attrs `deepseq` return ()
-      mapM_ forceValueIfConstant [ f, normal, unwind ]
+      paramAttrs `deepseq` attrs `deepseq` normal `seq` unwind `seq` return ()
+      forceValueIfConstant f
       let forceArg (v, ps) = forceValueIfConstant v >> ps `deepseq` return ()
       mapM_ forceArg args
     VaArgInst { vaArgValue = v } -> forceValueIfConstant v

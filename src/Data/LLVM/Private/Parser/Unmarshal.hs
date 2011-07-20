@@ -1110,6 +1110,11 @@ translateInvokeInst finalState dataPtr name tt mds = do
 
   uid <- nextId
 
+  let n'' = case valueContent n' of
+        BasicBlockC bb -> bb
+      u'' = case valueContent u' of
+        BasicBlockC bb -> bb
+
   return InvokeInst { instructionName = name
                     , instructionType = tt
                     , instructionMetadata = mds
@@ -1119,8 +1124,8 @@ translateInvokeInst finalState dataPtr name tt mds = do
                     , invokeFunction = f'
                     , invokeArguments = zip args' (repeat []) -- FIXME
                     , invokeAttrs = [] -- FIXME
-                    , invokeNormalLabel = n'
-                    , invokeUnwindLabel = u'
+                    , invokeNormalLabel = n''
+                    , invokeUnwindLabel = u''
                     , invokeHasSRet = hasSRet
                     }
 

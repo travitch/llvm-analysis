@@ -1,3 +1,4 @@
+{-# LANGUAGE ExistentialQuantification #-}
 -- | This module defines control flow graphs over the LLVM IR.
 module Data.LLVM.CFG (
   -- * Types
@@ -6,7 +7,8 @@ module Data.LLVM.CFG (
   CFGType,
   HasCFG(..),
   -- * Constructors
-  mkCFG
+  mkCFG,
+  buildLocalGraph
   ) where
 
 import Data.List ( foldl' )
@@ -46,6 +48,8 @@ data CFGEdge =
     -- ^ A case equality edge (the case value v1 was equal to val v2)
   | IndirectEdge Value
     -- ^ Jump from the given indirect branch value
+  | NormalEdge Instruction
+  | UnwindEdge Instruction
   deriving (Ord, Eq)
 
 instance Show CFGEdge where
@@ -55,7 +59,8 @@ instance Show CFGEdge where
   show (FalseEdge v) = printf "%s is false" (show v)
   show (EqualityEdge v1 v2) = printf "%s is %s" (show v1) (show v2)
   show (IndirectEdge v) = printf "%s (indirect)" (show v)
-
+  show (NormalEdge i) = printf "%s (invoke normal)" (show i)
+  show (UnwindEdge i) = printf "%s (invoke unwind)" (show i)
 
 -- | Types that have control flow graphs.
 class HasCFG a where
@@ -78,88 +83,126 @@ mkCFG :: Function -> CFG
 mkCFG func = CFG { cfgGraph = g
                  , cfgFunction = func
                  , cfgEntryValue = entryVal
-                 , cfgEntryNode = instIdent entryVal
+                 , cfgEntryNode = instructionUniqueId entryVal
                  , cfgExitValue = exitVal
-                 , cfgExitNode = instIdent exitVal
+                 , cfgExitNode = instructionUniqueId exitVal
                  }
   where
-    (entryVal : _) = allInstructions
-    (exitVal : _) = reverse allInstructions
+    entryVal = functionEntryInstruction func
+    exitVal = functionExitInstruction func
 
-    g = mkGraph (concat cfgNodes) (concat $ concat cfgEdges)
-    body = functionBody func
-    allInstructions = concatMap basicBlockInstructions body
+    g = mkGraph cfgNodes cfgEdges
 
-    instIdent :: Instruction -> Int
-    instIdent = valueUniqueId
+    (cfgNodes, cfgEdges) = buildLocalGraph id id (const []) func ([], [])
 
-    -- | Only BasicBlocks are targets of jumps.  This function finds the
-    -- identifier for the given block.
-    jumpTargetId :: BasicBlock -> Int
-    jumpTargetId bb = instIdent t
-      where
-        (t:_) = basicBlockInstructions bb
-    -- jumpTargetId Value { valueContent = BasicBlock (t:_) } = instIdent t
-    -- jumpTargetId v = error $ printf "Value is not a basic block %s" (show v)
+-- | Build the local control flow nodes and edges for the given
+-- 'Function'.  The nodes and edges are placed on the front of the
+-- input lists.
+--
+-- Note: This function is only exposed to make the ICFG construction
+-- more efficient without copying code.
+buildLocalGraph :: (LEdge CFGEdge -> LEdge a)        -- ^ A function to convert CFG edges to another type of edge
+                   -> (LNode Instruction -> LNode b) -- ^ A function to convert CFG nodes to another type of node
+                   -> (Instruction -> [LEdge a])     -- ^ A function to apply to Call and Invoke instructions to generate extra edges
+                   -> Function                      -- ^ The current function
+                   -> ([LNode b], [LEdge a])        -- ^ Accumulator
+                   -> ([LNode b], [LEdge a])
+buildLocalGraph edgeF nodeF callF f acc =
+  foldr (buildBlockGraph edgeF nodeF callF) acc (functionBody f)
 
-    caseEdge thisNodeId cond (val, dest) =
-      (thisNodeId, jumpTargetId dest, EqualityEdge cond val)
-    indirectEdge thisNodeId addr target =
-      (thisNodeId, jumpTargetId target, IndirectEdge addr)
+buildBlockGraph :: (LEdge CFGEdge -> LEdge a)        -- ^ A function to convert CFG edges to another type of edge
+                   -> (LNode Instruction -> LNode b) -- ^ A function to convert CFG nodes to another type of node
+                   -> (Instruction -> [LEdge a])     -- ^ A function to apply to Call and Invoke instructions to generate extra edges
+                   -> BasicBlock
+                   -> ([LNode b], [LEdge a])
+                   -> ([LNode b], [LEdge a])
+buildBlockGraph edgeF nodeF callF bb acc =
+  foldl' (buildGraphInst edgeF nodeF callF) acc instsAndSuccessors
+  where
+    blockInsts = basicBlockInstructions bb
+    (_:successors) = blockInsts
+    instsAndSuccessors = case null successors of
+      True -> terminator
+      False -> offsetPairs ++ terminator
+    offsetPairs = zip blockInsts $ map Just successors
+    terminator = [(last blockInsts, Nothing)]
 
-    (cfgNodes, cfgEdges) = unzip $ map buildBlockGraph body
+buildGraphInst :: (LEdge CFGEdge -> LEdge a)        -- ^ A function to convert CFG edges to another type of edge
+                  -> (LNode Instruction -> LNode b) -- ^ A function to convert CFG nodes to another type of node
+                  -> (Instruction -> [LEdge a])     -- ^ A function to apply to Call and Invoke instructions to generate extra edges
+                  -> ([LNode b], [LEdge a])        -- ^ Accumulator
+                  -> (Instruction, Maybe Instruction)    -- ^ Current instruction and successor (if any)
+                  -> ([LNode b], [LEdge a])
+buildGraphInst edgeF nodeF callF (nodeAcc, edgeAcc) (inst, Nothing) =
+   -- Note, when adding the edges, put the accumulator second in the
+   -- list append so that only the short list (new edges) needs to be
+   -- reallocated
+  (nodeF thisNode : nodeAcc, allEdges ++ edgeAcc)
+  where
+    thisNodeId = instructionUniqueId inst
+    thisNode = (thisNodeId, inst)
+    allEdges = case inst of
+      InvokeInst { } -> callF inst ++ map edgeF theseEdges
+      _ -> map edgeF theseEdges
+    -- Note: branch targets are all basic blocks.  The
+    -- lookup function handles grabbing the first real
+    -- instruction from the basic block.
+    theseEdges = case inst of
+      -- Returns have no intraprocedural edges
+      RetInst {} -> []
+      -- Unwinds also have no intraprocedural edges
+      UnwindInst {} -> []
+      -- A single target (no label needed)
+      UnconditionalBranchInst { unconditionalBranchTarget = tgt } ->
+        [ (thisNodeId, jumpTargetId tgt, UnconditionalEdge) ]
+      -- Two edges (cond is true, cond is false)
+      BranchInst { branchCondition = cond
+                 , branchTrueTarget = tTarget
+                 , branchFalseTarget = fTarget
+                 } ->
+        [ (thisNodeId, jumpTargetId tTarget, TrueEdge cond)
+        , (thisNodeId, jumpTargetId fTarget, FalseEdge cond)
+        ]
+      SwitchInst { switchValue = cond
+                 , switchDefaultTarget = defTarget
+                 , switchCases = cases
+                 } ->
+        ( thisNodeId, jumpTargetId defTarget, DefaultEdge) :
+        map (caseEdge thisNodeId cond) cases
+      IndirectBranchInst { indirectBranchAddress = addr
+                         , indirectBranchTargets = targets
+                         } ->
+        map (indirectEdge thisNodeId addr) targets
+      InvokeInst { invokeNormalLabel = n
+                 , invokeUnwindLabel = u
+                 } ->
+        [ (thisNodeId, jumpTargetId n, NormalEdge inst)
+        , (thisNodeId, jumpTargetId u, UnwindEdge inst)
+        ]
+        -- No edges from the unreachable instruction, either
+      UnreachableInst {} -> []
+      _ -> error ("Last instruction in a block should be a terminator: " ++ show (Value inst))
+buildGraphInst edgeF nodeF callF (nodeAcc, edgeAcc) (inst, Just successor) =
+  (nodeF thisNode : nodeAcc,  theseEdges ++ edgeAcc)
+  where
+    thisNodeId = instructionUniqueId inst
+    thisNode = (thisNodeId, inst)
+    thisEdge = (thisNodeId, instructionUniqueId successor, UnconditionalEdge)
+    theseEdges = case inst of
+      CallInst { } -> edgeF thisEdge : callF inst
+      _ -> [edgeF thisEdge]
 
-    buildBlockGraph bb = foldl' buildGraphInst ([], []) instsAndSuccessors
-      where
-        blockInsts = basicBlockInstructions bb
-        (_:successors) = blockInsts
-        instsAndSuccessors = if null successors
-                             then terminator
-                             else offsetPairs ++ terminator
-        offsetPairs = zip blockInsts $ map Just successors
-        terminator = [(last blockInsts, Nothing)]
+-- | Only BasicBlocks are targets of jumps.  This function finds the
+-- identifier for the given block.
+jumpTargetId :: BasicBlock -> Int
+jumpTargetId bb = instructionUniqueId t
+  where
+    (t:_) = basicBlockInstructions bb
 
-    -- buildGraphInst (nodeAcc, edgeAcc) (v@Value { valueContent = c }, Nothing) =
-    buildGraphInst (nodeAcc, edgeAcc) (inst, Nothing) =
-      (thisNode : nodeAcc, theseEdges : edgeAcc)
-      where
-        thisNodeId = instIdent inst
-        thisNode = (thisNodeId, inst)
-        -- Note: branch targets are all basic blocks.  The
-        -- lookup function handles grabbing the first real
-        -- instruction from the basic block.
-        theseEdges = case inst of
-          -- Returns have no intraprocedural edges
-          RetInst {} -> []
-          -- Unwinds also have no intraprocedural edges
-          UnwindInst {} -> []
-          -- A single target (no label needed)
-          UnconditionalBranchInst { unconditionalBranchTarget = tgt } ->
-            [ (thisNodeId, jumpTargetId tgt, UnconditionalEdge) ]
-          -- Two edges (cond is true, cond is false)
-          BranchInst { branchCondition = cond
-                     , branchTrueTarget = tTarget
-                     , branchFalseTarget = fTarget
-                     } ->
-            [ (thisNodeId, jumpTargetId tTarget, TrueEdge cond)
-            , (thisNodeId, jumpTargetId fTarget, FalseEdge cond)
-            ]
-          SwitchInst { switchValue = cond
-                     , switchDefaultTarget = defTarget
-                     , switchCases = cases
-                     } ->
-            ( thisNodeId, jumpTargetId defTarget, DefaultEdge) :
-               map (caseEdge thisNodeId cond) cases
-          IndirectBranchInst { indirectBranchAddress = addr
-                             , indirectBranchTargets = targets
-                             } ->
-            map (indirectEdge thisNodeId addr) targets
-          -- No edges from the unreachable instruction, either
-          UnreachableInst {} -> []
-          _ -> error ("Last instruction in a block should be a terminator: " ++ show (Value inst))
-    buildGraphInst (nodeAcc, edgeAcc) (inst, Just successor) =
-      (thisNode : nodeAcc, theseEdges : edgeAcc)
-      where
-        thisNodeId = instIdent inst
-        thisNode = (thisNodeId, inst)
-        theseEdges = [(thisNodeId, instIdent successor, UnconditionalEdge)]
+caseEdge :: Node -> Value -> (Value, BasicBlock) -> LEdge CFGEdge
+caseEdge thisNodeId cond (val, dest) =
+  (thisNodeId, jumpTargetId dest, EqualityEdge cond val)
+
+indirectEdge :: Node -> Value -> BasicBlock -> LEdge CFGEdge
+indirectEdge thisNodeId addr target =
+  (thisNodeId, jumpTargetId target, IndirectEdge addr)
