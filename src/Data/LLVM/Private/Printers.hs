@@ -7,6 +7,7 @@ module Data.LLVM.Private.Printers (
   , printValue
   ) where
 
+import Data.GraphViz
 import Data.Int
 import Data.List ( intercalate )
 import Data.Monoid
@@ -758,3 +759,6 @@ instance Show Type where
 
 instance Show Value where
   show = printValue
+
+instance Labellable Value where
+  toLabel = (Label . StrLabel) . show

@@ -3,7 +3,7 @@ module Data.LLVM.Visualization ( viewCFG, viewCG, viewICFG ) where
 
 import Data.GraphViz
 
-import Data.LLVM.Types
+import Data.LLVM
 import Data.LLVM.CFG
 import Data.LLVM.CallGraph
 import Data.LLVM.ICFG
@@ -23,8 +23,8 @@ viewICFG icfg = do
         fmtNode = \(_,l) -> case l of
            ExternalEntry Nothing -> [toLabel "UnknownEntry"]
            ExternalExit Nothing -> [toLabel "UnknownExit"]
-           ExternalEntry (Just ef) -> [toLabel ("ExteranlEntry: " ++ show (externalFunctionName ef))]
-           ExternalExit (Just ef) -> [toLabel ("ExteranlExit: " ++ show (externalFunctionName ef))]
+           ExternalEntry (Just ef) -> [toLabel ("ExternalEntry: " ++ show (externalFunctionName ef))]
+           ExternalExit (Just ef) -> [toLabel ("ExternalExit: " ++ show (externalFunctionName ef))]
            InstNode i -> [toLabel (Value i)],
         fmtEdge = \(_,_,l) -> [toLabel l]
         }

@@ -22,7 +22,6 @@ module Data.LLVM.Private.Types.Referential (
   ) where
 
 import Data.ByteString.Char8 ( ByteString )
-import Data.GraphViz
 import Data.Hashable
 import Data.Int
 import Data.Ord ( comparing )
@@ -304,9 +303,6 @@ instance Ord Value where
 
 instance Hashable Value where
   hash = fromIntegral . valueUniqueId
-
-instance Labellable Value where
-  toLabel = (Label . StrLabel) . show . valueName
 
 data Function = Function { functionType :: Type
                          , functionName :: !Identifier

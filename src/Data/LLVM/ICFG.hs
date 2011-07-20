@@ -23,21 +23,15 @@ data NodeType = InstNode Instruction
               | ExternalEntry (Maybe ExternalFunction)
               | ExternalExit (Maybe ExternalFunction)
 
-data EdgeType = CallToEntry Function
-              | ReturnToCall Function
+data EdgeType = CallToEntry Instruction
+              | ReturnToCall Instruction
               | CallToReturn
-              | CallToExtern (Maybe ExternalFunction)
-              | ReturnFromExtern (Maybe ExternalFunction)
               | IntraEdge CFGEdge
 
 instance Show EdgeType where
-  show (CallToEntry f) = "(_" ++ show (functionName f)
-  show (ReturnToCall f) = ")_" ++ show (functionName f)
+  show (CallToEntry v) = "(_" ++ show (Value v)
+  show (ReturnToCall v) = ")_" ++ show (Value v)
   show CallToReturn = "<call-to-return>"
-  show (CallToExtern Nothing) = "(_unknown"
-  show (ReturnFromExtern Nothing) = ")_unknown"
-  show (CallToExtern (Just ef)) = "(_" ++ show (externalFunctionName ef)
-  show (ReturnFromExtern (Just ef)) = ")_" ++ show (externalFunctionName ef)
   show (IntraEdge ce) = show ce
 
 instance GV.Labellable EdgeType where
@@ -159,8 +153,8 @@ makeCallEdges pta valCfgs unknownCallNode (n, v) =
     (True, _) -> callEdges
     (False, Just unknownId) -> unknownEdges unknownId : callEdges
   where
-    unknownEdges unid = ((n, unid, CallToExtern Nothing),
-                         (-unid, n, ReturnFromExtern Nothing))
+    unknownEdges unid = ((n, unid, CallToEntry v),
+                         (-unid, n, ReturnToCall v))
     callEdges = S.fold mkCallEdge [] calledFuncs
     calledFuncs = pointsTo pta (calledValue v)
     mkCallEdge :: Value -> [(LEdge EdgeType, LEdge EdgeType)] -> [(LEdge EdgeType, LEdge EdgeType)]
@@ -171,12 +165,12 @@ makeCallEdges pta valCfgs unknownCallNode (n, v) =
           Just calleeCfg ->
             let calleeEntryId = valueUniqueId $ cfgEntryValue calleeCfg
                 calleeExitId = valueUniqueId $ cfgExitValue calleeCfg
-            in ((n, calleeEntryId, CallToEntry f),
-                (calleeExitId, -n, ReturnToCall f)) : acc
+            in ((n, calleeEntryId, CallToEntry v),
+                (calleeExitId, -n, ReturnToCall v)) : acc
         ExternalFunctionC ef ->
           let calleeEntryId = valueUniqueId ef
-          in ((n, calleeEntryId, CallToExtern (Just ef)),
-              (-calleeEntryId, -n, ReturnFromExtern (Just ef))) : acc
+          in ((n, calleeEntryId, CallToEntry v),
+              (-calleeEntryId, -n, ReturnToCall v)) : acc
         GlobalAliasC GlobalAlias { globalAliasTarget = t } -> mkCallEdge t acc
 
 -- | Get the value called by a Call or Invoke instruction
