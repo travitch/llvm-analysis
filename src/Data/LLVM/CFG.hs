@@ -93,7 +93,7 @@ mkCFG func = CFG { cfgGraph = g
 
     g = mkGraph cfgNodes cfgEdges
 
-    (cfgNodes, cfgEdges) = buildLocalGraph id id (const []) func ([], [])
+    (cfgNodes, cfgEdges) = buildLocalGraph id id id (const []) func ([], [])
 
 -- | Build the local control flow nodes and edges for the given
 -- 'Function'.  The nodes and edges are placed on the front of the
@@ -102,22 +102,24 @@ mkCFG func = CFG { cfgGraph = g
 -- Note: This function is only exposed to make the ICFG construction
 -- more efficient without copying code.
 buildLocalGraph :: (LEdge CFGEdge -> LEdge a)        -- ^ A function to convert CFG edges to another type of edge
+                   -> (LEdge CFGEdge -> LEdge a)     -- ^ A function to convert a CFG edge from a Call or Invoke to another type of edge
                    -> (LNode Instruction -> LNode b) -- ^ A function to convert CFG nodes to another type of node
                    -> (Instruction -> [LEdge a])     -- ^ A function to apply to Call and Invoke instructions to generate extra edges
                    -> Function                      -- ^ The current function
                    -> ([LNode b], [LEdge a])        -- ^ Accumulator
                    -> ([LNode b], [LEdge a])
-buildLocalGraph edgeF nodeF callF f acc =
-  foldr (buildBlockGraph edgeF nodeF callF) acc (functionBody f)
+buildLocalGraph edgeF callEdgeF nodeF callF f acc =
+  foldr (buildBlockGraph edgeF callEdgeF nodeF callF) acc (functionBody f)
 
 buildBlockGraph :: (LEdge CFGEdge -> LEdge a)        -- ^ A function to convert CFG edges to another type of edge
+                   -> (LEdge CFGEdge -> LEdge a)     -- ^ A function to convert a CFG edge from a Call or Invoke to another type of edge
                    -> (LNode Instruction -> LNode b) -- ^ A function to convert CFG nodes to another type of node
                    -> (Instruction -> [LEdge a])     -- ^ A function to apply to Call and Invoke instructions to generate extra edges
                    -> BasicBlock
                    -> ([LNode b], [LEdge a])
                    -> ([LNode b], [LEdge a])
-buildBlockGraph edgeF nodeF callF bb acc =
-  foldl' (buildGraphInst edgeF nodeF callF) acc instsAndSuccessors
+buildBlockGraph edgeF callEdgeF nodeF callF bb acc =
+  foldl' (buildGraphInst edgeF callEdgeF nodeF callF) acc instsAndSuccessors
   where
     blockInsts = basicBlockInstructions bb
     (_:successors) = blockInsts
@@ -128,12 +130,13 @@ buildBlockGraph edgeF nodeF callF bb acc =
     terminator = [(last blockInsts, Nothing)]
 
 buildGraphInst :: (LEdge CFGEdge -> LEdge a)        -- ^ A function to convert CFG edges to another type of edge
+                  -> (LEdge CFGEdge -> LEdge a)     -- ^ A function to convert a CFG edge from a Call or Invoke to another type of edge
                   -> (LNode Instruction -> LNode b) -- ^ A function to convert CFG nodes to another type of node
                   -> (Instruction -> [LEdge a])     -- ^ A function to apply to Call and Invoke instructions to generate extra edges
                   -> ([LNode b], [LEdge a])        -- ^ Accumulator
                   -> (Instruction, Maybe Instruction)    -- ^ Current instruction and successor (if any)
                   -> ([LNode b], [LEdge a])
-buildGraphInst edgeF nodeF callF (nodeAcc, edgeAcc) (inst, Nothing) =
+buildGraphInst edgeF callEdgeF nodeF callF (nodeAcc, edgeAcc) (inst, Nothing) =
    -- Note, when adding the edges, put the accumulator second in the
    -- list append so that only the short list (new edges) needs to be
    -- reallocated
@@ -142,7 +145,7 @@ buildGraphInst edgeF nodeF callF (nodeAcc, edgeAcc) (inst, Nothing) =
     thisNodeId = instructionUniqueId inst
     thisNode = (thisNodeId, inst)
     allEdges = case inst of
-      InvokeInst { } -> callF inst ++ map edgeF theseEdges
+      InvokeInst { } -> callF inst ++ map callEdgeF theseEdges
       _ -> map edgeF theseEdges
     -- Note: branch targets are all basic blocks.  The
     -- lookup function handles grabbing the first real
@@ -182,14 +185,14 @@ buildGraphInst edgeF nodeF callF (nodeAcc, edgeAcc) (inst, Nothing) =
         -- No edges from the unreachable instruction, either
       UnreachableInst {} -> []
       _ -> error ("Last instruction in a block should be a terminator: " ++ show (Value inst))
-buildGraphInst edgeF nodeF callF (nodeAcc, edgeAcc) (inst, Just successor) =
+buildGraphInst edgeF callEdgeF nodeF callF (nodeAcc, edgeAcc) (inst, Just successor) =
   (nodeF thisNode : nodeAcc,  theseEdges ++ edgeAcc)
   where
     thisNodeId = instructionUniqueId inst
     thisNode = (thisNodeId, inst)
     thisEdge = (thisNodeId, instructionUniqueId successor, UnconditionalEdge)
     theseEdges = case inst of
-      CallInst { } -> edgeF thisEdge : callF inst
+      CallInst { } -> callEdgeF thisEdge : callF inst
       _ -> [edgeF thisEdge]
 
 -- | Only BasicBlocks are targets of jumps.  This function finds the
