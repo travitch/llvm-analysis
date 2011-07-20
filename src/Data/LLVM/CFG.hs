@@ -11,7 +11,6 @@ module Data.LLVM.CFG (
   buildLocalGraph
   ) where
 
-import Data.List ( foldl' )
 import Data.Graph.Inductive
 import Data.GraphViz
 import Text.Printf
@@ -124,7 +123,7 @@ buildBlockGraph :: (LEdge CFGEdge -> LEdge a)        -- ^ A function to convert 
                    -> ([LNode b], [LEdge a])
                    -> ([LNode b], [LEdge a])
 buildBlockGraph edgeF callEdgeF callEdgeN nodeF callF bb acc =
-  foldl' (buildGraphInst edgeF callEdgeF callEdgeN nodeF callF) acc instsAndSuccessors
+  foldr (buildGraphInst edgeF callEdgeF callEdgeN nodeF callF) acc instsAndSuccessors
   where
     blockInsts = basicBlockInstructions bb
     (_:successors) = blockInsts
@@ -139,10 +138,10 @@ buildGraphInst :: (LEdge CFGEdge -> LEdge a)        -- ^ A function to convert C
                   -> (Instruction -> Maybe (LNode b)) -- ^ A function to generate an extra node from a Call or Invoke edge
                   -> (LNode Instruction -> LNode b) -- ^ A function to convert CFG nodes to another type of node
                   -> (Instruction -> [LEdge a])     -- ^ A function to apply to Call and Invoke instructions to generate extra edges
-                  -> ([LNode b], [LEdge a])        -- ^ Accumulator
                   -> (Instruction, Maybe Instruction)    -- ^ Current instruction and successor (if any)
+                  -> ([LNode b], [LEdge a])        -- ^ Accumulator
                   -> ([LNode b], [LEdge a])
-buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (nodeAcc, edgeAcc) (inst, Nothing) =
+buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (inst, Nothing) (nodeAcc, edgeAcc) =
    -- Note, when adding the edges, put the accumulator second in the
    -- list append so that only the short list (new edges) needs to be
    -- reallocated
@@ -194,7 +193,7 @@ buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (nodeAcc, edgeAcc) (inst, N
         -- No edges from the unreachable instruction, either
       UnreachableInst {} -> []
       _ -> error ("Last instruction in a block should be a terminator: " ++ show (Value inst))
-buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (nodeAcc, edgeAcc) (inst, Just successor) =
+buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (inst, Just successor) (nodeAcc, edgeAcc) =
   case (callEdgeN inst, inst) of
     (Just en, CallInst { }) -> (nodeF thisNode : en : nodeAcc, theseEdges ++ edgeAcc)
     _ -> (nodeF thisNode : nodeAcc, theseEdges ++ edgeAcc)
