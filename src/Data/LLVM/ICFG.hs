@@ -76,11 +76,17 @@ mkICFG :: (PointsToAnalysis a, HasCFG b) => Module
           -> [Function] -- ^ Entry points.  This could be just main or a larger list for a library
           -> ICFG
 mkICFG m pta fcfgs entryPoints =
-  ICFG { icfgGraph = mkGraph allNodes allEdges
+  ICFG { icfgGraph = mkGraph localNodes localEdges -- allNodes allEdges
        , icfgEntryPoints = entryPoints
        , icfgModule = m
        }
   where
+    localNodes :: [LNode NodeType]
+    (localNodes, localEdges) = foldr localBuilder ([], []) (moduleDefinedFunctions m)
+    localBuilder = buildLocalGraph convertEdge convertCallEdge
+                      transformCallToReturnNode convertNode
+                      (buildCallEdges pta unknownCallNodeId)
+{-
     mostNodes = concat [ map convertNode cfgNodes
                        , map convertNode callReturnNodes
                        , externEntryNodes
@@ -95,7 +101,7 @@ mkICFG m pta fcfgs entryPoints =
     allEdges = concat [ intraIcfgEdges, callEdges, returnEdges, callReturnEdges, externInternalEdges ]
     -- ^ The ICFG adds call/return edges on top of the original
     -- intraprocedural edges.
-
+-}
     unknownCallNodeId = case (entryPoints, usesDlopen m) of
       ([_], False) -> Nothing
       _ -> Just $ moduleNextId m
@@ -106,23 +112,23 @@ mkICFG m pta fcfgs entryPoints =
     externEntryNodes = map mkExternEntryNode (moduleExternalFunctions m)
     externExitNodes = map mkExternExitNode (moduleExternalFunctions m)
     externInternalEdges = map mkExternIntraEdge (moduleExternalFunctions m)
-
+{-
     cfgs = map getCFG fcfgs
     funcCfgs = map (\x -> (cfgFunction x, x)) cfgs
     funcCfgMap = M.fromList funcCfgs
 
     cfgNodes = concatMap (labNodes . cfgGraph) cfgs
     cfgEdges = concatMap (labEdges . cfgGraph) cfgs
-    intraIcfgEdges = map (convertEdge callSet) cfgEdges
+    intraIcfgEdges = undefined -- map (convertEdge callSet) cfgEdges
 
     callNodes = filter isCall cfgNodes
     callSet = S.fromList $ map fst callNodes
 
-    callReturnNodes = map transformCallToReturnNode callNodes
+    callReturnNodes = undefined -- map transformCallToReturnNode callNodes
     callReturnEdges = map makeCallToReturnEdge callNodes
     callEdgeMaker = makeCallEdges pta funcCfgMap unknownCallNodeId
     (callEdges, returnEdges) = unzip $ concatMap callEdgeMaker callNodes
-
+-}
 mkExternEntryNode :: ExternalFunction -> LNode NodeType
 mkExternEntryNode ef = (valueUniqueId ef, ExternalEntry (Just ef))
 mkExternExitNode :: ExternalFunction -> LNode NodeType
@@ -173,6 +179,12 @@ makeCallEdges pta valCfgs unknownCallNode (n, v) =
               (-calleeEntryId, -n, ReturnToCall v)) : acc
         GlobalAliasC GlobalAlias { globalAliasTarget = t } -> mkCallEdge t acc
 
+buildCallEdges :: (PointsToAnalysis a)
+                  => a
+                  -> Maybe Node
+                  -> Instruction
+                  -> [LEdge EdgeType]
+buildCallEdges = undefined
 -- | Get the value called by a Call or Invoke instruction
 calledValue :: Instruction -> Value
 calledValue CallInst { callFunction = v } = v
@@ -199,8 +211,8 @@ makeCallToReturnEdge (nid, _) = (nid, -nid, CallToReturn)
 -- | Given a call node, create the corresponding return-site node.
 -- This is implemented by simply negating the node ID (since all
 -- normal node IDs are positive ints, this is fine.)
-transformCallToReturnNode :: LNode Instruction -> LNode Instruction
-transformCallToReturnNode (nid, v) = (-nid, v)
+transformCallToReturnNode :: Instruction -> Maybe (LNode Instruction)
+transformCallToReturnNode i = Just (-(instructionUniqueId i), i)
 
 isCall :: LNode Instruction -> Bool
 isCall (_, CallInst {}) = True
@@ -214,11 +226,17 @@ isCall _ = False
 -- the corresponding call "return" node to the successor.  The edge
 -- from the call to the call return node is added later, as are
 -- interprocedural edges.
-convertEdge :: Set Node -> LEdge CFGEdge -> LEdge EdgeType
-convertEdge callNodes (src, dst, lbl) =
-  case S.member src callNodes of
-    False -> (src, dst, IntraEdge lbl)
-    True -> (-src, dst, IntraEdge lbl)
+-- convertEdge :: Set Node -> LEdge CFGEdge -> LEdge EdgeType
+-- convertEdge callNodes (src, dst, lbl) =
+--   case S.member src callNodes of
+--     False -> (src, dst, IntraEdge lbl)
+--     True -> (-src, dst, IntraEdge lbl)
+
+convertEdge :: LEdge CFGEdge -> LEdge EdgeType
+convertEdge (src, dst, lbl) = (src, dst, IntraEdge lbl)
+
+convertCallEdge :: LEdge CFGEdge -> LEdge EdgeType
+convertCallEdge (src, dst, lbl) = (-src, dst, IntraEdge lbl)
 
 convertNode :: LNode Instruction -> LNode NodeType
 convertNode (nid, nv) = (nid, InstNode nv)

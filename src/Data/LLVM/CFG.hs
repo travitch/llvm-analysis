@@ -48,7 +48,9 @@ data CFGEdge =
   | IndirectEdge Value
     -- ^ Jump from the given indirect branch value
   | NormalEdge Instruction
+    -- ^ The normal return from an invoke
   | UnwindEdge Instruction
+    -- ^ Exceptional return from an invoke
   deriving (Ord, Eq)
 
 instance Show CFGEdge where
