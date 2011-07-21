@@ -10,9 +10,6 @@ module Data.LLVM.ICFG (
 import Data.Graph.Inductive
 import Data.GraphViz ( toLabel )
 import qualified Data.GraphViz as GV
-import Data.HashMap.Strict ( HashMap )
-import Data.Set ( Set )
-import qualified Data.HashMap.Strict as M
 import qualified Data.Set as S
 
 import Data.LLVM.Types
@@ -70,38 +67,24 @@ data ICFG = ICFG { icfgGraph :: Gr NodeType EdgeType
 -- Additionally, if no entry points are specified (or there are calls
 -- to dlopen), there will be edges to Unknown functions that are called
 -- through function pointers.
-mkICFG :: (PointsToAnalysis a, HasCFG b) => Module
+mkICFG :: (PointsToAnalysis a) => Module
           -> a          -- ^ A points-to analysis
-          -> [b]        -- ^ Values with control-flow graphs (either functions or pre-computed CFGs)
           -> [Function] -- ^ Entry points.  This could be just main or a larger list for a library
           -> ICFG
-mkICFG m pta fcfgs entryPoints =
-  ICFG { icfgGraph = mkGraph localNodes localEdges -- allNodes allEdges
+mkICFG m pta entryPoints =
+  ICFG { icfgGraph = mkGraph allNodes allEdges
        , icfgEntryPoints = entryPoints
        , icfgModule = m
        }
   where
-    localNodes :: [LNode NodeType]
+    allNodes = concat [ externEntryNodes, externExitNodes, localNodes ]
+    allEdges = concat [ externInternalEdges, localEdges ]
     (localNodes, localEdges) = foldr localBuilder ([], []) (moduleDefinedFunctions m)
+    localBuilder :: Function -> ([LNode NodeType], [LEdge EdgeType]) -> ([LNode NodeType], [LEdge EdgeType])
     localBuilder = buildLocalGraph convertEdge convertCallEdge
                       transformCallToReturnNode convertNode
                       (buildCallEdges pta unknownCallNodeId)
-{-
-    mostNodes = concat [ map convertNode cfgNodes
-                       , map convertNode callReturnNodes
-                       , externEntryNodes
-                       , externExitNodes ]
-    -- ^ The only extra nodes in the ICFG are call return nodes
-    -- (representing the place to which flow resumes after a function
-    -- call)
-    allNodes = case unknownCallNodeId of
-      Nothing -> mostNodes
-      Just uid -> (uid, ExternalEntry Nothing) : (-uid, ExternalExit Nothing) : mostNodes
 
-    allEdges = concat [ intraIcfgEdges, callEdges, returnEdges, callReturnEdges, externInternalEdges ]
-    -- ^ The ICFG adds call/return edges on top of the original
-    -- intraprocedural edges.
--}
     unknownCallNodeId = case (entryPoints, usesDlopen m) of
       ([_], False) -> Nothing
       _ -> Just $ moduleNextId m
@@ -111,24 +94,10 @@ mkICFG m pta fcfgs entryPoints =
     -- represent calls to unknown functions explicitly.
     externEntryNodes = map mkExternEntryNode (moduleExternalFunctions m)
     externExitNodes = map mkExternExitNode (moduleExternalFunctions m)
-    externInternalEdges = map mkExternIntraEdge (moduleExternalFunctions m)
-{-
-    cfgs = map getCFG fcfgs
-    funcCfgs = map (\x -> (cfgFunction x, x)) cfgs
-    funcCfgMap = M.fromList funcCfgs
+    externInternalEdges = case unknownCallNodeId of
+      Nothing -> map mkExternIntraEdge (moduleExternalFunctions m)
+      Just uid -> (uid, -uid, CallToReturn) : map mkExternIntraEdge (moduleExternalFunctions m)
 
-    cfgNodes = concatMap (labNodes . cfgGraph) cfgs
-    cfgEdges = concatMap (labEdges . cfgGraph) cfgs
-    intraIcfgEdges = undefined -- map (convertEdge callSet) cfgEdges
-
-    callNodes = filter isCall cfgNodes
-    callSet = S.fromList $ map fst callNodes
-
-    callReturnNodes = undefined -- map transformCallToReturnNode callNodes
-    callReturnEdges = map makeCallToReturnEdge callNodes
-    callEdgeMaker = makeCallEdges pta funcCfgMap unknownCallNodeId
-    (callEdges, returnEdges) = unzip $ concatMap callEdgeMaker callNodes
--}
 mkExternEntryNode :: ExternalFunction -> LNode NodeType
 mkExternEntryNode ef = (valueUniqueId ef, ExternalEntry (Just ef))
 mkExternExitNode :: ExternalFunction -> LNode NodeType
@@ -141,6 +110,7 @@ usesDlopen m = foldr dlfold False (moduleExternalFunctions m)
   where
     dlfold ef acc = acc || show (externalFunctionName ef) == "@dlopen"
 
+
 -- | The major workhorse that constructs interprocedural edges.  For
 -- the given call/invoke node, create an edge from the call to the
 -- entry of the callee AND an edge from the return node of the callee
@@ -150,41 +120,39 @@ usesDlopen m = foldr dlfold False (moduleExternalFunctions m)
 -- calls through function pointers in 'Module's that do not have a
 -- single entry point.  Single-entry point modules (without calls to
 -- dlopen) are closed systems where there are no unknown functions.
-makeCallEdges :: (PointsToAnalysis a) => a -> HashMap Function CFG
-                 -> Maybe Node -> LNode Instruction
-                 -> [(LEdge EdgeType, LEdge EdgeType)]
-makeCallEdges pta valCfgs unknownCallNode (n, v) =
-  case (isDirectCall v, unknownCallNode) of
-    (_, Nothing) -> callEdges
-    (True, _) -> callEdges
-    (False, Just unknownId) -> unknownEdges unknownId : callEdges
-  where
-    unknownEdges unid = ((n, unid, CallToEntry v),
-                         (-unid, n, ReturnToCall v))
-    callEdges = S.fold mkCallEdge [] calledFuncs
-    calledFuncs = pointsTo pta (calledValue v)
-    mkCallEdge :: Value -> [(LEdge EdgeType, LEdge EdgeType)] -> [(LEdge EdgeType, LEdge EdgeType)]
-    mkCallEdge cf acc =
-      case valueContent cf of
-        FunctionC f -> case M.lookup f valCfgs of
-          Nothing -> error ("Missing function CFG in reverse map " ++ show (valueUniqueId f))
-          Just calleeCfg ->
-            let calleeEntryId = valueUniqueId $ cfgEntryValue calleeCfg
-                calleeExitId = valueUniqueId $ cfgExitValue calleeCfg
-            in ((n, calleeEntryId, CallToEntry v),
-                (calleeExitId, -n, ReturnToCall v)) : acc
-        ExternalFunctionC ef ->
-          let calleeEntryId = valueUniqueId ef
-          in ((n, calleeEntryId, CallToEntry v),
-              (-calleeEntryId, -n, ReturnToCall v)) : acc
-        GlobalAliasC GlobalAlias { globalAliasTarget = t } -> mkCallEdge t acc
-
 buildCallEdges :: (PointsToAnalysis a)
                   => a
                   -> Maybe Node
                   -> Instruction
                   -> [LEdge EdgeType]
-buildCallEdges = undefined
+buildCallEdges pta unknownCallNode inst =
+  case (isDirectCall inst, unknownCallNode) of
+    (_, Nothing) -> callEdges
+    (True, _) -> callEdges
+    (False, Just uid) -> unknownEdges uid ++ callEdges
+  where
+    instid = instructionUniqueId inst
+    unknownEdges uid = [ (instid, uid, CallToEntry inst)
+                       , (-uid, -instid, ReturnToCall inst)
+                       ]
+    calledFuncs = pointsTo pta (calledValue inst)
+    callEdges = S.fold mkCallEdge [] calledFuncs
+    mkCallEdge :: Value -> [LEdge EdgeType] -> [LEdge EdgeType]
+    mkCallEdge cf acc =
+      case valueContent cf of
+        FunctionC f ->
+          let calleeEntryId = instructionUniqueId (functionEntryInstruction f)
+              calleeExitId = instructionUniqueId (functionExitInstruction f)
+          in (instid, calleeEntryId, CallToEntry inst) :
+             (instid, -instid, CallToReturn) :
+             (calleeExitId, -instid, ReturnToCall inst) : acc
+        ExternalFunctionC ef ->
+          let calleeEntryId = externalFunctionUniqueId ef
+          in (instid, calleeEntryId, CallToEntry inst) :
+             (instid, -instid, CallToReturn) :
+             (-calleeEntryId, -instid, ReturnToCall inst) : acc
+        GlobalAliasC GlobalAlias { globalAliasTarget = t } -> mkCallEdge t acc
+
 -- | Get the value called by a Call or Invoke instruction
 calledValue :: Instruction -> Value
 calledValue CallInst { callFunction = v } = v
@@ -203,21 +171,11 @@ isDirectCall ci = isDirectCall' cv
       GlobalAliasC GlobalAlias { globalAliasTarget = t } -> isDirectCall' t
       _ -> False
 
--- | Make an intraprocedural edge from a call node to the
--- corresponding return node.
-makeCallToReturnEdge :: LNode Instruction -> LEdge EdgeType
-makeCallToReturnEdge (nid, _) = (nid, -nid, CallToReturn)
-
 -- | Given a call node, create the corresponding return-site node.
 -- This is implemented by simply negating the node ID (since all
 -- normal node IDs are positive ints, this is fine.)
-transformCallToReturnNode :: Instruction -> Maybe (LNode Instruction)
-transformCallToReturnNode i = Just (-(instructionUniqueId i), i)
-
-isCall :: LNode Instruction -> Bool
-isCall (_, CallInst {}) = True
-isCall (_, InvokeInst {}) = True
-isCall _ = False
+transformCallToReturnNode :: Instruction -> Maybe (LNode NodeType)
+transformCallToReturnNode i = Just (-(instructionUniqueId i), InstNode i)
 
 -- | The edges extracted from CFGs have different label types than in
 -- the ICFG.  This function wraps them in the ICFG type denoting an
