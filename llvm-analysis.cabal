@@ -40,7 +40,8 @@ library
                  Data.LLVM.Private.Parser.Options,
                  Data.LLVM.Private.Parser.Unmarshal,
                  Data.LLVM.Private.Printers,
-                 Data.LLVM.Private.Types.Referential
+                 Data.LLVM.Private.Types.Referential,
+                 Data.LLVM.Private.PatriciaTree
 
   ghc-options: -Wall -funbox-strict-fields
   ghc-prof-options: -auto-all

@@ -53,5 +53,10 @@ trivialMayAlias :: TrivialFunction -> Value -> Value -> Bool
 trivialMayAlias _ v1 v2 = valueType v1 == valueType v2
 
 trivialPointsTo :: TrivialFunction -> Value -> Set Value
-trivialPointsTo (TrivialFunction m) v =
-  M.lookupDefault S.empty (valueType v) m
+trivialPointsTo p@(TrivialFunction m) v =
+  case valueContent v of
+    FunctionC _ -> S.singleton v
+    ExternalFunctionC _ -> S.singleton v
+    GlobalAliasC ga -> trivialPointsTo p (Value ga)
+    InstructionC BitcastInst { castedValue = c } -> trivialPointsTo p c
+    _ -> M.lookupDefault S.empty (valueType v) m

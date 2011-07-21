@@ -7,14 +7,17 @@ module Data.LLVM.ICFG (
   mkICFG
   ) where
 
-import Data.Graph.Inductive
+import Data.Graph.Inductive hiding ( Gr, UGr )
 import Data.GraphViz ( toLabel )
 import qualified Data.GraphViz as GV
 import qualified Data.Set as S
 
+import Text.Printf
+
 import Data.LLVM.Types
 import Data.LLVM.CFG
 import Data.LLVM.Analysis.PointsTo
+import Data.LLVM.Private.PatriciaTree
 
 data NodeType = InstNode Instruction
               | ExternalEntry (Maybe ExternalFunction)
@@ -26,8 +29,8 @@ data EdgeType = CallToEntry Instruction
               | IntraEdge CFGEdge
 
 instance Show EdgeType where
-  show (CallToEntry v) = "(_" ++ show (Value v)
-  show (ReturnToCall v) = ")_" ++ show (Value v)
+  show (CallToEntry v) = printf "(_[%s]" (show (Value v))
+  show (ReturnToCall v) = printf ")_[%s]" (show (Value v))
   show CallToReturn = "<call-to-return>"
   show (IntraEdge ce) = show ce
 
@@ -77,9 +80,9 @@ mkICFG m pta entryPoints =
        , icfgModule = m
        }
   where
-    allNodes = concat [ externEntryNodes, externExitNodes, localNodes ]
-    allEdges = concat [ externInternalEdges, localEdges ]
-    (localNodes, localEdges) = foldr localBuilder ([], []) (moduleDefinedFunctions m)
+    initialData = (externEntryNodes ++ externExitNodes, externInternalEdges)
+    (allNodes, allEdges) =
+      foldr localBuilder initialData (moduleDefinedFunctions m)
     localBuilder :: Function -> ([LNode NodeType], [LEdge EdgeType]) -> ([LNode NodeType], [LEdge EdgeType])
     localBuilder = buildLocalGraph convertEdge convertCallEdge
                       transformCallToReturnNode convertNode
@@ -92,11 +95,21 @@ mkICFG m pta entryPoints =
     -- "unknown" functions can only be introduced through calls like
     -- dlopen and its Windows equivalents.  Otherwise we need to
     -- represent calls to unknown functions explicitly.
-    externEntryNodes = map mkExternEntryNode (moduleExternalFunctions m)
-    externExitNodes = map mkExternExitNode (moduleExternalFunctions m)
-    externInternalEdges = case unknownCallNodeId of
-      Nothing -> map mkExternIntraEdge (moduleExternalFunctions m)
-      Just uid -> (uid, -uid, CallToReturn) : map mkExternIntraEdge (moduleExternalFunctions m)
+    externEntryNodes =
+      let ns = map mkExternEntryNode (moduleExternalFunctions m)
+      in case unknownCallNodeId of
+        Nothing -> ns
+        Just uid -> (uid, ExternalEntry Nothing) : ns
+    externExitNodes =
+      let ns = map mkExternExitNode (moduleExternalFunctions m)
+      in case unknownCallNodeId of
+        Nothing -> ns
+        Just uid -> (-uid, ExternalExit Nothing) : ns
+    externInternalEdges =
+      let ns = map mkExternIntraEdge (moduleExternalFunctions m)
+      in case unknownCallNodeId of
+        Nothing -> ns
+        Just uid -> (uid, -uid, CallToReturn) : ns
 
 mkExternEntryNode :: ExternalFunction -> LNode NodeType
 mkExternEntryNode ef = (valueUniqueId ef, ExternalEntry (Just ef))
@@ -127,16 +140,17 @@ buildCallEdges :: (PointsToAnalysis a)
                   -> [LEdge EdgeType]
 buildCallEdges pta unknownCallNode inst =
   case (isDirectCall inst, unknownCallNode) of
-    (_, Nothing) -> callEdges
-    (True, _) -> callEdges
-    (False, Just uid) -> unknownEdges uid ++ callEdges
+    (_, Nothing) -> callEdges'
+    (True, _) -> callEdges'
+    (False, Just uid) -> unknownEdges uid ++ callEdges'
   where
     instid = instructionUniqueId inst
     unknownEdges uid = [ (instid, uid, CallToEntry inst)
                        , (-uid, -instid, ReturnToCall inst)
                        ]
-    calledFuncs = pointsTo pta (calledValue inst)
-    callEdges = S.fold mkCallEdge [] calledFuncs
+    calledFuncs = S.elems $ pointsTo pta (calledValue inst)
+    callEdges = foldr mkCallEdge [] calledFuncs
+    callEdges' = (instid, -instid, CallToReturn) : callEdges
     mkCallEdge :: Value -> [LEdge EdgeType] -> [LEdge EdgeType]
     mkCallEdge cf acc =
       case valueContent cf of
@@ -144,12 +158,10 @@ buildCallEdges pta unknownCallNode inst =
           let calleeEntryId = instructionUniqueId (functionEntryInstruction f)
               calleeExitId = instructionUniqueId (functionExitInstruction f)
           in (instid, calleeEntryId, CallToEntry inst) :
-             (instid, -instid, CallToReturn) :
              (calleeExitId, -instid, ReturnToCall inst) : acc
         ExternalFunctionC ef ->
           let calleeEntryId = externalFunctionUniqueId ef
           in (instid, calleeEntryId, CallToEntry inst) :
-             (instid, -instid, CallToReturn) :
              (-calleeEntryId, -instid, ReturnToCall inst) : acc
         GlobalAliasC GlobalAlias { globalAliasTarget = t } -> mkCallEdge t acc
 
@@ -169,6 +181,7 @@ isDirectCall ci = isDirectCall' cv
       FunctionC _ -> True
       ExternalFunctionC _ -> True
       GlobalAliasC GlobalAlias { globalAliasTarget = t } -> isDirectCall' t
+      InstructionC BitcastInst { castedValue = c } -> isDirectCall' c
       _ -> False
 
 -- | Given a call node, create the corresponding return-site node.

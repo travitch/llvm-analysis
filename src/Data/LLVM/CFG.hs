@@ -56,12 +56,12 @@ data CFGEdge =
 instance Show CFGEdge where
   show UnconditionalEdge = ""
   show DefaultEdge = "<default>"
-  show (TrueEdge v) = printf "%s is true" (show v)
-  show (FalseEdge v) = printf "%s is false" (show v)
-  show (EqualityEdge v1 v2) = printf "%s is %s" (show v1) (show v2)
-  show (IndirectEdge v) = printf "%s (indirect)" (show v)
-  show (NormalEdge i) = printf "%s (invoke normal)" (show i)
-  show (UnwindEdge i) = printf "%s (invoke unwind)" (show i)
+  show (TrueEdge v) = printf "[%s] is true" (show v)
+  show (FalseEdge v) = printf "[%s] is false" (show v)
+  show (EqualityEdge v1 v2) = printf "[%s] is [%s]" (show v1) (show v2)
+  show (IndirectEdge v) = printf "[%s] (indirect)" (show v)
+  show (NormalEdge i) = printf "[%s] (invoke normal)" (show i)
+  show (UnwindEdge i) = printf "[%s] (invoke unwind)" (show i)
 
 -- | Types that have control flow graphs.
 class HasCFG a where

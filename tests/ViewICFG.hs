@@ -13,11 +13,11 @@ main = do
   [ fname ] <- getArgs
   Right m <- parseLLVMBitcodeFile defaultParserOptions fname
   let aa = runPointsToAnalysis m
-      icfg = mkICFG m aa (moduleDefinedFunctions m) []
+      icfg = mkICFG m aa []
 --  viewICFG icfg
   let dg = graphToDot icfgParams (icfgGraph icfg)
   -- res <- runGraphvizCommand dirCommand dg Png (fname <.> "png")
-  _ <- getChar
+  -- _ <- getChar
   -- putStrLn (show res)
   let s= printDotGraph dg
   putStrLn s
