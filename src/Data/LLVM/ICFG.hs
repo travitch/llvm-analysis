@@ -190,19 +190,6 @@ isDirectCall ci = isDirectCall' cv
 transformCallToReturnNode :: Instruction -> Maybe (LNode NodeType)
 transformCallToReturnNode i = Just (-(instructionUniqueId i), InstNode i)
 
--- | The edges extracted from CFGs have different label types than in
--- the ICFG.  This function wraps them in the ICFG type denoting an
--- interprocedural edge.  Additionally, if the edge is from a call to
--- its intraprocedural successor, modify the edge to instead be from
--- the corresponding call "return" node to the successor.  The edge
--- from the call to the call return node is added later, as are
--- interprocedural edges.
--- convertEdge :: Set Node -> LEdge CFGEdge -> LEdge EdgeType
--- convertEdge callNodes (src, dst, lbl) =
---   case S.member src callNodes of
---     False -> (src, dst, IntraEdge lbl)
---     True -> (-src, dst, IntraEdge lbl)
-
 convertEdge :: LEdge CFGEdge -> LEdge EdgeType
 convertEdge (src, dst, lbl) = (src, dst, IntraEdge lbl)
 
