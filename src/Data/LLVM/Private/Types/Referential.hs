@@ -381,6 +381,7 @@ data BasicBlock = BasicBlock { basicBlockType :: Type
                              , basicBlockMetadata :: [Metadata]
                              , basicBlockUniqueId :: !UniqueId
                              , basicBlockInstructions :: [Instruction]
+                             , basicBlockFunction :: Function
                              }
 
 instance IsValue BasicBlock where
@@ -501,18 +502,21 @@ data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , retInstValue :: Maybe Value
                            }
                  | UnconditionalBranchInst { instructionType :: Type
                                            , instructionName :: !(Maybe Identifier)
                                            , instructionMetadata :: [Metadata]
                                            , instructionUniqueId :: !UniqueId
+                                           , instructionBasicBlock :: Maybe BasicBlock
                                            , unconditionalBranchTarget :: BasicBlock
                                            }
                  | BranchInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               , branchCondition :: Value
                               , branchTrueTarget :: BasicBlock
                               , branchFalseTarget :: BasicBlock
@@ -521,6 +525,7 @@ data Instruction = RetInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               , switchValue :: Value
                               , switchDefaultTarget :: BasicBlock
                               , switchCases :: [(Value, BasicBlock)]
@@ -529,6 +534,7 @@ data Instruction = RetInst { instructionType :: Type
                                       , instructionName :: !(Maybe Identifier)
                                       , instructionMetadata :: [Metadata]
                                       , instructionUniqueId :: !UniqueId
+                                      , instructionBasicBlock :: Maybe BasicBlock
                                       , indirectBranchAddress :: Value
                                       , indirectBranchTargets :: [BasicBlock]
                                       }
@@ -538,16 +544,19 @@ data Instruction = RetInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               }
                  | UnreachableInst { instructionType :: Type
                                    , instructionName :: !(Maybe Identifier)
                                    , instructionMetadata :: [Metadata]
                                    , instructionUniqueId :: !UniqueId
+                                   , instructionBasicBlock :: Maybe BasicBlock
                                    }
                  | ExtractElementInst { instructionType :: Type
                                       , instructionName :: !(Maybe Identifier)
                                       , instructionMetadata :: [Metadata]
                                       , instructionUniqueId :: !UniqueId
+                                      , instructionBasicBlock :: Maybe BasicBlock
                                       , extractElementVector :: Value
                                       , extractElementIndex :: Value
                                       }
@@ -555,6 +564,7 @@ data Instruction = RetInst { instructionType :: Type
                                      , instructionName :: !(Maybe Identifier)
                                      , instructionMetadata :: [Metadata]
                                      , instructionUniqueId :: !UniqueId
+                                     , instructionBasicBlock :: Maybe BasicBlock
                                      , insertElementVector :: Value
                                      , insertElementValue :: Value
                                      , insertElementIndex :: Value
@@ -563,6 +573,7 @@ data Instruction = RetInst { instructionType :: Type
                                      , instructionName :: !(Maybe Identifier)
                                      , instructionMetadata :: [Metadata]
                                      , instructionUniqueId :: !UniqueId
+                                     , instructionBasicBlock :: Maybe BasicBlock
                                      , shuffleVectorV1 :: Value
                                      , shuffleVectorV2 :: Value
                                      , shuffleVectorMask :: Value
@@ -571,6 +582,7 @@ data Instruction = RetInst { instructionType :: Type
                                     , instructionName :: !(Maybe Identifier)
                                     , instructionMetadata :: [Metadata]
                                     , instructionUniqueId :: !UniqueId
+                                    , instructionBasicBlock :: Maybe BasicBlock
                                     , extractValueAggregate :: Value
                                     , extractValueIndices :: [Int]
                                     }
@@ -578,6 +590,7 @@ data Instruction = RetInst { instructionType :: Type
                                    , instructionName :: !(Maybe Identifier)
                                    , instructionMetadata :: [Metadata]
                                    , instructionUniqueId :: !UniqueId
+                                   , instructionBasicBlock :: Maybe BasicBlock
                                    , insertValueAggregate :: Value
                                    , insertValueValue :: Value
                                    , insertValueIndices :: [Int]
@@ -586,6 +599,7 @@ data Instruction = RetInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               , allocaNumElements :: Value
                               , allocaAlign :: !Int64
                               }
@@ -593,6 +607,7 @@ data Instruction = RetInst { instructionType :: Type
                             , instructionName :: !(Maybe Identifier)
                             , instructionMetadata :: [Metadata]
                             , instructionUniqueId :: !UniqueId
+                            , instructionBasicBlock :: Maybe BasicBlock
                             , loadIsVolatile :: !Bool
                             , loadAddress :: Value
                             , loadAlignment :: !Int64
@@ -601,6 +616,7 @@ data Instruction = RetInst { instructionType :: Type
                              , instructionName :: !(Maybe Identifier)
                              , instructionMetadata :: [Metadata]
                              , instructionUniqueId :: !UniqueId
+                             , instructionBasicBlock :: Maybe BasicBlock
                              , storeIsVolatile :: !Bool
                              , storeValue :: Value
                              , storeAddress :: Value
@@ -611,6 +627,7 @@ data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , binaryArithFlags :: !ArithFlags
                            , binaryLhs :: Value
                            , binaryRhs :: Value
@@ -619,6 +636,7 @@ data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , binaryArithFlags :: !ArithFlags
                            , binaryLhs :: Value
                            , binaryRhs :: Value
@@ -627,6 +645,7 @@ data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , binaryArithFlags :: !ArithFlags
                            , binaryLhs :: Value
                            , binaryRhs :: Value
@@ -635,6 +654,7 @@ data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , binaryLhs :: Value
                            , binaryRhs :: Value
                            }
@@ -642,6 +662,7 @@ data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , binaryLhs :: Value
                            , binaryRhs :: Value
                            }
@@ -649,6 +670,7 @@ data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , binaryLhs :: Value
                            , binaryRhs :: Value
                            }
@@ -656,6 +678,7 @@ data Instruction = RetInst { instructionType :: Type
                             , instructionName :: !(Maybe Identifier)
                             , instructionMetadata :: [Metadata]
                             , instructionUniqueId :: !UniqueId
+                            , instructionBasicBlock :: Maybe BasicBlock
                             , binaryLhs :: Value
                             , binaryRhs :: Value
                             }
@@ -663,6 +686,7 @@ data Instruction = RetInst { instructionType :: Type
                             , instructionName :: !(Maybe Identifier)
                             , instructionMetadata :: [Metadata]
                             , instructionUniqueId :: !UniqueId
+                            , instructionBasicBlock :: Maybe BasicBlock
                             , binaryLhs :: Value
                             , binaryRhs :: Value
                            }
@@ -670,6 +694,7 @@ data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , binaryLhs :: Value
                            , binaryRhs :: Value
                            }
@@ -677,6 +702,7 @@ data Instruction = RetInst { instructionType :: Type
                           , instructionName :: !(Maybe Identifier)
                           , instructionMetadata :: [Metadata]
                           , instructionUniqueId :: !UniqueId
+                          , instructionBasicBlock :: Maybe BasicBlock
                           , binaryLhs :: Value
                           , binaryRhs :: Value
                           }
@@ -684,6 +710,7 @@ data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , binaryLhs :: Value
                            , binaryRhs :: Value
                            }
@@ -691,78 +718,91 @@ data Instruction = RetInst { instructionType :: Type
                              , instructionName :: !(Maybe Identifier)
                              , instructionMetadata :: [Metadata]
                              , instructionUniqueId :: !UniqueId
+                             , instructionBasicBlock :: Maybe BasicBlock
                              , castedValue :: Value
                              }
                  | ZExtInst { instructionType :: Type
                             , instructionName :: !(Maybe Identifier)
                             , instructionMetadata :: [Metadata]
                             , instructionUniqueId :: !UniqueId
+                            , instructionBasicBlock :: Maybe BasicBlock
                             , castedValue :: Value
                             }
                  | SExtInst { instructionType :: Type
                             , instructionName :: !(Maybe Identifier)
                             , instructionMetadata :: [Metadata]
                             , instructionUniqueId :: !UniqueId
+                            , instructionBasicBlock :: Maybe BasicBlock
                             , castedValue :: Value
                             }
                  | FPTruncInst { instructionType :: Type
                                , instructionName :: !(Maybe Identifier)
                                , instructionMetadata :: [Metadata]
                                , instructionUniqueId :: !UniqueId
+                               , instructionBasicBlock :: Maybe BasicBlock
                                , castedValue :: Value
                                }
                  | FPExtInst { instructionType :: Type
                              , instructionName :: !(Maybe Identifier)
                              , instructionMetadata :: [Metadata]
                              , instructionUniqueId :: !UniqueId
+                             , instructionBasicBlock :: Maybe BasicBlock
                              , castedValue :: Value
                              }
                  | FPToSIInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               , castedValue :: Value
                               }
                  | FPToUIInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               , castedValue :: Value
                               }
                  | SIToFPInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               , castedValue :: Value
                               }
                  | UIToFPInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               , castedValue :: Value
                               }
                  | PtrToIntInst { instructionType :: Type
                                 , instructionName :: !(Maybe Identifier)
                                 , instructionMetadata :: [Metadata]
                                 , instructionUniqueId :: !UniqueId
+                                , instructionBasicBlock :: Maybe BasicBlock
                                 , castedValue :: Value
                                 }
                  | IntToPtrInst { instructionType :: Type
                                 , instructionName :: !(Maybe Identifier)
                                 , instructionMetadata :: [Metadata]
                                 , instructionUniqueId :: !UniqueId
+                                , instructionBasicBlock :: Maybe BasicBlock
                                 , castedValue :: Value
                                 }
                  | BitcastInst { instructionType :: Type
                                , instructionName :: !(Maybe Identifier)
                                , instructionMetadata :: [Metadata]
                                , instructionUniqueId :: !UniqueId
+                               , instructionBasicBlock :: Maybe BasicBlock
                                , castedValue :: Value
                                }
                  | ICmpInst { instructionType :: Type
                             , instructionName :: !(Maybe Identifier)
                             , instructionMetadata :: [Metadata]
                             , instructionUniqueId :: !UniqueId
+                            , instructionBasicBlock :: Maybe BasicBlock
                             , cmpPredicate :: !CmpPredicate
                             , cmpV1 :: Value
                             , cmpV2 :: Value
@@ -771,6 +811,7 @@ data Instruction = RetInst { instructionType :: Type
                             , instructionName :: !(Maybe Identifier)
                             , instructionMetadata :: [Metadata]
                             , instructionUniqueId :: !UniqueId
+                            , instructionBasicBlock :: Maybe BasicBlock
                             , cmpPredicate :: !CmpPredicate
                             , cmpV1 :: Value
                             , cmpV2 :: Value
@@ -779,6 +820,7 @@ data Instruction = RetInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               , selectCondition :: Value
                               , selectTrueValue :: Value
                               , selectFalseValue :: Value
@@ -787,6 +829,7 @@ data Instruction = RetInst { instructionType :: Type
                             , instructionName :: !(Maybe Identifier)
                             , instructionMetadata :: [Metadata]
                             , instructionUniqueId :: !UniqueId
+                            , instructionBasicBlock :: Maybe BasicBlock
                             , callIsTail :: !Bool
                             , callConvention :: !CallingConvention
                             , callParamAttrs :: [ParamAttribute]
@@ -799,6 +842,7 @@ data Instruction = RetInst { instructionType :: Type
                                      , instructionName :: !(Maybe Identifier)
                                      , instructionMetadata :: [Metadata]
                                      , instructionUniqueId :: !UniqueId
+                                     , instructionBasicBlock :: Maybe BasicBlock
                                      , getElementPtrInBounds :: !Bool
                                      , getElementPtrValue :: Value
                                      , getElementPtrIndices :: [Value]
@@ -808,6 +852,7 @@ data Instruction = RetInst { instructionType :: Type
                               , instructionName :: !(Maybe Identifier)
                               , instructionMetadata :: [Metadata]
                               , instructionUniqueId :: !UniqueId
+                              , instructionBasicBlock :: Maybe BasicBlock
                               , invokeConvention :: !CallingConvention
                               , invokeParamAttrs :: [ParamAttribute]
                               , invokeFunction :: Value
@@ -821,12 +866,14 @@ data Instruction = RetInst { instructionType :: Type
                              , instructionName :: !(Maybe Identifier)
                              , instructionMetadata :: [Metadata]
                              , instructionUniqueId :: !UniqueId
+                             , instructionBasicBlock :: Maybe BasicBlock
                              , vaArgValue :: Value
                              }
                  | PhiNode { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
                            , instructionMetadata :: [Metadata]
                            , instructionUniqueId :: !UniqueId
+                           , instructionBasicBlock :: Maybe BasicBlock
                            , phiIncomingValues :: [(Value, Value)]
                            }
 instance IsValue Instruction where
