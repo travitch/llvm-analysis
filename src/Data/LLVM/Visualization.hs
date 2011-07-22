@@ -23,6 +23,7 @@ data ClusterType = CUnknown
                  | CBlock !BasicBlock
                  deriving (Eq, Ord)
 
+-- | Generate a Graph Identifier for each cluster node for the ICFG
 clusterIdent :: ClusterType -> GraphID
 clusterIdent CUnknown = Str "unknown"
 clusterIdent (CExternalFunction ef) = Int $ externalFunctionUniqueId ef
@@ -35,6 +36,9 @@ instance Show ClusterType where
   show (CFunction f) = show (functionName f)
   show (CBlock b) = show (basicBlockName b)
 
+-- | A set of graphviz parameters suitable for visualizing an 'ICFG'.
+-- These graph settings group instructions into basic blocks and basic
+-- blocks into functions using GraphViz clusters.
 icfgParams :: GraphvizParams NodeType EdgeType ClusterType NodeType
 icfgParams =
   defaultParams { fmtNode = formatNode
@@ -65,9 +69,9 @@ icfgParams =
     formatEdge (_,_,l) =
       let lab = toLabel l
       in case l of
-        CallToEntry _ -> [lab, Style [SItem Dashed []]]
-        ReturnToCall _ -> [lab, Style [SItem Dashed []]]
-        CallToReturn -> [lab, Style [SItem Dotted []]]
+        CallToEntry _ -> [lab, Style [SItem Dashed []], Color [X11Color DeepSkyBlue]]
+        ReturnToCall _ -> [lab, Style [SItem Dashed []], Color [X11Color Crimson]]
+        CallToReturn -> [lab, Style [SItem Dotted []], Color [X11Color ForestGreen]]
         IntraEdge _ -> [lab]
 
 viewICFG :: ICFG -> IO ()
