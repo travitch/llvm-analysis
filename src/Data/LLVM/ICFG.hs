@@ -1,8 +1,8 @@
 module Data.LLVM.ICFG (
   -- * Types
   ICFG(..),
-  EdgeType(..),
-  NodeType(..),
+  ICFGEdge(..),
+  ICFGNode(..),
   -- * Constructor
   mkICFG
   ) where
@@ -19,25 +19,25 @@ import Data.LLVM.CFG
 import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Private.PatriciaTree
 
-data NodeType = InstNode Instruction
+data ICFGNode = InstNode Instruction
               | ExternalEntry (Maybe ExternalFunction)
               | ExternalExit (Maybe ExternalFunction)
 
-data EdgeType = CallToEntry Instruction
+data ICFGEdge = CallToEntry Instruction
               | ReturnToCall Instruction
               | CallToReturn
               | IntraEdge CFGEdge
 
-instance Show EdgeType where
+instance Show ICFGEdge where
   show (CallToEntry v) = printf "(_[%s]" (show (Value v))
   show (ReturnToCall v) = printf ")_[%s]" (show (Value v))
   show CallToReturn = "<call-to-return>"
   show (IntraEdge ce) = show ce
 
-instance GV.Labellable EdgeType where
+instance GV.Labellable ICFGEdge where
   toLabel = (GV.Label . GV.StrLabel) . show
 
-data ICFG = ICFG { icfgGraph :: Gr NodeType EdgeType
+data ICFG = ICFG { icfgGraph :: Gr ICFGNode ICFGEdge
                  , icfgEntryPoints :: [Function]
                  , icfgModule :: Module
                  }
@@ -83,7 +83,7 @@ mkICFG m pta entryPoints =
     initialData = (externEntryNodes ++ externExitNodes, externInternalEdges)
     (allNodes, allEdges) =
       foldr localBuilder initialData (moduleDefinedFunctions m)
-    localBuilder :: Function -> ([LNode NodeType], [LEdge EdgeType]) -> ([LNode NodeType], [LEdge EdgeType])
+    localBuilder :: Function -> ([LNode ICFGNode], [LEdge ICFGEdge]) -> ([LNode ICFGNode], [LEdge ICFGEdge])
     localBuilder = buildLocalGraph convertEdge convertCallEdge
                       transformCallToReturnNode convertNode
                       (buildCallEdges pta unknownCallNodeId)
@@ -111,11 +111,11 @@ mkICFG m pta entryPoints =
         Nothing -> ns
         Just uid -> (uid, -uid, CallToReturn) : ns
 
-mkExternEntryNode :: ExternalFunction -> LNode NodeType
+mkExternEntryNode :: ExternalFunction -> LNode ICFGNode
 mkExternEntryNode ef = (valueUniqueId ef, ExternalEntry (Just ef))
-mkExternExitNode :: ExternalFunction -> LNode NodeType
+mkExternExitNode :: ExternalFunction -> LNode ICFGNode
 mkExternExitNode ef = (-(valueUniqueId ef), ExternalExit (Just ef))
-mkExternIntraEdge :: ExternalFunction -> LEdge EdgeType
+mkExternIntraEdge :: ExternalFunction -> LEdge ICFGEdge
 mkExternIntraEdge ef = (valueUniqueId ef, -(valueUniqueId ef), IntraEdge UnconditionalEdge)
 
 usesDlopen :: Module -> Bool
@@ -137,7 +137,7 @@ buildCallEdges :: (PointsToAnalysis a)
                   => a
                   -> Maybe Node
                   -> Instruction
-                  -> [LEdge EdgeType]
+                  -> [LEdge ICFGEdge]
 buildCallEdges pta unknownCallNode inst =
   case (isDirectCall inst, unknownCallNode) of
     (_, Nothing) -> callEdges'
@@ -151,7 +151,7 @@ buildCallEdges pta unknownCallNode inst =
     calledFuncs = S.elems $ pointsTo pta (calledValue inst)
     callEdges = foldr mkCallEdge [] calledFuncs
     callEdges' = (instid, -instid, CallToReturn) : callEdges
-    mkCallEdge :: Value -> [LEdge EdgeType] -> [LEdge EdgeType]
+    mkCallEdge :: Value -> [LEdge ICFGEdge] -> [LEdge ICFGEdge]
     mkCallEdge cf acc =
       case valueContent cf of
         FunctionC f ->
@@ -187,14 +187,14 @@ isDirectCall ci = isDirectCall' cv
 -- | Given a call node, create the corresponding return-site node.
 -- This is implemented by simply negating the node ID (since all
 -- normal node IDs are positive ints, this is fine.)
-transformCallToReturnNode :: Instruction -> Maybe (LNode NodeType)
+transformCallToReturnNode :: Instruction -> Maybe (LNode ICFGNode)
 transformCallToReturnNode i = Just (-(instructionUniqueId i), InstNode i)
 
-convertEdge :: LEdge CFGEdge -> LEdge EdgeType
+convertEdge :: LEdge CFGEdge -> LEdge ICFGEdge
 convertEdge (src, dst, lbl) = (src, dst, IntraEdge lbl)
 
-convertCallEdge :: LEdge CFGEdge -> LEdge EdgeType
+convertCallEdge :: LEdge CFGEdge -> LEdge ICFGEdge
 convertCallEdge (src, dst, lbl) = (-src, dst, IntraEdge lbl)
 
-convertNode :: LNode Instruction -> LNode NodeType
+convertNode :: LNode Instruction -> LNode ICFGNode
 convertNode (nid, nv) = (nid, InstNode nv)

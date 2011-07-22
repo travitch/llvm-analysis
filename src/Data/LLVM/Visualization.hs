@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans -funbox-strict-fields #-}
 module Data.LLVM.Visualization ( viewCFG, viewCG, viewICFG, icfgParams ) where
 
-import Data.GraphViz hiding ( EdgeType )
+import Data.GraphViz
 
 import Data.LLVM
 import Data.LLVM.CFG
@@ -17,20 +17,20 @@ viewCFG cfg = do
   _ <- runGraphvizCanvas' dg Gtk
   return ()
 
-data ClusterType = CUnknown
+data ICFGCluster = CUnknown
                  | CExternalFunction !ExternalFunction
                  | CFunction !Function
                  | CBlock !BasicBlock
                  deriving (Eq, Ord)
 
 -- | Generate a Graph Identifier for each cluster node for the ICFG
-clusterIdent :: ClusterType -> GraphID
+clusterIdent :: ICFGCluster -> GraphID
 clusterIdent CUnknown = Str "unknown"
 clusterIdent (CExternalFunction ef) = Int $ externalFunctionUniqueId ef
 clusterIdent (CFunction f) = Int $ functionUniqueId f
 clusterIdent (CBlock b) = Int $ basicBlockUniqueId b
 
-instance Show ClusterType where
+instance Show ICFGCluster where
   show CUnknown = "Unknown"
   show (CExternalFunction ef) = show (externalFunctionName ef)
   show (CFunction f) = show (functionName f)
@@ -39,7 +39,7 @@ instance Show ClusterType where
 -- | A set of graphviz parameters suitable for visualizing an 'ICFG'.
 -- These graph settings group instructions into basic blocks and basic
 -- blocks into functions using GraphViz clusters.
-icfgParams :: GraphvizParams NodeType EdgeType ClusterType NodeType
+icfgParams :: GraphvizParams ICFGNode ICFGEdge ICFGCluster ICFGNode
 icfgParams =
   defaultParams { fmtNode = formatNode
                 , fmtEdge = formatEdge
