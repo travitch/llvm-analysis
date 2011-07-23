@@ -46,8 +46,7 @@ instance Graph Gr where
     mkGraph vs es =
       let g0 = insNodes vs empty
       in foldl' (flip insEdge) g0 es
-    labNodes (Gr g) = [ (node, label)
-                            | (node, (_, label, _)) <- IM.toList g ]
+    labNodes (Gr g) = [ (node, label) | (node, (_, label, _)) <- IM.toList g ]
 
     -- overriding members for efficiency
     noNodes   (Gr g) = IM.size g
