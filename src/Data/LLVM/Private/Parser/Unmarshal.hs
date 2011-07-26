@@ -723,7 +723,7 @@ translateArgument finalState vp = do
 translateBasicBlock :: KnotState -> Function -> ValuePtr -> KnotMonad BasicBlock
 translateBasicBlock finalState f vp = do
   tag <- liftIO $ cValueTag vp
-  Just name <- liftIO $ cValueName vp
+  name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
   dataPtr <- liftIO $ cValueData vp
   metaPtr <- liftIO $ cValueMetadata vp
@@ -737,6 +737,7 @@ translateBasicBlock finalState f vp = do
   tt <- translateType finalState typePtr
 
   let dataPtr' = castPtr dataPtr
+  Just realName <- computeRealName name
 
   insts <- liftIO $ cBasicBlockInstructions dataPtr'
   -- Use mfix here to let instructions have a reference to their
@@ -744,14 +745,14 @@ translateBasicBlock finalState f vp = do
   -- exist until after the instructions are translated
   bb <- mfix (\finalBB -> do
                  tinsts <- mapM (translateInstruction finalState (Just finalBB)) insts
-                 let block = BasicBlock { basicBlockType = tt
-                                        , basicBlockName = name
+                 let block' = BasicBlock { basicBlockType = tt
+                                        , basicBlockName = realName
                                         , basicBlockMetadata = mds
                                         , basicBlockUniqueId = uid
                                         , basicBlockInstructions = tinsts
                                         , basicBlockFunction = f
                                         }
-                 return block)
+                 return block')
 
   recordValue vp (Value bb)
   return bb
@@ -948,9 +949,9 @@ translateInvokeInst finalState dataPtr name tt mds bb = do
   uid <- nextId
 
   let n'' = case valueContent n' of
-        BasicBlockC bb -> bb
+        BasicBlockC b -> b
       u'' = case valueContent u' of
-        BasicBlockC bb -> bb
+        BasicBlockC b -> b
 
   return InvokeInst { instructionName = name
                     , instructionType = tt
@@ -1533,7 +1534,7 @@ translateMetadata' finalState mp = do
       line <- liftIO $ cMetaSubprogramLine mp
       ty <- liftIO $ cMetaSubprogramType mp
       isLocal <- liftIO $ cMetaSubprogramIsLocal mp
-      isDef <- liftIO $ cMetaSubprogramIsDefinition mp
+      --isDef <- liftIO $ cMetaSubprogramIsDefinition mp
       virt <- liftIO $ cMetaSubprogramVirtuality mp
       virtIdx <- liftIO $ cMetaSubprogramVirtualIndex mp
       baseType <- liftIO $ cMetaSubprogramContainingType mp
