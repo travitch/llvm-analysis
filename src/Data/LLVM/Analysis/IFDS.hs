@@ -98,12 +98,13 @@ intraEdges :: (IFDSAnalysis a domType, Ord domType)
 intraEdges i d1 n d2 analysis icfg currentState rest =
   tabulate analysis icfg (propagate newEdges currentState rest)
   where
+    g = icfgGraph icfg
     currentEdges = pathEdges currentState
 
     dests = flow analysis d2 i intraPredEdges
-    intraPredEdges = undefined -- consult ICFG
+    intraPredEdges = map (toIntraEdge . snd) $ lpre g n
 
-    intraSuccessors = undefined
+    intraSuccessors = suc g n
     inducedEdges = case dests of
       [] -> map mkIntraNullEdge intraSuccessors
       _ -> concatMap (mkIntraEdge dests) intraSuccessors
@@ -112,6 +113,9 @@ intraEdges i d1 n d2 analysis icfg currentState rest =
 
     mkIntraEdge ipes successor = map (\d3 -> PathEdge d1 successor (Just d3)) ipes
     mkIntraNullEdge successor = PathEdge d1 successor Nothing
+
+toIntraEdge :: ICFGEdge -> CFGEdge
+toIntraEdge (IntraEdge e) = e
 
 propagate :: (Ord domType) => [PathEdge domType] -> IFDS domType -> Worklist domType -> IFDS domType
 propagate newEdges s rest = s { pathEdges = currentEdges `S.union` S.fromList newEdges
