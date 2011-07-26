@@ -47,10 +47,12 @@ data PathEdge domType = PathEdge !(Maybe domType) !Node !(Maybe domType)
 data SummaryEdge domType = SummaryEdge !Node !(Maybe domType) !(Maybe domType)
 
 data IFDSNode domType = IFDSNode !Node !(Maybe domType)
+                        deriving (Ord, Eq)
 
 data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
                          , summaryEdges :: Set (SummaryEdge domType)
                          , incomingEdges :: Map (IFDSNode domType) (Set (IFDSNode domType))
+                         , endSummary :: Map (IFDSNode domType) (Set (IFDSNode domType))
                          , worklist :: Worklist domType
                          }
 
@@ -60,6 +62,7 @@ ifds analysis icfg =
                               , summaryEdges = S.empty
                               , worklist = Seq.fromList initialEdges
                               , incomingEdges = M.empty
+                              , endSummary = M.empty
                               }
   where
     initialEdges = map mkInitialEdge (icfgEntryPoints icfg)
@@ -71,20 +74,58 @@ tabulate :: (IFDSAnalysis a domType, Ord domType)
             -> Set (PathEdge domType)
 tabulate analysis icfg currentState = case viewl (worklist currentState) of
   EmptyL -> pathEdges currentState
-  (PathEdge d1 n d2) :< rest -> case lab (icfgGraph icfg) n of
+  e@(PathEdge d1 n d2) :< rest -> case lab (icfgGraph icfg) n of
     Nothing -> error $ printf "Error, node %d is missing from the ICFG" n
     -- Case 1 of the algorithm
     Just (InstNode ci@CallInst { }) -> tabulate analysis icfg currentState { worklist = rest }
     Just (InstNode ii@InvokeInst { }) -> tabulate analysis icfg currentState { worklist = rest }
     -- Case 2 of the algorithm
     Just (ExternalExit (Just ef)) -> tabulate analysis icfg currentState { worklist = rest }
-    Just (InstNode ri@RetInst { }) -> tabulate analysis icfg currentState { worklist = rest }
+    Just (InstNode ri@RetInst { }) -> exitEdges e analysis icfg currentState rest
     -- Slightly special subcase - will see about how to handle unknown functions
     Just (ExternalExit Nothing) -> tabulate analysis icfg currentState { worklist = rest }
     -- Case 3 of the algorithm
     Just (InstNode i) -> intraEdges i d1 n d2 analysis icfg currentState rest
-    -- FIXME: Handle the case of ExternalEntry
+    -- FIXME: Handle the case of ExternalEntry?
 
+{-
+data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
+                         , summaryEdges :: Set (SummaryEdge domType)
+                         , incomingEdges :: Map (IFDSNode domType) (Set (IFDSNode domType))
+                         , worklist :: Worklist domType
+                         }
+
+-}
+
+-- n is e_p in the algorithm
+exitEdges :: (IFDSAnalysis a domType, Ord domType)
+             => PathEdge domType
+             -> a
+             -> ICFG
+             -> IFDS domType
+             -> Worklist domType
+             -> Set (PathEdge domType)
+exitEdges (PathEdge d1 n d2) analysis icfg currentState rest =
+  tabulate analysis icfg nextState { endSummary = nextEndSummary }
+  where
+    g = icfgGraph icfg
+    e_p = n
+    s_p = undefined
+    nextEndSummary = case M.lookup (IFDSNode s_p d1) (endSummary currentState) of
+      Nothing -> S.singleton (IFDSNode e_p d2)
+      Just ies -> S.insert (IFDSNode e_p d2) ies
+
+    nextState = S.fold processIncoming currentState incEdges
+
+-- | From the algorithm:
+--
+-- > foreach d_5
+processIncoming :: IFDSNode domType -> IFDS domType -> IFDS domType
+processIncoming = undefined
+
+
+-- | Handle the case of local control flow (extending the
+-- intraprocedural part of the exploded supergraph).
 intraEdges :: (IFDSAnalysis a domType, Ord domType)
               => Instruction
               -> Maybe domType
@@ -117,6 +158,7 @@ intraEdges i d1 n d2 analysis icfg currentState rest =
 toIntraEdge :: ICFGEdge -> CFGEdge
 toIntraEdge (IntraEdge e) = e
 
+{-# INLINE propagate #-}
 propagate :: (Ord domType) => [PathEdge domType] -> IFDS domType -> Worklist domType -> IFDS domType
 propagate newEdges s rest = s { pathEdges = currentEdges `S.union` S.fromList newEdges
                               , worklist = rest >< Seq.fromList newEdges
