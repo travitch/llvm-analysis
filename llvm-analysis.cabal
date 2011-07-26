@@ -27,6 +27,7 @@ library
   hs-source-dirs: src
   exposed-modules: Data.LLVM,
                    Data.LLVM.Analysis.Dataflow,
+                   Data.LLVM.Analysis.IFDS,
                    Data.LLVM.Analysis.PointsTo,
                    Data.LLVM.Analysis.PointsTo.Andersen,
                    Data.LLVM.Analysis.PointsTo.TrivialFunction,
