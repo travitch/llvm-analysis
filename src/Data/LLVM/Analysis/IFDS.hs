@@ -29,7 +29,7 @@ class IFDSAnalysis a domType where
   -- ^ Similar to 'flow', but models local information flow across
   -- call->return edges.
   passArgs :: a -> Maybe domType -> [Maybe domType]
-  returnVal :: a -> Maybe domType -> [Maybe domType]
+  returnVal :: a -> Maybe domType -> Instruction -> [Maybe domType]
   analysisBandwidth :: a -> Int
 
 
@@ -79,7 +79,8 @@ tabulate :: (IFDSAnalysis a domType, Ord domType)
             -> Set (PathEdge domType)
 tabulate analysis currentState = case viewl (worklist currentState) of
   EmptyL -> pathEdges currentState
-  e@(PathEdge d1 n d2) :< rest ->
+  -- Grab an edge off of the worklist and dispatch to the correct case
+  e@(PathEdge _{-d1-} n _{-d2-}) :< rest ->
     let nextState = currentState { worklist = rest }
     in case lab ((icfgGraph . icfg) currentState) n of
       Nothing -> error $ printf "Error, node %d is missing from the ICFG" n
@@ -87,20 +88,28 @@ tabulate analysis currentState = case viewl (worklist currentState) of
 
       -- Case 1 of the algorithm (call nodes)
       -- FIXME: Remember to populate the cache of call entry values
-      Just (InstNode ci@CallInst { }) -> tabulate analysis nextState
-      Just (InstNode ii@InvokeInst { }) -> tabulate analysis nextState
+      Just (InstNode ci@CallInst { }) -> addCallEdges ci e analysis nextState
+      Just (InstNode ii@InvokeInst { }) -> addCallEdges ii e analysis nextState
 
 
       -- Case 2 of the algorithm (return nodes)
       Just (ExternalExit (Just ef)) -> tabulate analysis nextState
-      Just (InstNode ri@RetInst { }) -> exitEdges e analysis nextState
+      Just (InstNode ri@RetInst { }) -> addExitEdges ri e analysis nextState
       -- Slightly special subcase - will see about how to handle unknown functions
       Just (ExternalExit Nothing) -> tabulate analysis nextState
 
 
       -- Case 3 of the algorithm (intraprocedural information flow)
-      Just (InstNode i) -> intraEdges i d1 n d2 analysis nextState
+      Just (InstNode i) -> addIntraEdges i e analysis nextState
       -- FIXME: Handle the case of ExternalEntry?
+
+addCallEdges :: (IFDSAnalysis a domType, Ord domType)
+                => Instruction
+                -> PathEdge domType
+                -> a
+                -> IFDS domType
+                -> Set (PathEdge domType)
+addCallEdges = undefined
 
 {-
 data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
@@ -121,12 +130,13 @@ data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
 -- additional optimization.
 --
 -- Note: n is e_p in the algorithm
-exitEdges :: (IFDSAnalysis a domType, Ord domType)
-             => PathEdge domType
-             -> a
-             -> IFDS domType
-             -> Set (PathEdge domType)
-exitEdges (PathEdge d1 n d2) analysis currentState =
+addExitEdges :: (IFDSAnalysis a domType, Ord domType)
+                => Instruction
+                -> PathEdge domType
+                -> a
+                -> IFDS domType
+                -> Set (PathEdge domType)
+addExitEdges ri (PathEdge d1 n d2) analysis currentState =
   tabulate analysis nextState { endSummary = nextEndSummary }
   where
     e_p = n
@@ -134,6 +144,8 @@ exitEdges (PathEdge d1 n d2) analysis currentState =
 
     funcEntry = IFDSNode s_p d1
     funcExit = IFDSNode e_p d2
+
+    retEdges = returnVal analysis d2 ri
 
     currentEndSummary = endSummary currentState
     updatedEndSummary =
@@ -148,27 +160,25 @@ exitEdges (PathEdge d1 n d2) analysis currentState =
     -- function) are edges from call nodes to the beginning of this
     -- function.
 
-    nextState = S.fold (summarizeCallEdge analysis funcExit) currentState callEdges
+    nextState = S.fold (summarizeCallEdge retEdges) currentState callEdges
     -- ^ Insert summary edges for the call edge now that we have
     -- reached the end of this function.
-{-# INLINE exitEdges #-}
+{-# INLINE addExitEdges #-}
 
 -- | Insert a summary edge in the caller for this call edge.
 --
 --  From the algorithm:
 --
 -- > foreach d_5 in retVal
-summarizeCallEdge :: (IFDSAnalysis a domType, Ord domType)
-                     => a
-                     -- ^ Analysis being run
-                     -> IFDSNode domType
-                     -- ^ Exit node
+summarizeCallEdge :: (Ord domType)
+                     => [Maybe domType]
+                     -- ^ Edges from the ret node back to the caller
                      -> IFDSNode domType
                      -- ^ Call node
                      -> IFDS domType
                      -> IFDS domType
-summarizeCallEdge analysis (IFDSNode _ d2) (IFDSNode c d4) currentState =
-  foldl' mkSummaryEdges currentState $ returnVal analysis d2
+summarizeCallEdge retEdges (IFDSNode c d4) currentState =
+  foldl' mkSummaryEdges currentState retEdges
   where
     -- | d5 is one of the values that d4 maps to from the return node
     -- This function makes the summary edges and propagates local
@@ -207,15 +217,13 @@ nodeToFunctionEntryNode g n = instructionUniqueId s
 
 -- | Handle the case of local control flow (extending the
 -- intraprocedural part of the exploded supergraph).
-intraEdges :: (IFDSAnalysis a domType, Ord domType)
-              => Instruction
-              -> Maybe domType
-              -> Node
-              -> Maybe domType
-              -> a
-              -> IFDS domType
-              -> Set (PathEdge domType)
-intraEdges i d1 n d2 analysis currentState =
+addIntraEdges :: (IFDSAnalysis a domType, Ord domType)
+                 => Instruction
+                 -> PathEdge domType
+                 -> a
+                 -> IFDS domType
+                 -> Set (PathEdge domType)
+addIntraEdges i (PathEdge d1 n d2) analysis currentState =
   tabulate analysis (propagate newEdges currentState)
   where
     g = (icfgGraph . icfg) currentState
@@ -230,7 +238,7 @@ intraEdges i d1 n d2 analysis currentState =
     -- ^ Only keep the edges that are not already known
 
     mkIntraEdge ipes successor = map (\d3 -> PathEdge d1 successor d3) ipes
-{-# INLINE intraEdges #-}
+{-# INLINE addIntraEdges #-}
 
 {-# INLINE toIntraEdge #-}
 toIntraEdge :: ICFGEdge -> CFGEdge
