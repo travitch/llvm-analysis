@@ -5,7 +5,7 @@ module Data.LLVM.Analysis.IFDS where
 import Data.Graph.Inductive hiding ( (><) )
 import Data.List ( foldl' )
 import Data.Map ( Map )
-import Data.Sequence ( Seq, ViewL(..), (><), viewl )
+import Data.Sequence ( Seq, ViewL(..), (|>), viewl )
 import Data.Set ( Set )
 import qualified Data.Map as M
 import qualified Data.Sequence as Seq
@@ -28,7 +28,7 @@ class IFDSAnalysis a domType where
   callFlow :: a -> Maybe domType -> Instruction -> [Maybe domType]
   -- ^ Similar to 'flow', but models local information flow across
   -- call->return edges.
-  passArgs :: a -> Maybe domType -> [Maybe domType]
+  passArgs :: a -> Maybe domType -> Instruction -> [Maybe domType]
   returnVal :: a -> Maybe domType -> Instruction -> [Maybe domType]
   analysisBandwidth :: a -> Int
 
@@ -53,7 +53,7 @@ data IFDSNode domType = IFDSNode !Node !(Maybe domType)
 
 data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
                          , summaryEdges :: Set (SummaryEdge domType)
-                         , incomingEdges :: Map (IFDSNode domType) (Set (IFDSNode domType))
+                         , incomingNodes :: Map (IFDSNode domType) (Set (IFDSNode domType))
                          , endSummary :: Map (IFDSNode domType) (Set (IFDSNode domType))
                          , entryValues :: Map Node (Set (Maybe domType))
                          , worklist :: Worklist domType
@@ -65,7 +65,7 @@ ifds analysis g =
   tabulate analysis IFDS { pathEdges = S.fromList initialEdges
                          , summaryEdges = S.empty
                          , worklist = Seq.fromList initialEdges
-                         , incomingEdges = M.empty
+                         , incomingNodes = M.empty
                          , endSummary = M.empty
                          , entryValues = M.empty
                          , icfg = g
@@ -87,7 +87,6 @@ tabulate analysis currentState = case viewl (worklist currentState) of
 
 
       -- Case 1 of the algorithm (call nodes)
-      -- FIXME: Remember to populate the cache of call entry values
       Just (InstNode ci@CallInst { }) -> addCallEdges ci e analysis nextState
       Just (InstNode ii@InvokeInst { }) -> addCallEdges ii e analysis nextState
 
@@ -103,13 +102,62 @@ tabulate analysis currentState = case viewl (worklist currentState) of
       Just (InstNode i) -> addIntraEdges i e analysis nextState
       -- FIXME: Handle the case of ExternalEntry?
 
+
+-- FIXME: Remember to populate the cache of call entry values
 addCallEdges :: (IFDSAnalysis a domType, Ord domType)
                 => Instruction
                 -> PathEdge domType
                 -> a
                 -> IFDS domType
                 -> Set (PathEdge domType)
-addCallEdges = undefined
+addCallEdges ci (PathEdge d1 n d2) analysis currentState =
+  tabulate analysis nextState
+  where
+    callEntryNodes = getICFGCallEntries (icfg currentState) n
+--    callDests = passArgs analysis d2 ci
+    nextState = foldl' edgesForCallee currentState callEntryNodes
+
+    -- | Need to add edges for all possible callees (the original RHS
+    -- algorithm only handles single-target calls)
+    edgesForCallee s calledProcEntry =
+      foldl' (edgesForCalleeWithValue calledProcEntry) s argEdges
+      where
+        argEdges = passArgs analysis d2 ci
+
+    edgesForCalleeWithValue calledProcEntry s argEdge =
+      S.fold addSummaries s' callerExits
+      where
+        s' = addIncomingNode (propagate s loop) entryNode callNode
+        loop = PathEdge argEdge calledProcEntry argEdge
+        entryNode = IFDSNode calledProcEntry argEdge
+        callNode = IFDSNode n d2
+        callerExits = maybe S.empty id (M.lookup entryNode (endSummary s'))
+
+    addSummaries callerExit s = undefined
+
+{-# INLINE addCallEdges #-}
+
+addIncomingNode :: (Ord domType)
+                   => IFDS domType
+                   -> IFDSNode domType
+                   -> IFDSNode domType
+                   -> IFDS domType
+addIncomingNode s entryNode callNode =
+  s { incomingNodes = updatedNodes }
+  where
+    currentNodes = incomingNodes s
+    updatedNodes = case M.lookup entryNode currentNodes of
+      Nothing -> M.insert entryNode (S.singleton callNode) currentNodes
+      Just ns -> M.insert entryNode (S.insert callNode ns) currentNodes
+{-# INLINE addIncomingNode #-}
+
+getICFGCallEntries :: ICFG -> Node -> [Node]
+getICFGCallEntries g n = map fst $ filter (isCallToEntry . snd) $ lsuc (icfgGraph g) n
+{-# INLINE getICFGCallEntries #-}
+
+isCallToEntry :: ICFGEdge -> Bool
+isCallToEntry (CallToEntry _) = True
+isCallToEntry _ = False
 
 {-
 data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
@@ -155,7 +203,7 @@ addExitEdges ri (PathEdge d1 n d2) analysis currentState =
     -- ^ Add a node to the EndSummary set saying that <e_p, d_2> is an
     -- exit node for <s_p,d_1>.
 
-    callEdges = maybe S.empty id $ M.lookup funcEntry (incomingEdges currentState)
+    callEdges = maybe S.empty id $ M.lookup funcEntry (incomingNodes currentState)
     -- ^ These edges (memoized since we can't compute the inverse flow
     -- function) are edges from call nodes to the beginning of this
     -- function.
@@ -197,7 +245,7 @@ summarizeCallEdge retEdges (IFDSNode c d4) currentState =
               callToReturnEdge = PathEdge d3 (callNodeToReturnNode c) d5
           in case S.member e1 (pathEdges summState) of
             False -> summState
-            True -> propagate [callToReturnEdge] summState
+            True -> propagate summState callToReturnEdge
 {-# INLINE summarizeCallEdge #-}
 
 callNodeToReturnNode :: Node -> Node
@@ -224,7 +272,7 @@ addIntraEdges :: (IFDSAnalysis a domType, Ord domType)
                  -> IFDS domType
                  -> Set (PathEdge domType)
 addIntraEdges i (PathEdge d1 n d2) analysis currentState =
-  tabulate analysis (propagate newEdges currentState)
+  tabulate analysis (foldl' propagate currentState newEdges)
   where
     g = (icfgGraph . icfg) currentState
     currentEdges = pathEdges currentState
@@ -245,9 +293,9 @@ toIntraEdge :: ICFGEdge -> CFGEdge
 toIntraEdge (IntraEdge e) = e
 
 {-# INLINE propagate #-}
-propagate :: (Ord domType) => [PathEdge domType] -> IFDS domType -> IFDS domType
-propagate newEdges s = s { pathEdges = currentEdges `S.union` S.fromList newEdges
-                         , worklist = worklist s >< Seq.fromList newEdges
+propagate :: (Ord domType) => IFDS domType -> PathEdge domType -> IFDS domType
+propagate s newEdge = s { pathEdges = newEdge `S.insert` currentEdges
+                         , worklist = worklist s |> newEdge
                          }
   where
     currentEdges = pathEdges s
