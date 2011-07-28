@@ -14,8 +14,6 @@ import qualified Data.Map as M
 import qualified Data.Sequence as Seq
 import qualified Data.Set as S
 
-import Text.Printf
-
 import Data.LLVM
 import Data.LLVM.CFG
 import Data.LLVM.ICFG
@@ -36,8 +34,15 @@ class IFDSAnalysis a domType where
   callFlow :: a -> Maybe domType -> Instruction -> [Maybe domType]
   -- ^ Similar to 'flow', but models local information flow across
   -- call->return edges.
-  passArgs :: a -> Maybe domType -> Instruction -> [Maybe domType]
+  passArgs :: a -> Maybe domType -> Instruction -> Function -> [Maybe domType]
+  -- ^ Pass information from a call to the entry of the callee
+  externPassArgs :: a -> Maybe domType -> Instruction -> Maybe ExternalFunction -> [Maybe domType]
+  -- ^ Similar to 'passArgs', but for external (possibly unknown)
+  -- functions.  The 'ExternalFunction' is @Nothing@ if the external
+  -- function is unknown.
   returnVal :: a -> Maybe domType -> Instruction -> [Maybe domType]
+  -- ^ Pass information about globals and the actual return value back
+  -- to the caller.
   externReturnVal :: a -> Maybe domType -> Maybe ExternalFunction -> [Maybe domType]
   -- ^ 'retVal' for external functions.  The external function is
   -- 'Nothing' when the return is from an unknown external function.
@@ -119,15 +124,11 @@ tabulate analysis currentState = case viewl (worklist currentState) of
 
 
       -- Case 2 of the algorithm (return nodes)
-      ExternalNode (Just ef) -> tabulate analysis nextState
-      InstNode ri@RetInst { } -> addExitEdges ri e analysis nextState
-      -- Slightly special subcase - will see about how to handle unknown functions
-      ExternalNode Nothing -> tabulate analysis nextState
-
+      InstNode ri@RetInst { } -> addExitEdges (Right ri) e analysis nextState
+      ExternalNode ef -> addExitEdges (Left ef) e analysis nextState
 
       -- Case 3 of the algorithm (intraprocedural information flow)
       InstNode i -> addIntraEdges i e analysis nextState
-      -- FIXME: Handle the case of ExternalEntry?
 
 
 -- | Handle adding edges for function call instructions (and invokes).
@@ -150,12 +151,18 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
       -- This handles lines 17-19 (propagating edges)
       foldl' extendCallToReturn summEdgeState d3s
       where
-        argEdges = passArgs analysis d2 ci
+        Just calleeEntryLabel = lab ((icfgGraph . icfg) currentState) calledProcEntry
+        -- | We have to have different interprocedural transfer
+        -- functions for defined functions and for external (possibly
+        -- unknown) functions.
+        argEdges = case calleeEntryLabel of
+          InstNode entryInst -> passArgs analysis d2 ci (instructionFunction entryInst)
+          ExternalNode ef -> externPassArgs analysis d2 ci ef
         summEdgeState = foldl' (edgesForCalleeWithValue calledProcEntry) s argEdges
         -- ^ This is the block from 14-16 in the algorithm.
-        d3s = concat [ callFlow analysis d2 ci
-                     , filter isInSummaryEdge $ S.toList (maybe S.empty id (M.lookup n (summaryValues currentState)))
-                     ]
+        summaryEdgeD3s = filter isInSummaryEdge $ S.toList (maybe S.empty id (M.lookup n (summaryValues currentState)))
+        callFlowD3s = callFlow analysis d2 ci
+        d3s = concat [ summaryEdgeD3s, callFlowD3s ]
         isInSummaryEdge d3 = S.member (SummaryEdge n d2 d3) (summaryEdges currentState)
 
     -- | This is lines 15, 15.1 (add <n,d2> to Incoming) and the loop
@@ -175,10 +182,6 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
     addSummaries {-callerExit@-}(IFDSNode e_p d4) s =
       foldl' addSummaryEdge s summEdges
       where
-        -- FIXME: Here we could call an alternate returnVal function
-        -- for externals (when retInst is not actually an instruction)
-        -- rvs = returnVal analysis d4 retInst
-        -- Just (InstNode retInst) = lab ((icfgGraph . icfg) currentState) e_p
         Just exitNode = lab ((icfgGraph . icfg) currentState) e_p
         rvs = case exitNode of
           InstNode retInst -> returnVal analysis d4 retInst
@@ -224,15 +227,6 @@ isCallToEntry :: ICFGEdge -> Bool
 isCallToEntry (CallToEntry _) = True
 isCallToEntry _ = False
 
-{-
-data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
-                         , summaryEdges :: Set (SummaryEdge domType)
-                         , incomingEdges :: Map (IFDSNode domType) (Set (IFDSNode domType))
-                         , worklist :: Worklist domType
-                         }
-
--}
-
 -- | Handle case 2 of the algorithm: function exit nodes (e_p, d_2).
 -- This function adds a summary edge in the caller and adds propagates
 -- local information in the caller along call-to-return edges.
@@ -244,12 +238,12 @@ data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
 --
 -- Note: n is e_p in the algorithm
 addExitEdges :: (IFDSAnalysis a domType, Ord domType)
-                => Instruction
+                => Either (Maybe ExternalFunction) Instruction
                 -> PathEdge domType
                 -> a
                 -> IFDS domType
                 -> Set (PathEdge domType)
-addExitEdges ri (PathEdge d1 n d2) analysis currentState =
+addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
   tabulate analysis nextState { endSummary = nextEndSummary }
   where
     e_p = n
@@ -258,7 +252,9 @@ addExitEdges ri (PathEdge d1 n d2) analysis currentState =
     funcEntry = IFDSNode s_p d1
     funcExit = IFDSNode e_p d2
 
-    retEdges = returnVal analysis d2 ri
+    retEdges = case riOrEf of
+      Left ef -> externReturnVal analysis d2 ef
+      Right ri -> returnVal analysis d2 ri
 
     currentEndSummary = endSummary currentState
     updatedEndSummary =
@@ -335,6 +331,11 @@ nodeToFunctionEntryNode g n = instructionUniqueId s
     s = functionEntryInstruction f
 {-# INLINE nodeToFunctionEntryNode #-}
 
+instructionFunction :: Instruction -> Function
+instructionFunction i = basicBlockFunction bb
+  where
+    Just bb = instructionBasicBlock i
+
 -- | Handle the case of local control flow (extending the
 -- intraprocedural part of the exploded supergraph).
 addIntraEdges :: (IFDSAnalysis a domType, Ord domType)
@@ -371,9 +372,6 @@ propagate s newEdge = s { pathEdges = newEdge `S.insert` currentEdges
                          }
   where
     currentEdges = pathEdges s
-
--- FIXME: Populate the exitValues cache here iff the path edge
--- involves a call node?
 
 {-# INLINE addSummaryEdge #-}
 addSummaryEdge :: (Ord domType) => IFDS domType -> SummaryEdge domType -> IFDS domType
