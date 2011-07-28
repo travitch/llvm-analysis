@@ -1,6 +1,9 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
-module Data.LLVM.Analysis.IFDS where
+module Data.LLVM.Analysis.IFDS (
+  IFDSAnalysis(..),
+  ifds
+  ) where
 
 import Data.Graph.Inductive hiding ( (><) )
 import Data.List ( foldl' )
@@ -52,12 +55,25 @@ data IFDSNode domType = IFDSNode !Node !(Maybe domType)
                         deriving (Ord, Eq)
 
 data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
+                           -- ^ The PathEdge set from the algorithm
                          , summaryEdges :: Set (SummaryEdge domType)
+                           -- ^ The SummaryEdge set from the algorithm
                          , incomingNodes :: Map (IFDSNode domType) (Set (IFDSNode domType))
                          , endSummary :: Map (IFDSNode domType) (Set (IFDSNode domType))
                          , entryValues :: Map Node (Set (Maybe domType))
+                           -- ^ A cache of domain elements reachable
+                           -- at the entry node of a procedure (the
+                           -- key in the set is the entry node of the
+                           -- function)
+                         , summaryValues :: Map Node (Set (Maybe domType))
+                           -- ^ A cache of domain elements at the
+                           -- target of a summary edge.  This lets us
+                           -- implement the second query at line 17
+                           -- efficiently
                          , worklist :: Worklist domType
+                           -- ^ A simple worklist
                          , icfg :: ICFG
+                           -- ^ The ICFG that this analysis is operating on
                          }
 
 ifds :: (IFDSAnalysis a domType, Ord domType) => a -> ICFG -> Set (PathEdge domType)
@@ -68,6 +84,7 @@ ifds analysis g =
                          , incomingNodes = M.empty
                          , endSummary = M.empty
                          , entryValues = M.empty
+                         , summaryValues = M.empty
                          , icfg = g
                          }
   where
@@ -128,7 +145,10 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
         argEdges = passArgs analysis d2 ci
         summEdgeState = foldl' (edgesForCalleeWithValue calledProcEntry) s argEdges
         -- ^ This is the block from 14-16 in the algorithm.
-        d3s = undefined
+        d3s = concat [ callFlow analysis d2 ci
+                     , filter isInSummaryEdge $ S.toList (maybe S.empty id (M.lookup n (summaryValues currentState)))
+                     ]
+        isInSummaryEdge d3 = S.member (SummaryEdge n d2 d3) (summaryEdges currentState)
 
     -- | This is lines 15, 15.1 (add <n,d2> to Incoming) and the loop
     -- following them, which adds summary edges.
@@ -144,17 +164,17 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
         callerExits = maybe S.empty id $ M.lookup entryNode (endSummary s')
 
     -- | The inner loop (line 15.3-15.5) adds some summary edges
-    addSummaries callerExit@(IFDSNode e_p d4) s =
+    addSummaries {-callerExit@-}(IFDSNode e_p d4) s =
       foldl' addSummaryEdge s summEdges
       where
-        rvs = returnVal analysis d4 undefined
+        -- FIXME: Here we could call an alternate returnVal function
+        -- for externals (when retInst is not actually an instruction)
+        rvs = returnVal analysis d4 retInst
+        Just (InstNode retInst) = lab ((icfgGraph . icfg) currentState) e_p
         summEdges = map (\d5 -> SummaryEdge n d2 d5) rvs
 
     extendCallToReturn s d3 =
       propagate s (PathEdge d1 (callNodeToReturnNode n) d3)
-
---   returnVal :: a -> Maybe domType -> Instruction -> [Maybe domType]
-
 {-# INLINE addCallEdges #-}
 
 addIncomingNode :: (Ord domType)
@@ -264,6 +284,9 @@ summarizeCallEdge retEdges (IFDSNode c d4) currentState =
           let e1 = PathEdge d3 c d4
               callToReturnEdge = PathEdge d3 (callNodeToReturnNode c) d5
           in case S.member e1 (pathEdges summState) of
+            -- This case statement is the condition check in line 26,
+            -- ensuring that this d3 actually produces an edge in
+            -- PathEdge
             False -> summState
             True -> propagate summState callToReturnEdge
 {-# INLINE summarizeCallEdge #-}
@@ -320,9 +343,19 @@ propagate s newEdge = s { pathEdges = newEdge `S.insert` currentEdges
   where
     currentEdges = pathEdges s
 
+-- FIXME: Populate the exitValues cache here iff the path edge
+-- involves a call node?
+
 {-# INLINE addSummaryEdge #-}
 addSummaryEdge :: (Ord domType) => IFDS domType -> SummaryEdge domType -> IFDS domType
-addSummaryEdge state se = state { summaryEdges = S.insert se (summaryEdges state) }
+addSummaryEdge state se@(SummaryEdge callNode _ d') =
+  state { summaryEdges = S.insert se (summaryEdges state)
+        , summaryValues = M.insert callNode updatedCache (summaryValues state)
+        }
+  where
+    updatedCache = case M.lookup callNode (summaryValues state) of
+      Nothing -> S.singleton d'
+      Just s -> S.insert d' s
 
 -- | Build a self loop on the special "null" element for the given
 -- entry point
