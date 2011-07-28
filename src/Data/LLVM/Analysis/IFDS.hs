@@ -351,7 +351,7 @@ addIntraEdges i (PathEdge d1 n d2) analysis currentState =
     currentEdges = pathEdges currentState
 
     dests = flow analysis d2 i intraPredEdges
-    intraPredEdges = map (toIntraEdge . snd) $ lpre g n
+    intraPredEdges = map toIntraEdge $ lpre g n
 
     intraSuccessors = suc g n
     inducedEdges = concatMap (mkIntraEdge dests) intraSuccessors
@@ -362,8 +362,10 @@ addIntraEdges i (PathEdge d1 n d2) analysis currentState =
 {-# INLINE addIntraEdges #-}
 
 {-# INLINE toIntraEdge #-}
-toIntraEdge :: ICFGEdge -> CFGEdge
-toIntraEdge (IntraEdge e) = e
+toIntraEdge :: (Node, ICFGEdge) -> CFGEdge
+toIntraEdge (_, ie) = e
+  where
+    IntraEdge e = ie
 
 {-# INLINE propagate #-}
 propagate :: (Ord domType) => IFDS domType -> PathEdge domType -> IFDS domType
