@@ -119,10 +119,10 @@ tabulate analysis currentState = case viewl (worklist currentState) of
 
 
       -- Case 2 of the algorithm (return nodes)
-      ExternalExit (Just ef) -> tabulate analysis nextState
+      ExternalNode (Just ef) -> tabulate analysis nextState
       InstNode ri@RetInst { } -> addExitEdges ri e analysis nextState
       -- Slightly special subcase - will see about how to handle unknown functions
-      ExternalExit Nothing -> tabulate analysis nextState
+      ExternalNode Nothing -> tabulate analysis nextState
 
 
       -- Case 3 of the algorithm (intraprocedural information flow)
@@ -182,7 +182,7 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
         Just exitNode = lab ((icfgGraph . icfg) currentState) e_p
         rvs = case exitNode of
           InstNode retInst -> returnVal analysis d4 retInst
-          ExternalExit ef -> externReturnVal analysis d4 ef
+          ExternalNode ef -> externReturnVal analysis d4 ef
         summEdges = map (\d5 -> SummaryEdge n d2 d5) rvs
 
     -- | Obviously, propagates the reachability of <s_p,d1> to

@@ -52,19 +52,15 @@ icfgParams =
     formatCluster (CExternalFunction ef) = [GraphAttrs { attrs = [toLabel (show (externalFunctionName ef))] } ]
     formatCluster (CFunction f) = [GraphAttrs { attrs = [toLabel (show (functionName f))] } ]
     formatCluster (CBlock b) = [GraphAttrs { attrs = [toLabel (show (basicBlockName b))] } ]
-    nodeCluster l@(_, ExternalEntry Nothing) = C CUnknown (N l)
-    nodeCluster l@(_, ExternalExit Nothing) = C CUnknown (N l)
-    nodeCluster l@(_, ExternalEntry (Just ef)) = C (CExternalFunction ef) (N l)
-    nodeCluster l@(_, ExternalExit (Just ef)) = C (CExternalFunction ef) (N l)
+    nodeCluster l@(_, ExternalNode Nothing) = C CUnknown (N l)
+    nodeCluster l@(_, ExternalNode (Just ef)) = C (CExternalFunction ef) (N l)
     nodeCluster l@(_, InstNode i) = C (CFunction f) (C (CBlock bb) (N l))
       where
         Just bb = instructionBasicBlock i
         f = basicBlockFunction bb
     formatNode (_,l) = case l of
-      ExternalEntry Nothing -> [toLabel "UnknownEntry"]
-      ExternalExit Nothing -> [toLabel "UnknownExit"]
-      ExternalEntry (Just ef) -> [toLabel ("ExternalEntry: " ++ show (externalFunctionName ef))]
-      ExternalExit (Just ef) -> [toLabel ("ExternalExit: " ++ show (externalFunctionName ef))]
+      ExternalNode Nothing -> [toLabel "UnknownFunction"]
+      ExternalNode (Just ef) -> [toLabel ("ExternalFunction: " ++ show (externalFunctionName ef))]
       InstNode i -> [toLabel (Value i), Shape BoxShape]
     formatEdge (_,_,l) =
       let lab = toLabel l

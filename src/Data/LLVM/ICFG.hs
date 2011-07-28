@@ -20,8 +20,7 @@ import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Private.PatriciaTree
 
 data ICFGNode = InstNode Instruction
-              | ExternalEntry (Maybe ExternalFunction)
-              | ExternalExit (Maybe ExternalFunction)
+              | ExternalNode (Maybe ExternalFunction)
 
 data ICFGEdge = CallToEntry Instruction
               | ReturnToCall Instruction
@@ -80,7 +79,7 @@ mkICFG m pta entryPoints =
        , icfgModule = m
        }
   where
-    initialData = (externEntryNodes ++ externExitNodes, externInternalEdges)
+    initialData = (externNodes, [])
     (allNodes, allEdges) =
       foldr localBuilder initialData (moduleDefinedFunctions m)
     localBuilder :: Function -> ([LNode ICFGNode], [LEdge ICFGEdge]) -> ([LNode ICFGNode], [LEdge ICFGEdge])
@@ -95,28 +94,14 @@ mkICFG m pta entryPoints =
     -- "unknown" functions can only be introduced through calls like
     -- dlopen and its Windows equivalents.  Otherwise we need to
     -- represent calls to unknown functions explicitly.
-    externEntryNodes =
-      let ns = map mkExternEntryNode (moduleExternalFunctions m)
+    externNodes =
+      let ns = map mkExternNode (moduleExternalFunctions m)
       in case unknownCallNodeId of
         Nothing -> ns
-        Just uid -> (uid, ExternalEntry Nothing) : ns
-    externExitNodes =
-      let ns = map mkExternExitNode (moduleExternalFunctions m)
-      in case unknownCallNodeId of
-        Nothing -> ns
-        Just uid -> (-uid, ExternalExit Nothing) : ns
-    externInternalEdges =
-      let ns = map mkExternIntraEdge (moduleExternalFunctions m)
-      in case unknownCallNodeId of
-        Nothing -> ns
-        Just uid -> (uid, -uid, CallToReturn) : ns
+        Just uid -> (uid, ExternalNode Nothing) : ns
 
-mkExternEntryNode :: ExternalFunction -> LNode ICFGNode
-mkExternEntryNode ef = (valueUniqueId ef, ExternalEntry (Just ef))
-mkExternExitNode :: ExternalFunction -> LNode ICFGNode
-mkExternExitNode ef = (-(valueUniqueId ef), ExternalExit (Just ef))
-mkExternIntraEdge :: ExternalFunction -> LEdge ICFGEdge
-mkExternIntraEdge ef = (valueUniqueId ef, -(valueUniqueId ef), IntraEdge UnconditionalEdge)
+mkExternNode :: ExternalFunction -> LNode ICFGNode
+mkExternNode ef = (externalFunctionUniqueId ef, ExternalNode (Just ef))
 
 usesDlopen :: Module -> Bool
 usesDlopen m = foldr dlfold False (moduleExternalFunctions m)
