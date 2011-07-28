@@ -59,6 +59,10 @@ data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
                          , summaryEdges :: Set (SummaryEdge domType)
                            -- ^ The SummaryEdge set from the algorithm
                          , incomingNodes :: Map (IFDSNode domType) (Set (IFDSNode domType))
+                           -- ^ A reverse mapping.  This maps G#
+                           -- (exploded supergraph) nodes
+                           -- corresponding to function entries to the
+                           -- calls that induce them.
                          , endSummary :: Map (IFDSNode domType) (Set (IFDSNode domType))
                          , entryValues :: Map Node (Set (Maybe domType))
                            -- ^ A cache of domain elements reachable
@@ -122,8 +126,6 @@ tabulate analysis currentState = case viewl (worklist currentState) of
 
 -- | Handle adding edges for function call instructions (and invokes).
 -- This function covers lines 14-19 in the algorithm from Naeem et al
---
--- FIXME: Remember to populate the cache of call entry values
 addCallEdges :: (IFDSAnalysis a domType, Ord domType)
                 => Instruction
                 -> PathEdge domType
@@ -173,8 +175,21 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
         Just (InstNode retInst) = lab ((icfgGraph . icfg) currentState) e_p
         summEdges = map (\d5 -> SummaryEdge n d2 d5) rvs
 
+    -- | Obviously, propagates the reachability of <s_p,d1> to
+    -- <return(n),d3>.  Less obviously, cache the fact that d1 reaches
+    -- a call in this function.  This is an overapproximation of the
+    -- information we need later, but we can filter out excess
+    -- information then by checking to see if the edge from d1 to d3
+    -- is actually in PathEdge.
+    --
+    -- FIXME could make this more precise by making the key be the call?
     extendCallToReturn s d3 =
-      propagate s (PathEdge d1 (callNodeToReturnNode n) d3)
+      let s' = propagate s (PathEdge d1 (callNodeToReturnNode n) d3)
+          callerEntryNode = nodeToFunctionEntryNode (icfg s) n
+          newEntryVals = case M.lookup callerEntryNode (entryValues s) of
+            Nothing -> S.singleton d1
+            Just vs -> S.insert d1 vs
+      in s' { entryValues = M.insert callerEntryNode newEntryVals (entryValues s') }
 {-# INLINE addCallEdges #-}
 
 addIncomingNode :: (Ord domType)
@@ -277,8 +292,12 @@ summarizeCallEdge retEdges (IFDSNode c d4) currentState =
       where
         summEdge = SummaryEdge c d4 d5
         s' = addSummaryEdge s summEdge
-        calleeEntryNode = nodeToFunctionEntryNode (icfg currentState) c
-        entVals = maybe S.empty id (M.lookup calleeEntryNode (entryValues currentState))
+        callerEntryNode = nodeToFunctionEntryNode (icfg currentState) c
+
+        entVals = maybe S.empty id (M.lookup callerEntryNode (entryValues currentState))
+        -- ^ These are a superset of the d3s on line 26.
+        -- 'addCallToReturns' filters out the values where there is
+        -- not an edge in PathEdge.
 
         addCallToReturns d3 summState =
           let e1 = PathEdge d3 c d4
