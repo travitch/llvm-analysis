@@ -103,6 +103,9 @@ tabulate analysis currentState = case viewl (worklist currentState) of
       -- FIXME: Handle the case of ExternalEntry?
 
 
+-- | Handle adding edges for function call instructions (and invokes).
+-- This function covers lines 14-19 in the algorithm from Naeem et al
+--
 -- FIXME: Remember to populate the cache of call entry values
 addCallEdges :: (IFDSAnalysis a domType, Ord domType)
                 => Instruction
@@ -114,26 +117,43 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
   tabulate analysis nextState
   where
     callEntryNodes = getICFGCallEntries (icfg currentState) n
---    callDests = passArgs analysis d2 ci
     nextState = foldl' edgesForCallee currentState callEntryNodes
 
     -- | Need to add edges for all possible callees (the original RHS
     -- algorithm only handles single-target calls)
     edgesForCallee s calledProcEntry =
-      foldl' (edgesForCalleeWithValue calledProcEntry) s argEdges
+      -- This handles lines 17-19 (propagating edges)
+      foldl' extendCallToReturn summEdgeState d3s
       where
         argEdges = passArgs analysis d2 ci
+        summEdgeState = foldl' (edgesForCalleeWithValue calledProcEntry) s argEdges
+        -- ^ This is the block from 14-16 in the algorithm.
+        d3s = undefined
 
+    -- | This is lines 15, 15.1 (add <n,d2> to Incoming) and the loop
+    -- following them, which adds summary edges.
     edgesForCalleeWithValue calledProcEntry s argEdge =
       S.fold addSummaries s' callerExits
       where
         s' = addIncomingNode (propagate s loop) entryNode callNode
+        -- ^ This propagate call (embedded in the incoming node
+        -- addition) is line 15 of the algorithm
         loop = PathEdge argEdge calledProcEntry argEdge
         entryNode = IFDSNode calledProcEntry argEdge
         callNode = IFDSNode n d2
-        callerExits = maybe S.empty id (M.lookup entryNode (endSummary s'))
+        callerExits = maybe S.empty id $ M.lookup entryNode (endSummary s')
 
-    addSummaries callerExit s = undefined
+    -- | The inner loop (line 15.3-15.5) adds some summary edges
+    addSummaries callerExit@(IFDSNode e_p d4) s =
+      foldl' addSummaryEdge s summEdges
+      where
+        rvs = returnVal analysis d4 undefined
+        summEdges = map (\d5 -> SummaryEdge n d2 d5) rvs
+
+    extendCallToReturn s d3 =
+      propagate s (PathEdge d1 (callNodeToReturnNode n) d3)
+
+--   returnVal :: a -> Maybe domType -> Instruction -> [Maybe domType]
 
 {-# INLINE addCallEdges #-}
 
@@ -236,7 +256,7 @@ summarizeCallEdge retEdges (IFDSNode c d4) currentState =
       False -> S.fold addCallToReturns s' entVals -- Note, state here includes the summary edge
       where
         summEdge = SummaryEdge c d4 d5
-        s' = addSummaryEdge summEdge s
+        s' = addSummaryEdge s summEdge
         calleeEntryNode = nodeToFunctionEntryNode (icfg currentState) c
         entVals = maybe S.empty id (M.lookup calleeEntryNode (entryValues currentState))
 
@@ -301,8 +321,8 @@ propagate s newEdge = s { pathEdges = newEdge `S.insert` currentEdges
     currentEdges = pathEdges s
 
 {-# INLINE addSummaryEdge #-}
-addSummaryEdge :: (Ord domType) => SummaryEdge domType -> IFDS domType -> IFDS domType
-addSummaryEdge se state = state { summaryEdges = S.insert se (summaryEdges state) }
+addSummaryEdge :: (Ord domType) => IFDS domType -> SummaryEdge domType -> IFDS domType
+addSummaryEdge state se = state { summaryEdges = S.insert se (summaryEdges state) }
 
 -- | Build a self loop on the special "null" element for the given
 -- entry point
