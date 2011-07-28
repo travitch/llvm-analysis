@@ -22,6 +22,11 @@ import Data.LLVM.ICFG
 
 type Worklist a = Seq (PathEdge a)
 
+-- | The interface to define an IFDS analysis.  There are variants of
+-- the interprocedural flow functions to handle /external/ functions.
+-- Known references are provided for known external functions.
+-- Unknown functions can be called in Modules that do not have a
+-- 'main' function or when they contain calls to dlopen.
 class IFDSAnalysis a domType where
   flow :: a -> Maybe domType -> Instruction -> [CFGEdge] -> [Maybe domType]
   -- ^ Compute local flow information for the domain element after this
@@ -33,6 +38,9 @@ class IFDSAnalysis a domType where
   -- call->return edges.
   passArgs :: a -> Maybe domType -> Instruction -> [Maybe domType]
   returnVal :: a -> Maybe domType -> Instruction -> [Maybe domType]
+  externReturnVal :: a -> Maybe domType -> Maybe ExternalFunction -> [Maybe domType]
+  -- ^ 'retVal' for external functions.  The external function is
+  -- 'Nothing' when the return is from an unknown external function.
   analysisBandwidth :: a -> Int
 
 
@@ -103,24 +111,22 @@ tabulate analysis currentState = case viewl (worklist currentState) of
   -- Grab an edge off of the worklist and dispatch to the correct case
   e@(PathEdge _{-d1-} n _{-d2-}) :< rest ->
     let nextState = currentState { worklist = rest }
-    in case lab ((icfgGraph . icfg) currentState) n of
-      Nothing -> error $ printf "Error, node %d is missing from the ICFG" n
-
-
+        Just lbl = lab ((icfgGraph . icfg) currentState) n
+    in case lbl of
       -- Case 1 of the algorithm (call nodes)
-      Just (InstNode ci@CallInst { }) -> addCallEdges ci e analysis nextState
-      Just (InstNode ii@InvokeInst { }) -> addCallEdges ii e analysis nextState
+      InstNode ci@CallInst { } -> addCallEdges ci e analysis nextState
+      InstNode ii@InvokeInst { } -> addCallEdges ii e analysis nextState
 
 
       -- Case 2 of the algorithm (return nodes)
-      Just (ExternalExit (Just ef)) -> tabulate analysis nextState
-      Just (InstNode ri@RetInst { }) -> addExitEdges ri e analysis nextState
+      ExternalExit (Just ef) -> tabulate analysis nextState
+      InstNode ri@RetInst { } -> addExitEdges ri e analysis nextState
       -- Slightly special subcase - will see about how to handle unknown functions
-      Just (ExternalExit Nothing) -> tabulate analysis nextState
+      ExternalExit Nothing -> tabulate analysis nextState
 
 
       -- Case 3 of the algorithm (intraprocedural information flow)
-      Just (InstNode i) -> addIntraEdges i e analysis nextState
+      InstNode i -> addIntraEdges i e analysis nextState
       -- FIXME: Handle the case of ExternalEntry?
 
 
@@ -171,8 +177,12 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
       where
         -- FIXME: Here we could call an alternate returnVal function
         -- for externals (when retInst is not actually an instruction)
-        rvs = returnVal analysis d4 retInst
-        Just (InstNode retInst) = lab ((icfgGraph . icfg) currentState) e_p
+        -- rvs = returnVal analysis d4 retInst
+        -- Just (InstNode retInst) = lab ((icfgGraph . icfg) currentState) e_p
+        Just exitNode = lab ((icfgGraph . icfg) currentState) e_p
+        rvs = case exitNode of
+          InstNode retInst -> returnVal analysis d4 retInst
+          ExternalExit ef -> externReturnVal analysis d4 ef
         summEdges = map (\d5 -> SummaryEdge n d2 d5) rvs
 
     -- | Obviously, propagates the reachability of <s_p,d1> to
