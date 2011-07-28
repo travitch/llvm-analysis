@@ -80,8 +80,8 @@ data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
                          , entryValues :: Map Node (Set (Maybe domType))
                            -- ^ A cache of domain elements reachable
                            -- at the entry node of a procedure (the
-                           -- key in the set is the entry node of the
-                           -- function)
+                           -- key in the map is the call node that is
+                           -- reachable by the entries in the set).
                          , summaryValues :: Map Node (Set (Maybe domType))
                            -- ^ A cache of domain elements at the
                            -- target of a summary edge.  This lets us
@@ -202,7 +202,7 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
           newEntryVals = case M.lookup callerEntryNode (entryValues s) of
             Nothing -> S.singleton d1
             Just vs -> S.insert d1 vs
-      in s' { entryValues = M.insert callerEntryNode newEntryVals (entryValues s') }
+      in s' { entryValues = M.insert n{-callerEntryNode-} newEntryVals (entryValues s') }
 {-# INLINE addCallEdges #-}
 
 addIncomingNode :: (Ord domType)
@@ -298,9 +298,9 @@ summarizeCallEdge retEdges (IFDSNode c d4) currentState =
       where
         summEdge = SummaryEdge c d4 d5
         s' = addSummaryEdge s summEdge
-        callerEntryNode = nodeToFunctionEntryNode (icfg currentState) c
+--        callerEntryNode = nodeToFunctionEntryNode (icfg currentState) c
 
-        entVals = maybe S.empty id (M.lookup callerEntryNode (entryValues currentState))
+        entVals = maybe S.empty id (M.lookup c{-allerEntryNode-} (entryValues currentState))
         -- ^ These are a superset of the d3s on line 26.
         -- 'addCallToReturns' filters out the values where there is
         -- not an edge in PathEdge.
