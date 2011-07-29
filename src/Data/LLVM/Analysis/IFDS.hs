@@ -1,8 +1,13 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 module Data.LLVM.Analysis.IFDS (
+  -- * Types
   IFDSAnalysis(..),
-  ifds
+  IFDSResult,
+  -- * Entry point
+  ifds,
+  -- * Accessors
+  ifdsInstructionResult
   ) where
 
 import Data.Graph.Inductive hiding ( (><) )
@@ -67,6 +72,10 @@ data SummaryEdge domType = SummaryEdge !Node !(Maybe domType) !(Maybe domType)
 data IFDSNode domType = IFDSNode !Node !(Maybe domType)
                         deriving (Ord, Eq)
 
+-- | The current state of the IFDS analysis.  It includes the PathEdge
+-- and SummaryEdge sets, as well as a few important caches.  It also
+-- maintains the worklist.  There is a reference to the ICFG being
+-- analyzed for convenience.
 data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
                            -- ^ The PathEdge set from the algorithm
                          , summaryEdges :: Set (SummaryEdge domType)
@@ -93,26 +102,66 @@ data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
                            -- ^ The ICFG that this analysis is operating on
                          }
 
-ifds :: (IFDSAnalysis a domType, Ord domType) => a -> ICFG -> Set (PathEdge domType)
-ifds analysis g =
-  tabulate analysis IFDS { pathEdges = S.fromList initialEdges
-                         , summaryEdges = S.empty
-                         , worklist = Seq.fromList initialEdges
-                         , incomingNodes = M.empty
-                         , endSummary = M.empty
-                         , entryValues = M.empty
-                         , summaryValues = M.empty
-                         , icfg = g
-                         }
+data IFDSResult domType = IFDSResult (Map Instruction (Set domType))
+
+-- | Extract the set of values that are reachable from some entry
+-- point at the given 'Instruction'.  If the Instruction is not in the
+-- Module, returns Nothing.
+ifdsInstructionResult :: IFDSResult domType -> Instruction -> Maybe (Set domType)
+ifdsInstructionResult (IFDSResult m) i = M.lookup i m
+
+-- | Run the IFDS analysis on the given ICFG. Currently it is forward
+-- only.  Support for backwards analysis could be added somewhat
+-- easily.
+ifds :: (IFDSAnalysis a domType, Ord domType) => a -> ICFG -> IFDSResult domType
+ifds analysis g = extractSolution finalState
   where
     initialEdges = map mkInitialEdge (icfgEntryPoints g)
+    finalState =
+      tabulate analysis IFDS { pathEdges = S.fromList initialEdges
+                             , summaryEdges = S.empty
+                             , worklist = Seq.fromList initialEdges
+                             , incomingNodes = M.empty
+                             , endSummary = M.empty
+                             , entryValues = M.empty
+                             , summaryValues = M.empty
+                             , icfg = g
+                             }
 
+-- | Given the final state from the tabulation algorithm, extract a
+-- whole-program solution from it
+extractSolution :: (Ord domType) => IFDS domType -> IFDSResult domType
+extractSolution s = IFDSResult res
+  where
+    ps = pathEdges s
+    g = (icfgGraph . icfg) s
+    res = S.fold populateSolution M.empty ps
+    populateSolution (PathEdge _ n (Just d2)) m =
+      case nodeToInstruction n of
+        Nothing -> m
+        Just inst ->
+          let newSet = case M.lookup inst m of
+                Nothing -> S.singleton d2
+                Just vals -> S.insert d2 vals
+          in M.insert inst newSet m
+    populateSolution _ m = m
+    nodeToInstruction n = case l of
+      InstNode i -> Just i
+      _ -> Nothing
+      where
+        Just l = lab g n
+
+-- | The key function that builds up the PathEdge set using a worklist
+-- algorithm.  It handles the three cases outlined in the main
+-- algorithm: adding interprocedural edges for call/invoke nodes,
+-- adding interprocedural (and summary) edges for return nodes, and
+-- adding intraprocedural edges for all other instructions.
 tabulate :: (IFDSAnalysis a domType, Ord domType)
             => a
             -> IFDS domType
-            -> Set (PathEdge domType)
+            -> IFDS domType
 tabulate analysis currentState = case viewl (worklist currentState) of
-  EmptyL -> pathEdges currentState
+  EmptyL -> currentState
   -- Grab an edge off of the worklist and dispatch to the correct case
   e@(PathEdge _{-d1-} n _{-d2-}) :< rest ->
     let nextState = currentState { worklist = rest }
@@ -138,7 +187,7 @@ addCallEdges :: (IFDSAnalysis a domType, Ord domType)
                 -> PathEdge domType
                 -> a
                 -> IFDS domType
-                -> Set (PathEdge domType)
+                -> IFDS domType
 addCallEdges ci (PathEdge d1 n d2) analysis currentState =
   tabulate analysis nextState
   where
@@ -242,7 +291,7 @@ addExitEdges :: (IFDSAnalysis a domType, Ord domType)
                 -> PathEdge domType
                 -> a
                 -> IFDS domType
-                -> Set (PathEdge domType)
+                -> IFDS domType
 addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
   tabulate analysis nextState { endSummary = nextEndSummary }
   where
@@ -343,7 +392,7 @@ addIntraEdges :: (IFDSAnalysis a domType, Ord domType)
                  -> PathEdge domType
                  -> a
                  -> IFDS domType
-                 -> Set (PathEdge domType)
+                 -> IFDS domType
 addIntraEdges i (PathEdge d1 n d2) analysis currentState =
   tabulate analysis (foldl' propagate currentState newEdges)
   where
