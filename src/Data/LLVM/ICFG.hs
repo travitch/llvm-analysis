@@ -3,6 +3,7 @@ module Data.LLVM.ICFG (
   ICFG(..),
   ICFGEdge(..),
   ICFGNode(..),
+  CFGEdge(..),
   -- * Constructor
   mkICFG
   ) where
