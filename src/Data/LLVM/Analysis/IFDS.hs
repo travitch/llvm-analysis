@@ -36,7 +36,7 @@ class IFDSAnalysis a domType where
   -- instruction is executed.  The returned list is the list of domain
   -- variables reachable from this domain element after the statement is
   -- executed.  This models local control flow.
-  callFlow :: a -> Maybe domType -> Instruction -> [Maybe domType]
+  callFlow :: a -> Maybe domType -> Instruction -> [CFGEdge] -> [Maybe domType]
   -- ^ Similar to 'flow', but models local information flow across
   -- call->return edges.
   passArgs :: a -> Maybe domType -> Instruction -> Function -> [Maybe domType]
@@ -51,7 +51,6 @@ class IFDSAnalysis a domType where
   externReturnVal :: a -> Maybe domType -> Maybe ExternalFunction -> [Maybe domType]
   -- ^ 'retVal' for external functions.  The external function is
   -- 'Nothing' when the return is from an unknown external function.
-  analysisBandwidth :: a -> Int
 
 
 -- | An edge from <s_p, d_1> to <n, d_2> noting that <n, d_2> is
@@ -102,6 +101,8 @@ data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
                            -- ^ The ICFG that this analysis is operating on
                          }
 
+-- | An opaque wrapper around the results of an IFDS analysis.  Use
+-- 'ifdsInstructionResult' to extract information.
 data IFDSResult domType = IFDSResult (Map Instruction (Set domType))
 
 -- | Extract the set of values that are reachable from some entry
@@ -200,7 +201,8 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
       -- This handles lines 17-19 (propagating edges)
       foldl' extendCallToReturn summEdgeState d3s
       where
-        Just calleeEntryLabel = lab ((icfgGraph . icfg) currentState) calledProcEntry
+        g = (icfgGraph . icfg) currentState
+        Just calleeEntryLabel = lab g calledProcEntry
         -- | We have to have different interprocedural transfer
         -- functions for defined functions and for external (possibly
         -- unknown) functions.
@@ -210,8 +212,10 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
         summEdgeState = foldl' (edgesForCalleeWithValue calledProcEntry) s argEdges
         -- ^ This is the block from 14-16 in the algorithm.
         summaryEdgeD3s = filter isInSummaryEdge $ S.toList (maybe S.empty id (M.lookup n (summaryValues currentState)))
-        callFlowD3s = callFlow analysis d2 ci
+        callFlowD3s = callFlow analysis d2 ci intraPredEdges
         d3s = concat [ summaryEdgeD3s, callFlowD3s ]
+        intraPredEdges = map toIntraEdge $ lpre g n
+
         isInSummaryEdge d3 = S.member (SummaryEdge n d2 d3) (summaryEdges currentState)
 
     -- | This is lines 15, 15.1 (add <n,d2> to Incoming) and the loop
