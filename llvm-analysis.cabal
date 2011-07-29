@@ -85,6 +85,15 @@ executable ViewICFG
   main-is: ViewICFG.hs
   hs-source-dirs: tests
 
+executable NullPtrs
+  default-language: Haskell2010
+  build-depends: llvm-analysis, base > 3 && < 5, containers, graphviz, filepath
+  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+  ghc-prof-options: -auto-all
+  main-is: INullPtrs.hs
+  hs-source-dirs: tests
+
+
 -- executable NullabilityAnalysis
 --   default-language: Haskell2010
 --   build-depends: llvm-analysis, base > 3 && < 5, containers, lattices
