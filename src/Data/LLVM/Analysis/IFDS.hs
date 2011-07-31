@@ -51,6 +51,8 @@ class IFDSAnalysis a domType where
   externReturnVal :: a -> Maybe domType -> Maybe ExternalFunction -> [Maybe domType]
   -- ^ 'retVal' for external functions.  The external function is
   -- 'Nothing' when the return is from an unknown external function.
+  entrySetup :: a -> Module -> Function -> [Maybe domType]
+  -- ^ Add domain elements to the initial set of PathEdges.
 
 
 -- | An edge from <s_p, d_1> to <n, d_2> noting that <n, d_2> is
@@ -117,7 +119,7 @@ ifdsInstructionResult (IFDSResult m) i = M.lookup i m
 ifds :: (IFDSAnalysis a domType, Ord domType) => a -> ICFG -> IFDSResult domType
 ifds analysis g = extractSolution finalState
   where
-    initialEdges = map mkInitialEdge (icfgEntryPoints g)
+    initialEdges = concatMap (mkInitialEdges analysis (icfgModule g)) (icfgEntryPoints g)
     finalState =
       tabulate analysis IFDS { pathEdges = S.fromList initialEdges
                              , summaryEdges = S.empty
@@ -132,11 +134,10 @@ ifds analysis g = extractSolution finalState
 -- | Given the final state from the tabulation algorithm, extract a
 -- whole-program solution from it
 extractSolution :: (Ord domType) => IFDS domType -> IFDSResult domType
-extractSolution s = IFDSResult res
+extractSolution s = IFDSResult $ S.fold populateSolution M.empty ps
   where
     ps = pathEdges s
     g = (icfgGraph . icfg) s
-    res = S.fold populateSolution M.empty ps
     populateSolution (PathEdge _ n (Just d2)) m =
       case nodeToInstruction n of
         Nothing -> m
@@ -441,10 +442,12 @@ addSummaryEdge state se@(SummaryEdge callNode _ d') =
 
 -- | Build a self loop on the special "null" element for the given
 -- entry point
-mkInitialEdge :: Function -> PathEdge domType
-mkInitialEdge f = PathEdge Nothing (instructionUniqueId inst0) Nothing
+mkInitialEdges :: (IFDSAnalysis a domType) => a -> Module -> Function -> [PathEdge domType]
+mkInitialEdges a m f = map makeEdge vs
   where
-    inst0 = functionEntryInstruction f
+    inst0id = instructionUniqueId $ functionEntryInstruction f
+    vs = entrySetup a m f
+    makeEdge v = PathEdge v inst0id v
 
 
 {-
