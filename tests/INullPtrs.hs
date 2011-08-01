@@ -28,8 +28,23 @@ instance IFDSAnalysis INullPtr Value where
 -- points.
 
 inullFlow :: INullPtr -> Maybe Value -> Instruction -> [CFGEdge] -> [Maybe Value]
+inullFlow _ Nothing i@AllocaInst {} _
+  -- Allocas are always pointers - we need a T** to have a
+  -- stack-allocated pointer.
+  | isPointerPointerType (Value i) = [Just $ Value i]
+  | otherwise = []
 inullFlow _ Nothing _ _ = [Nothing]
-inullFlow _ v i edges = undefined
+-- FIXME: Need to handle edges here to see when we are on a non-null
+-- branch
+inullFlow _ v@(Just v') i@LoadInst { loadAddress = la } edges =
+  case la == v' of
+    True -> []
+    False -> [v]
+inullFlow _ v@(Just v') StoreInst { storeAddress = sa, storeValue = sv } edges
+  | sa == v' = []
+  | sv == v' = [Just sa]
+  | otherwise = [v]
+inullFlow _ v@(Just _) _ _ = [v]
 
 -- | Only propagate information about locals across call->return edges
 inullCallFlow :: INullPtr -> Maybe Value -> Instruction -> [CFGEdge] -> [Maybe Value]
@@ -65,6 +80,11 @@ argumentIndex v args = elemIndex v (map fst args)
 isPointerType :: Value -> Bool
 isPointerType v = case valueType v of
   TypePointer _ _ -> True
+  _ -> False
+
+isPointerPointerType :: Value -> Bool
+isPointerPointerType v = case valueType v of
+  TypePointer (TypePointer _ _) _ -> True
   _ -> False
 
 -- | Just pass information about globals.  In some other cases we
