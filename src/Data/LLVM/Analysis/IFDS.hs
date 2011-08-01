@@ -23,6 +23,9 @@ import Data.LLVM
 import Data.LLVM.CFG
 import Data.LLVM.ICFG
 
+import Debug.Trace
+debug = flip trace
+
 type Worklist a = Seq (PathEdge a)
 
 -- | The interface to define an IFDS analysis.  There are variants of
@@ -106,6 +109,7 @@ data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
 -- | An opaque wrapper around the results of an IFDS analysis.  Use
 -- 'ifdsInstructionResult' to extract information.
 data IFDSResult domType = IFDSResult (Map Instruction (Set domType))
+                        deriving (Show)
 
 -- | Extract the set of values that are reachable from some entry
 -- point at the given 'Instruction'.  If the Instruction is not in the
@@ -384,7 +388,8 @@ callNodeToReturnNode = negate
 nodeToFunctionEntryNode :: ICFG -> Node -> Node
 nodeToFunctionEntryNode g n = instructionUniqueId s
   where
-    Just (InstNode i) = lab (icfgGraph g) n
+    Just nodLab = lab (icfgGraph g) n
+    InstNode i = nodLab `debug` (show nodLab)
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
     s = functionEntryInstruction f

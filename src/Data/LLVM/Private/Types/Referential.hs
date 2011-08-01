@@ -482,6 +482,9 @@ data ExternalFunction = ExternalFunction { externalFunctionType :: Type
                                          , externalFunctionAttrs :: [FunctionAttribute]
                                          }
 
+instance Show ExternalFunction where
+  show = show . externalFunctionName
+
 instance IsValue ExternalFunction where
   valueType = externalFunctionType
   valueName = Just . externalFunctionName

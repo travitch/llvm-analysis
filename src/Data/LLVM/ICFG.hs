@@ -22,6 +22,7 @@ import Data.LLVM.Private.PatriciaTree
 
 data ICFGNode = InstNode Instruction
               | ExternalNode (Maybe ExternalFunction)
+              deriving (Show)
 
 data ICFGEdge = CallToEntry Instruction
               | ReturnToCall Instruction

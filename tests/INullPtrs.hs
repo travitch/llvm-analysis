@@ -141,6 +141,6 @@ main = do
       analysis = INullPtr
       res :: IFDSResult Value
       res = ifds analysis icfg
-  putStrLn ""
+  print res
 
 
