@@ -45,10 +45,10 @@ class IFDSAnalysis a domType where
   -- ^ Similar to 'passArgs', but for external (possibly unknown)
   -- functions.  The 'ExternalFunction' is @Nothing@ if the external
   -- function is unknown.
-  returnVal :: a -> Maybe domType -> Instruction -> [Maybe domType]
+  returnVal :: a -> Maybe domType -> Instruction -> Instruction -> [Maybe domType]
   -- ^ Pass information about globals and the actual return value back
   -- to the caller.
-  externReturnVal :: a -> Maybe domType -> Maybe ExternalFunction -> [Maybe domType]
+  externReturnVal :: a -> Maybe domType -> Maybe ExternalFunction -> Instruction -> [Maybe domType]
   -- ^ 'retVal' for external functions.  The external function is
   -- 'Nothing' when the return is from an unknown external function.
   entrySetup :: a -> Module -> Function -> [Maybe domType]
@@ -238,8 +238,8 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
       where
         Just exitNode = lab ((icfgGraph . icfg) currentState) e_p
         rvs = case exitNode of
-          InstNode retInst -> returnVal analysis d4 retInst
-          ExternalNode ef -> externReturnVal analysis d4 ef
+          InstNode retInst -> returnVal analysis d4 retInst ci
+          ExternalNode ef -> externReturnVal analysis d4 ef ci
         summEdges = map (\d5 -> SummaryEdge n d2 d5) rvs
 
     -- | Obviously, propagates the reachability of <s_p,d1> to
@@ -306,7 +306,10 @@ addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
     funcEntry = IFDSNode s_p d1
     funcExit = IFDSNode e_p d2
 
-    retEdges = case riOrEf of
+    -- FIXME: Need to push this down so we can get the call edge we
+    -- are currently working on. Just drop it down to
+    -- summarizeCallEdge where we have the call node
+    retEdgeF = case riOrEf of
       Left ef -> externReturnVal analysis d2 ef
       Right ri -> returnVal analysis d2 ri
 
@@ -323,7 +326,7 @@ addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
     -- function) are edges from call nodes to the beginning of this
     -- function.
 
-    nextState = S.fold (summarizeCallEdge retEdges) currentState callEdges
+    nextState = S.fold (summarizeCallEdge retEdgeF) currentState callEdges
     -- ^ Insert summary edges for the call edge now that we have
     -- reached the end of this function.
 {-# INLINE addExitEdges #-}
@@ -334,15 +337,17 @@ addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
 --
 -- > foreach d_5 in retVal
 summarizeCallEdge :: (Ord domType)
-                     => [Maybe domType]
+                     => (Instruction -> [Maybe domType])
                      -- ^ Edges from the ret node back to the caller
                      -> IFDSNode domType
                      -- ^ Call node
                      -> IFDS domType
                      -> IFDS domType
-summarizeCallEdge retEdges (IFDSNode c d4) currentState =
+summarizeCallEdge retEdgeF (IFDSNode c d4) currentState =
   foldl' mkSummaryEdges currentState retEdges
   where
+    Just (InstNode callInst) = lab (icfgGraph $ icfg currentState) c
+    retEdges = retEdgeF callInst
     -- | d5 is one of the values that d4 maps to from the return node
     -- This function makes the summary edges and propagates local
     -- information in the caller along call-to-return edges.
