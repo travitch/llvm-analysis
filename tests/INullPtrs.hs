@@ -10,6 +10,10 @@ import Data.LLVM.ICFG
 import Data.LLVM.Analysis.IFDS
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 
+import Debug.Trace
+
+debug = flip trace
+
 data INullPtr = INullPtr
 
 instance IFDSAnalysis INullPtr Value where
@@ -31,8 +35,8 @@ inullFlow :: INullPtr -> Maybe Value -> Instruction -> [CFGEdge] -> [Maybe Value
 inullFlow _ Nothing i@AllocaInst {} _
   -- Allocas are always pointers - we need a T** to have a
   -- stack-allocated pointer.
-  | isPointerPointerType (Value i) = [Just $ Value i]
-  | otherwise = []
+  | isPointerPointerType (Value i) = [Nothing, Just $ Value i] `debug` "In alloca inull case"
+  | otherwise = [Nothing] `debug` "In `otherwise` inullFlow case"
 inullFlow _ Nothing _ _ = [Nothing]
 -- FIXME: Need to handle edges here to see when we are on a non-null
 -- branch
