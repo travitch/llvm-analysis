@@ -109,7 +109,17 @@ data IFDS domType = IFDS { pathEdges :: Set (PathEdge domType)
 -- | An opaque wrapper around the results of an IFDS analysis.  Use
 -- 'ifdsInstructionResult' to extract information.
 data IFDSResult domType = IFDSResult (Map Instruction (Set domType))
-                        deriving (Show)
+
+instance (Show domType, Ord domType) => Show (IFDSResult domType) where
+  show = showIFDSResult
+
+showIFDSResult :: (Show domType, Ord domType) => IFDSResult domType -> String
+showIFDSResult (IFDSResult r) = unlines $ map showProgramPoint $ M.toList r
+  where
+    showProgramPoint (inst, s) =
+      let memberStrings = S.toList $ S.map showMember s
+      in concat $ show inst : "\n" : memberStrings
+    showMember m = "  " ++ show m ++ "\n"
 
 -- | Extract the set of values that are reachable from some entry
 -- point at the given 'Instruction'.  If the Instruction is not in the
