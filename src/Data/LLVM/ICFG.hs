@@ -136,7 +136,7 @@ buildCallEdges pta unknownCallNode inst =
   where
     instid = instructionUniqueId inst
     unknownEdges uid = [ (instid, uid, CallToEntry inst)
-                       , (-uid, -instid, ReturnToCall inst)
+                       , (uid, -instid, ReturnToCall inst)
                        ]
     calledFuncs = S.elems $ pointsTo pta (calledValue inst)
     callEdges = foldr mkCallEdge [] calledFuncs
@@ -152,7 +152,7 @@ buildCallEdges pta unknownCallNode inst =
         ExternalFunctionC ef ->
           let calleeEntryId = externalFunctionUniqueId ef
           in (instid, calleeEntryId, CallToEntry inst) :
-             (-calleeEntryId, -instid, ReturnToCall inst) : acc
+             (calleeEntryId, -instid, ReturnToCall inst) : acc
         GlobalAliasC GlobalAlias { globalAliasTarget = t } -> mkCallEdge t acc
 
 -- | Get the value called by a Call or Invoke instruction
