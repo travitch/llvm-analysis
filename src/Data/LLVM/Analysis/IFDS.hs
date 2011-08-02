@@ -197,11 +197,13 @@ addCallEdges :: (IFDSAnalysis a domType, Ord domType)
 addCallEdges ci (PathEdge d1 n d2) analysis currentState =
   tabulate analysis nextState
   where
-    callEntryNodes = getICFGCallEntries (icfg currentState) n
-    nextState = foldl' edgesForCallee currentState callEntryNodes
+    calleeEntryNodes = getICFGCallEntries (icfg currentState) n
+    -- ^ Possibly a mix of instructions and ExternalFunction nodes
+    nextState = foldl' edgesForCallee currentState calleeEntryNodes
 
     -- | Need to add edges for all possible callees (the original RHS
-    -- algorithm only handles single-target calls)
+    -- algorithm only handles single-target calls).  The
+    -- calledProcEntry could be either an InstNode or an ExternalNode
     edgesForCallee s calledProcEntry =
       -- This handles lines 17-19 (propagating edges)
       foldl' extendCallToReturn summEdgeState d3s
@@ -256,10 +258,13 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
     -- FIXME could make this more precise by making the key be the call?
     extendCallToReturn s d3 =
       let s' = propagate s (PathEdge d1 (callNodeToReturnNode n) d3)
+          Just nlab = lab ((icfgGraph . icfg) s) n
+          newEntryVals = case nlab of
+            InstNode _ ->
+              maybe (S.singleton d1) augmentSet (M.lookup callerEntryNode (entryValues s))
+            ExternalNode _ -> S.empty -- FIXME: should this be a singleton set d1?
           callerEntryNode = nodeToFunctionEntryNode (icfg s) n
-          newEntryVals = case M.lookup callerEntryNode (entryValues s) of
-            Nothing -> S.singleton d1
-            Just vs -> S.insert d1 vs
+          augmentSet vs = S.insert d1 vs
       in s' { entryValues = M.insert n{-callerEntryNode-} newEntryVals (entryValues s') }
 {-# INLINE addCallEdges #-}
 
@@ -277,8 +282,13 @@ addIncomingNode s entryNode callNode =
       Just ns -> M.insert entryNode (S.insert callNode ns) currentNodes
 {-# INLINE addIncomingNode #-}
 
+-- | Given a call node in the ICFG, get all of the entry nodes for its
+-- possible targets.  For a call to a defined function, this is the
+-- first instruction in the function.  For calls to external
+-- functions, this just returns the node representing the external.
 getICFGCallEntries :: ICFG -> Node -> [Node]
-getICFGCallEntries g n = map fst $ filter (isCallToEntry . snd) $ lsuc (icfgGraph g) n
+getICFGCallEntries g callNode =
+  map fst $ filter (isCallToEntry . snd) $ lsuc (icfgGraph g) callNode
 {-# INLINE getICFGCallEntries #-}
 
 isCallToEntry :: ICFGEdge -> Bool
@@ -305,14 +315,20 @@ addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
   tabulate analysis nextState { endSummary = nextEndSummary }
   where
     e_p = n
-    s_p = nodeToFunctionEntryNode (icfg currentState) e_p
+    -- FIXME: This is just plain wrong for extern functions.  Might
+    -- have to split addExitEdges into two parts to handle externs.
+    -- s_p is only nodeToFunctionEntryNode IFF this is a defined
+    -- function. Otherwise it is the node representing the external
+    -- function
+    s_p = case riOrEf of
+      Left Nothing -> let Just uid = icfgUnknownNode (icfg currentState)
+                      in uid
+      Left (Just ef) -> externalFunctionUniqueId ef
+      Right _ -> nodeToFunctionEntryNode (icfg currentState) e_p
 
     funcEntry = IFDSNode s_p d1
     funcExit = IFDSNode e_p d2
 
-    -- FIXME: Need to push this down so we can get the call edge we
-    -- are currently working on. Just drop it down to
-    -- summarizeCallEdge where we have the call node
     retEdgeF = case riOrEf of
       Left ef -> externReturnVal analysis d2 ef
       Right ri -> returnVal analysis d2 ri
@@ -361,7 +377,6 @@ summarizeCallEdge retEdgeF (IFDSNode c d4) currentState =
       where
         summEdge = SummaryEdge c d4 d5
         s' = addSummaryEdge s summEdge
---        callerEntryNode = nodeToFunctionEntryNode (icfg currentState) c
 
         entVals = maybe S.empty id (M.lookup c{-allerEntryNode-} (entryValues currentState))
         -- ^ These are a superset of the d3s on line 26.
@@ -389,7 +404,7 @@ nodeToFunctionEntryNode :: ICFG -> Node -> Node
 nodeToFunctionEntryNode g n = instructionUniqueId s
   where
     Just nodLab = lab (icfgGraph g) n
-    InstNode i = nodLab `debug` (show nodLab)
+    InstNode i = nodLab
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
     s = functionEntryInstruction f

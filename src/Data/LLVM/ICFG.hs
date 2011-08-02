@@ -41,6 +41,7 @@ instance GV.Labellable ICFGEdge where
 data ICFG = ICFG { icfgGraph :: Gr ICFGNode ICFGEdge
                  , icfgEntryPoints :: [Function]
                  , icfgModule :: Module
+                 , icfgUnknownNode :: Maybe Node
                  }
 
 -- | Build the interprocedural CFG for the given 'Module'.  The ICFG
@@ -79,6 +80,7 @@ mkICFG m pta entryPoints =
   ICFG { icfgGraph = mkGraph allNodes allEdges
        , icfgEntryPoints = entryPoints
        , icfgModule = m
+       , icfgUnknownNode = unknownCallNodeId
        }
   where
     initialData = (externNodes, [])
