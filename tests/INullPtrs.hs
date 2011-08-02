@@ -35,8 +35,8 @@ inullFlow :: INullPtr -> Maybe Value -> Instruction -> [CFGEdge] -> [Maybe Value
 inullFlow _ Nothing i@AllocaInst {} _
   -- Allocas are always pointers - we need a T** to have a
   -- stack-allocated pointer.
-  | isPointerPointerType (Value i) = [Nothing, Just $ Value i] `debug` "In alloca inull case"
-  | otherwise = [Nothing] `debug` "In `otherwise` inullFlow case"
+  | isPointerPointerType (Value i) = [Nothing, Just $ Value i]
+  | otherwise = [Nothing]
 inullFlow _ Nothing _ _ = [Nothing]
 -- FIXME: Need to handle edges here to see when we are on a non-null
 -- branch
@@ -61,9 +61,12 @@ inullFlow _ v@(Just _) _ _ = [v]
 inullCallFlow :: INullPtr -> Maybe Value -> Instruction -> [CFGEdge] -> [Maybe Value]
 inullCallFlow _ Nothing _ _ = [Nothing]
 inullCallFlow _ v@(Just v') _ _ =
-  case valueContent v' of
-    InstructionC (AllocaInst {}) -> [v]
-    _ -> []
+  case isGlobal v' of
+    True -> []
+    _ -> [v]
+  -- case valueContent v' of
+  --   InstructionC (AllocaInst {}) -> [v]
+  --   _ -> []
 
 -- | If the Value is an argument to the Call (or Invoke) instruction
 -- _AND_ it is a pointer type (just one level of pointer, T*), put the

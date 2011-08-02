@@ -21,6 +21,7 @@ import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Private.PatriciaTree
 
 data ICFGNode = InstNode Instruction
+              | ReturnNode Instruction
               | ExternalNode (Maybe ExternalFunction)
               deriving (Show)
 
@@ -177,7 +178,7 @@ isDirectCall ci = isDirectCall' cv
 -- This is implemented by simply negating the node ID (since all
 -- normal node IDs are positive ints, this is fine.)
 transformCallToReturnNode :: Instruction -> Maybe (LNode ICFGNode)
-transformCallToReturnNode i = Just (-(instructionUniqueId i), InstNode i)
+transformCallToReturnNode i = Just (-(instructionUniqueId i), ReturnNode i)
 
 convertEdge :: LEdge CFGEdge -> LEdge ICFGEdge
 convertEdge (src, dst, lbl) = (src, dst, IntraEdge lbl)
