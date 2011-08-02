@@ -41,9 +41,16 @@ inullFlow _ Nothing _ _ = [Nothing]
 -- FIXME: Need to handle edges here to see when we are on a non-null
 -- branch
 inullFlow _ v@(Just v') i@LoadInst { loadAddress = la } edges =
-  case la == v' of
-    True -> []
-    False -> [v]
+  -- Everything in LLVM is a pointer; the first "level" of load
+  -- doesn't tell us anything since that is just LLVM loading the
+  -- address in the pointer.  Subsequent loads (nested) represent
+  -- actual pointer dereferences.
+  case valueContent la of
+    InstructionC LoadInst { loadAddress = la2 } ->
+      case (Value la2) == v' of
+        True -> []
+        False -> [v]
+    _ -> [v]
 inullFlow _ v@(Just v') StoreInst { storeAddress = sa, storeValue = sv } edges
   | sa == v' = []
   | sv == v' = [Just sa]
