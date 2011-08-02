@@ -54,6 +54,10 @@ icfgParams =
     formatCluster (CBlock b) = [GraphAttrs { attrs = [toLabel (show (basicBlockName b))] } ]
     nodeCluster l@(_, ExternalNode Nothing) = C CUnknown (N l)
     nodeCluster l@(_, ExternalNode (Just ef)) = C (CExternalFunction ef) (N l)
+    nodeCluster l@(_, ReturnNode i) = C (CFunction f) (C (CBlock bb) (N l))
+      where
+        Just bb = instructionBasicBlock i
+        f = basicBlockFunction bb
     nodeCluster l@(_, InstNode i) = C (CFunction f) (C (CBlock bb) (N l))
       where
         Just bb = instructionBasicBlock i
@@ -62,6 +66,7 @@ icfgParams =
       ExternalNode Nothing -> [toLabel "UnknownFunction"]
       ExternalNode (Just ef) -> [toLabel ("ExternalFunction: " ++ show (externalFunctionName ef))]
       InstNode i -> [toLabel (Value i), Shape BoxShape]
+      ReturnNode _ -> [toLabel "ReturnNode", Shape BoxShape]
     formatEdge (_,_,l) =
       let lab = toLabel l
       in case l of

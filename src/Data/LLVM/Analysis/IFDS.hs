@@ -18,6 +18,7 @@ import Data.Set ( Set )
 import qualified Data.Map as M
 import qualified Data.Sequence as Seq
 import qualified Data.Set as S
+import Text.Printf
 
 import Data.LLVM
 import Data.LLVM.CFG
@@ -126,7 +127,7 @@ showIFDSResult (IFDSResult r) = unlines $ map showProgramPoint $ M.toList r
       let memberStrings = S.toList $ S.map showMember s
           Just bb = instructionBasicBlock inst
           f = basicBlockFunction bb
-      in concat $ (show (functionName f) ++ ": " ++ show inst) : "\n" : memberStrings
+      in concat $ printf "%s: (%d) %s" (show (functionName f)) (instructionUniqueId inst) (show inst) : "\n" : memberStrings
     showMember m = "  " ++ show m ++ "\n"
 
 -- | Extract the set of values that are reachable from some entry
@@ -155,7 +156,7 @@ ifds analysis g = extractSolution finalState
 
 -- | Given the final state from the tabulation algorithm, extract a
 -- whole-program solution from it
-extractSolution :: (Ord domType) => IFDS domType -> IFDSResult domType
+extractSolution :: (Ord domType, Show domType) => IFDS domType -> IFDSResult domType
 extractSolution s = IFDSResult $ S.fold populateSolution M.empty ps
   where
     ps = pathEdges s
@@ -184,7 +185,7 @@ tabulate :: (IFDSAnalysis a domType, Ord domType, Show domType)
             => a
             -> IFDS domType
             -> IFDS domType
-tabulate analysis currentState = case viewl (worklist currentState) `debug` show (worklist currentState) of
+tabulate analysis currentState = case viewl (worklist currentState) of
   EmptyL -> currentState
   -- Grab an edge off of the worklist and dispatch to the correct case
   e@(PathEdge _{-d1-} n _{-d2-}) :< rest ->
@@ -472,7 +473,7 @@ addReturnNodeEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
                       -> IFDS domType
                       -> IFDS domType
 addReturnNodeEdges i (PathEdge d1 n d2) analysis currentState =
-  tabulate analysis (foldl' propagate currentState newEdges)
+  tabulate analysis (foldl' propagate currentState newEdges) `debug` ("Handling return node edges: " ++ show newEdges)
   where
     g = (icfgGraph . icfg) currentState
     currentEdges = pathEdges currentState
@@ -482,13 +483,20 @@ addReturnNodeEdges i (PathEdge d1 n d2) analysis currentState =
     intraSuccessors = suc g n
     inducedEdges = concatMap (mkIntraEdge dests) intraSuccessors
     newEdges = filter (not . (flip S.member) currentEdges) inducedEdges
-    mkIntraEdge ipes successor = map (\d3 -> PathEdge d1 successor d3) ipes
+    mkIntraEdge ipes successor =
+      map (\d3 -> PathEdge d1 successor d3 `debug`
+                  ("Successor: " ++ showGraphNode currentState successor)) ipes
+
+showGraphNode s n = show l
+  where
+    g = icfgGraph (icfg s)
+    Just l = lab g n
 
 {-# INLINE propagate #-}
 propagate :: (Ord domType) => IFDS domType -> PathEdge domType -> IFDS domType
-propagate s newEdge = s { pathEdges = newEdge `S.insert` currentEdges
+propagate s newEdge@(PathEdge _ n _) = s { pathEdges = newEdge `S.insert` currentEdges
                          , worklist = worklist s |> newEdge
-                         }
+                         } `debug` printf "Adding edge to worklist (start to here): %s" (show n)
   where
     currentEdges = pathEdges s
 
