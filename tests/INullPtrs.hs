@@ -79,7 +79,7 @@ inullPassArgs _ Nothing _ _ = [Nothing]
 inullPassArgs _ v@(Just v') ci@(CallInst {}) f =
   case (isPointerType v', isGlobal v', argumentIndex v' (callArguments ci)) of
     (True, False, Just ix) -> [(Just . Value) (functionParameters f !! ix)]
-    (False, True, _) -> [v]
+    (_, True, _) -> [v]
     _ -> []
 
 isGlobal :: Value -> Bool
