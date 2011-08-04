@@ -78,7 +78,7 @@ data PathEdge domType = PathEdge !(Maybe domType) !Node !(Maybe domType)
 -- | An edge summarizing the flow information for the call site
 -- identified by the node.
 data SummaryEdge domType = SummaryEdge !Node !(Maybe domType) !(Maybe domType)
-                           deriving (Ord, Eq)
+                           deriving (Ord, Eq, Show)
 
 data IFDSNode domType = IFDSNode !Node !(Maybe domType)
                         deriving (Ord, Eq, Show)
@@ -231,7 +231,7 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
     -- calledProcEntry could be either an InstNode or an ExternalNode
     edgesForPossibleCallee s calledProcEntry =
       -- This handles lines 17-19 (propagating edges)
-      foldl' extendCallToReturn summEdgeState d3s `debug` printf "d3s in call handler: %s" (show d3s)
+      foldl' extendCallToReturn summEdgeState d3s
       where
         g = (icfgGraph . icfg) currentState
         Just calleeEntryLabel = lab g calledProcEntry
@@ -241,11 +241,15 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
         argumentToFormalEdges = case calleeEntryLabel of
           InstNode entryInst -> passArgs analysis d2 ci (instructionFunction entryInst)
           ExternalNode ef -> externPassArgs analysis d2 ci ef
-        summEdgeState = foldl' (edgesForCalleeWithValue calledProcEntry) s argumentToFormalEdges `debug` ("ArgEdgeS: " ++ show argumentToFormalEdges)
+        summEdgeState = foldl' (edgesForCalleeWithValue calledProcEntry) s argumentToFormalEdges `debug`
+                          printf "CALLSITE [(%d) %s] with edges %s" n (show ci) (show argumentToFormalEdges)
         -- ^ This is the block from 14-16 in the algorithm.
         summaryEdgeD3s = filter isInSummaryEdge $ S.toList (maybe S.empty id (M.lookup n (summaryValues currentState)))
         callFlowD3s = callFlow analysis d2 ci intraPredEdges
-        d3s = concat [ summaryEdgeD3s, callFlowD3s ]
+        -- FIXME: The summary edge d3s are wrong here - it results in the summary information not
+        -- actually being propagated across the call
+        d3s = concat [ summaryEdgeD3s, callFlowD3s ] `debug`
+                printf " <<< Summary edge d3s in call: %s" (show summaryEdgeD3s)
         intraPredEdges = map toIntraEdge $ lpre g n
 
         isInSummaryEdge d3 = S.member (SummaryEdge n d2 d3) (summaryEdges currentState)
@@ -255,7 +259,7 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
     edgesForCalleeWithValue calledProcEntry s argEdge =
       S.fold addSummaries s' callerExits
       where
-        s' = addIncomingNode (propagate s loop) entryNode callNode `debug` ("Adding proc loop: " ++ show loop)
+        s' = addIncomingNode (propagate s loop) entryNode callNode
         -- ^ This propagate call (embedded in the incoming node
         -- addition) is line 15 of the algorithm
         loop = PathEdge argEdge calledProcEntry argEdge `debug` show (lab (icfgGraph $ icfg s) calledProcEntry)
@@ -265,7 +269,7 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
 
     -- | The inner loop (line 15.3-15.5) adds some summary edges
     addSummaries {-callerExit@-}(IFDSNode e_p d4) s =
-      foldl' addSummaryEdge s summEdges
+      foldl' addSummaryEdge s summEdges `debug` printf "  In call, adding summary edges: %s" (show summEdges)
       where
         Just exitNode = lab ((icfgGraph . icfg) currentState) e_p
         rvs = case exitNode of
@@ -329,7 +333,8 @@ addExitEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
                 -> IFDS domType
                 -> IFDS domType
 addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
-  tabulate analysis nextState { endSummary = nextEndSummary } `debug` printf "Exit call edges: %s" (show callEdges)
+  tabulate analysis (addEndSummary funcEntry funcExit nextState) `debug`
+    printf "RETCASE: [%s] incoming edges to call: %s" (show riOrEf) (show callEdges)
   where
     e_p = n
     -- FIXME: This is just plain wrong for extern functions.  Might
@@ -337,7 +342,7 @@ addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
     -- s_p is only nodeToFunctionEntryNode IFF this is a defined
     -- function. Otherwise it is the node representing the external
     -- function
-    s_p = case riOrEf `debug` (printf "Exit edges for: %s (%d)" (show riOrEf) n) of
+    s_p = case riOrEf of
       Left Nothing -> let Just uid = icfgUnknownNode (icfg currentState)
                       in uid
       Left (Just ef) -> externalFunctionUniqueId ef
@@ -350,11 +355,11 @@ addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
       Left ef -> externReturnVal analysis d2 ef
       Right ri -> returnVal analysis d2 ri
 
-    currentEndSummary = endSummary currentState
-    updatedEndSummary =
-      maybe (S.singleton funcExit) (S.insert funcExit) $
-        M.lookup funcEntry currentEndSummary
-    nextEndSummary = M.insert funcEntry updatedEndSummary currentEndSummary
+    -- currentEndSummary = endSummary currentState
+    -- updatedEndSummary = addEndSummary funcEntry funcExit currentEndSummary
+    --   maybe (S.singleton funcExit) (S.insert funcExit) $
+    --     M.lookup funcEntry currentEndSummary
+    -- nextEndSummary = M.insert funcEntry updatedEndSummary currentEndSummary
     -- ^ Add a node to the EndSummary set saying that <e_p, d_2> is an
     -- exit node for <s_p,d_1>.
 
@@ -367,6 +372,12 @@ addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
     -- ^ Insert summary edges for the call edge now that we have
     -- reached the end of this function.
 {-# INLINE addExitEdges #-}
+
+addEndSummary funcEntry funcExit s = s { endSummary = nextEndSummary }
+  where
+    nextEndSummary = M.insert funcEntry updatedEndSummary (endSummary s)
+    updatedEndSummary = maybe (S.singleton funcExit) (S.insert funcExit) $
+      M.lookup funcEntry (endSummary s)
 
 -- | Insert a summary edge in the caller for this call edge.
 --
@@ -381,7 +392,8 @@ summarizeCallEdge :: (Ord domType, Show domType)
                      -> IFDS domType
                      -> IFDS domType
 summarizeCallEdge retEdgeF nod@(IFDSNode c d4) currentState =
-  foldl' mkSummaryEdges currentState retEdges `debug` printf "summCallEdge: %s" (show nod)
+  foldl' mkSummaryEdges currentState retEdges `debug`
+    printf "  summarizeCallEdge: %s (Res: %s)" (show nod) (show retEdges)
   where
     Just (InstNode callInst) = lab (icfgGraph $ icfg currentState) c
     retEdges = retEdgeF callInst
@@ -389,15 +401,13 @@ summarizeCallEdge retEdgeF nod@(IFDSNode c d4) currentState =
     -- This function makes the summary edges and propagates local
     -- information in the caller along call-to-return edges.
     mkSummaryEdges s d5 = case S.member summEdge (summaryEdges s) of
-      True -> s -- Already have summary edge, can skip doing any work here
-      False -> S.fold addCallToReturns s' entVals -- Note, state here includes the summary edge
+      -- Already have summary edge, can skip doing any work here
+      True -> s `debug` printf " > Summary edge %s already exists" (show summEdge)
+      -- Note, state here includes the summary edge
+      False -> S.fold addCallToReturns s' entVals `debug` " > Adding summary edge"
       where
         summEdge = SummaryEdge c d4 d5
         s' = addSummaryEdge s summEdge
--- FIXME: It looks like the wrong values are ending up in entryValues
--- here.  The self-loop at the entry is correct ,but the d3 in
--- addCallToReturns seems to always be Nothing, which is wrong for
--- globals...
         entVals = maybe S.empty id (M.lookup c{-allerEntryNode-} (entryValues currentState))
         -- ^ These are a superset of the d3s on line 26.
         -- 'addCallToReturns' filters out the values where there is
@@ -410,8 +420,9 @@ summarizeCallEdge retEdgeF nod@(IFDSNode c d4) currentState =
             -- This case statement is the condition check in line 26,
             -- ensuring that this d3 actually produces an edge in
             -- PathEdge
-            False -> summState `debug` printf "Discarding edge %s" (show e1)
-            True -> propagate summState callToReturnEdge `debug` printf "Propagating return info: %s" (show callToReturnEdge)
+            False -> summState `debug` printf "    %s is not in PathEdge" (show e1)
+            True -> propagate summState callToReturnEdge `debug`
+                      printf "    Adding call to return %s" (show callToReturnEdge)
 {-# INLINE summarizeCallEdge #-}
 
 callNodeToReturnNode :: Node -> Node
@@ -444,7 +455,7 @@ addIntraEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
                  -> IFDS domType
                  -> IFDS domType
 addIntraEdges i (PathEdge d1 n d2) analysis currentState =
-  tabulate analysis (foldl' propagate currentState newEdges) `debug` printf "Adding intra edges: %s" (show newEdges)
+  tabulate analysis (foldl' propagate currentState newEdges)
   where
     g = (icfgGraph . icfg) currentState
     currentEdges = pathEdges currentState
