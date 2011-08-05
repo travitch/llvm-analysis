@@ -244,7 +244,10 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
         summEdgeState = foldl' (edgesForCalleeWithValue calledProcEntry) s argumentToFormalEdges `debug`
                           printf "CALLSITE [(%d) %s] with edges %s" n (show ci) (show argumentToFormalEdges)
         -- ^ This is the block from 14-16 in the algorithm.
-        summaryEdgeD3s = filter isInSummaryEdge $ S.toList (maybe S.empty id (M.lookup n (summaryValues currentState)))
+        summaryEdgeD3s =
+          let possibleD3sForSummEdge = M.lookup n (summaryValues {-currentState-} summEdgeState)
+              cachedD3s = maybe S.empty id possibleD3sForSummEdge
+          in filter isInSummaryEdge (S.toList cachedD3s) `debug` printf "  >> Cached d3s: %s" (show cachedD3s)
         callFlowD3s = callFlow analysis d2 ci intraPredEdges
         -- FIXME: The summary edge d3s are wrong here - it results in the summary information not
         -- actually being propagated across the call
@@ -252,7 +255,9 @@ addCallEdges ci (PathEdge d1 n d2) analysis currentState =
                 printf " <<< Summary edge d3s in call: %s" (show summaryEdgeD3s)
         intraPredEdges = map toIntraEdge $ lpre g n
 
-        isInSummaryEdge d3 = S.member (SummaryEdge n d2 d3) (summaryEdges currentState)
+        isInSummaryEdge d3 =
+          let summEdge = SummaryEdge (callNodeToReturnNode n) d2 d3
+          in S.member summEdge (summaryEdges currentState)
 
     -- | This is lines 15, 15.1 (add <n,d2> to Incoming) and the loop
     -- following them, which adds summary edges.
