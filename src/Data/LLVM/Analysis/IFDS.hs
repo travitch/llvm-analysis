@@ -12,7 +12,6 @@ module Data.LLVM.Analysis.IFDS (
 
 import Control.Monad.State
 import Data.Graph.Inductive hiding ( (><) )
-import Data.List ( foldl' )
 import Data.Map ( Map )
 import Data.Sequence ( Seq, ViewL(..), (|>), viewl )
 import Data.Set ( Set )
@@ -112,7 +111,7 @@ data IFDS a domType = IFDS { pathEdges :: Set (PathEdge domType)
                            -- ^ A simple worklist
                            , icfg :: ICFG
                            -- ^ The ICFG that this analysis is operating on
-                           , ifdsAnalysis :: IFDSAnalysis a domType
+                           , ifdsAnalysis :: a
                          }
 
 type IFDSM a domType r = State (IFDS a domType) r
@@ -143,26 +142,10 @@ ifdsInstructionResult (IFDSResult m) i = M.lookup i m
 -- | Run the IFDS analysis on the given ICFG. Currently it is forward
 -- only.  Support for backwards analysis could be added somewhat
 -- easily.
-{-
 ifds :: (IFDSAnalysis a domType, Ord domType, Show domType) => a -> ICFG -> IFDSResult domType
 ifds analysis g = extractSolution finalState
   where
     initialEdges = concatMap (mkInitialEdges analysis (icfgModule g)) (icfgEntryPoints g)
-    finalState =
-      tabulate analysis IFDS { pathEdges = S.fromList initialEdges
-                             , summaryEdges = S.empty
-                             , worklist = Seq.fromList initialEdges
-                             , incomingNodes = M.empty
-                             , endSummary = M.empty
-                             , entryValues = M.empty
-                             , summaryValues = M.empty
-                             , icfg = g
-                             }
--}
-ifds :: (IFDSAnalysis a domType, Ord domType, Show domType) => a -> ICFG -> IFDSResult domType
-ifds analysis g = extractSolution finalState
-  where
-    initialEdges = concatMap (mkInitialEdges analysis (icfgModule g)) (icfGEntryPoints g)
     initialState = IFDS { pathEdges = S.fromList initialEdges
                         , summaryEdges = S.empty
                         , ifdsWorklist = Seq.fromList initialEdges
@@ -177,7 +160,8 @@ ifds analysis g = extractSolution finalState
 
 -- | Given the final state from the tabulation algorithm, extract a
 -- whole-program solution from it
-extractSolution :: (Ord domType, Show domType) => IFDS domType -> IFDSResult domType
+extractSolution :: (IFDSAnalysis a domType, Ord domType, Show domType)
+                   => IFDS a domType -> IFDSResult domType
 extractSolution s = IFDSResult $ S.fold populateSolution M.empty ps
   where
     ps = pathEdges s
@@ -197,41 +181,19 @@ extractSolution s = IFDSResult $ S.fold populateSolution M.empty ps
       where
         Just l = lab g n
 
+
+-- | Grab the underlying ICFG graph
+getICFG :: IFDSM a domType ICFGGraphType
+getICFG = do
+  g <- gets icfg
+  return (icfgGraph g)
+
+
 -- | The key function that builds up the PathEdge set using a worklist
 -- algorithm.  It handles the three cases outlined in the main
 -- algorithm: adding interprocedural edges for call/invoke nodes,
 -- adding interprocedural (and summary) edges for return nodes, and
 -- adding intraprocedural edges for all other instructions.
-{-
-tabulate :: (IFDSAnalysis a domType, Ord domType, Show domType)
-            => a
-            -> IFDS domType
-            -> IFDS domType
-tabulate analysis currentState = case viewl (worklist currentState) of
-  EmptyL -> currentState
-  -- Grab an edge off of the worklist and dispatch to the correct case
-  e@(PathEdge _{-d1-} n _{-d2-}) :< rest ->
-    let nextState = currentState { worklist = rest }
-        Just lbl = lab ((icfgGraph . icfg) currentState) n
-    in case lbl of
-      -- Case 1 of the algorithm (call nodes)
-      InstNode ci@CallInst { } -> addCallEdges ci e analysis nextState
-      InstNode ii@InvokeInst { } -> addCallEdges ii e analysis nextState
-
-
-      -- Case 2 of the algorithm (return nodes)
-      InstNode ri@RetInst { } -> addExitEdges (Right ri) e analysis nextState
-      ExternalNode ef -> addExitEdges (Left ef) e analysis nextState
-
-      -- Case 3 of the algorithm (intraprocedural information flow)
-      InstNode i -> addIntraEdges i e analysis nextState
-      ReturnNode i -> addReturnNodeEdges i e analysis nextState
--}
-
-getICFG = do
-  g <- gets icfg
-  return (icfgGraph g)
-
 tabulate :: (IFDSAnalysis a domType, Ord domType, Show domType) => IFDSM a domType ()
 tabulate = do
   worklist <- gets ifdsWorklist
@@ -247,7 +209,7 @@ tabulate = do
         InstNode ii@InvokeInst {} -> addCallEdges ii e
 
         -- Case 2: Returns (including from externs)
-        InstNode ri@RetInst {} -> addExitEdge (Right ri) e
+        InstNode ri@RetInst {} -> addExitEdges (Right ri) e
         ExternalNode ef -> addExitEdges (Left ef) e
 
         -- Case 3: intraprocedural control flow
@@ -259,10 +221,15 @@ tabulate = do
 -- request is always issued when we know that a particular domain
 -- value @d1@ is reachable, so add that to the set of reachable values
 -- before returning it.
+updateCallReachingValues :: (Ord domType)
+                            => Node
+                            -> Maybe domType
+                            -> IFDSM a domType ()
 updateCallReachingValues n d1 = do
   evs <- gets entryValues
   let updatedValues = maybe (S.singleton d1) (S.insert d1) (M.lookup n evs)
   modify (\s -> s { entryValues = M.insert n updatedValues evs})
+{-# INLINE updateCallReachingValues #-}
 
 -- | Handle adding interprocedural call edges and intraprocedural
 -- call->return edges.
@@ -270,8 +237,8 @@ addCallEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
                 => Instruction
                 -> PathEdge domType
                 -> IFDSM a domType ()
-addCallEdges ci e@(PathEdge d1 n d2) = do
-  g <- getICFG
+addCallEdges ci e@(PathEdge d1 n _) = do
+  g <- gets icfg
   -- Update the entryValues cache here since we know that d1 reaches
   -- the call here.
   updateCallReachingValues n d1
@@ -279,19 +246,25 @@ addCallEdges ci e@(PathEdge d1 n d2) = do
   mapM_ (addInfoForPotentialCallee ci e) possibleCalleeEntryNodes
 
   tabulate
+{-# INLINE addCallEdges #-}
 
 -- | Add call edges and intraprocedural call->return edges for a
 -- single callee of a call site.  The original algorithm assumes that
 -- each call site has a single callee.  This helper just handles all
 -- possible callees.
-addInfoForPotentialCallee ci e@(PathEdge d1 n d2) calleeEntry = do
+addInfoForPotentialCallee :: (IFDSAnalysis a domType, Ord domType)
+                             => Instruction
+                             -> PathEdge domType
+                             -> Node
+                             -> IFDSM a domType ()
+addInfoForPotentialCallee ci e@(PathEdge _ n d2) calleeEntry = do
   g <- getICFG
-  analysis <- gets icfgAnalysis
+  analysis <- gets ifdsAnalysis
   let Just calleeEntryLabel = lab g calleeEntry
 
   -- Call passArgs to figure out how to map domain values in the
   -- caller to the callee
-  let argToFormalEdges = case calleeEntry of
+  let argToFormalEdges = case calleeEntryLabel of
         InstNode entryInst -> passArgs analysis d2 ci (instructionFunction entryInst)
         ExternalNode ef -> externPassArgs analysis d2 ci ef
 
@@ -306,14 +279,21 @@ addInfoForPotentialCallee ci e@(PathEdge d1 n d2) calleeEntry = do
       d3s = summEdgeD3s ++ callFlowD3s
 
   mapM_ (extendCallToReturn e) d3s
+{-# INLINE addInfoForPotentialCallee #-}
 
 -- | Line 18
+extendCallToReturn :: (Ord domType) => PathEdge domType -> Maybe domType -> IFDSM a domType ()
 extendCallToReturn (PathEdge d1 n _) d3 =
   propagate (PathEdge d1 retNode d3)
   where
-    retNode = callToReturnNode n
+    retNode = callNodeToReturnNode n
+{-# INLINE extendCallToReturn #-}
 
 -- | Part of the query on line 17
+getSummaryEdgeD3s :: (Ord domType)
+                     => Node
+                     -> Maybe domType
+                     -> IFDSM a domType [Maybe domType]
 getSummaryEdgeD3s n d2 = do
   summVals <- gets summaryValues
   summEdges <- gets summaryEdges
@@ -323,9 +303,16 @@ getSummaryEdgeD3s n d2 = do
     isInSummaryEdge summEdges d3 =
       let summEdge = SummaryEdge (callNodeToReturnNode n) d2 d3
       in S.member summEdge summEdges
+{-# INLINE getSummaryEdgeD3s #-}
 
 -- | Inner loop on lines 15-16
-addInterProcAndSummaryEdges ci calleeEntry e@(PathEdge d1 n d2) argEdgeD3 = do
+addInterProcAndSummaryEdges :: (IFDSAnalysis a domType, Ord domType)
+                               => Instruction
+                               -> Node
+                               -> PathEdge domType
+                               -> Maybe domType
+                               -> IFDSM a domType ()
+addInterProcAndSummaryEdges ci calleeEntry e@(PathEdge _ n d2) argEdgeD3 = do
   endSummaries <- gets endSummary
   let loop = PathEdge argEdgeD3 calleeEntry argEdgeD3
       entryNode = IFDSNode calleeEntry argEdgeD3
@@ -336,128 +323,35 @@ addInterProcAndSummaryEdges ci calleeEntry e@(PathEdge d1 n d2) argEdgeD3 = do
   propagate loop
   addIncomingNode entryNode callNode
 
-  mapM_ (addCallSummaries ci e) callerExits
+  mapM_ (addCallSummaries ci e) (S.toList callerExits)
+{-# INLINE addInterProcAndSummaryEdges #-}
 
--- | 15.3-15.15
+-- | Handle adding edges for function call instructions (and invokes).
+-- This function covers lines 15.3-15.5 in the algorithm from Naeem et al
+addCallSummaries :: (IFDSAnalysis a domType, Ord domType)
+                    => Instruction
+                    -> PathEdge domType
+                    -> IFDSNode domType
+                    -> IFDSM a domType ()
 addCallSummaries ci (PathEdge _ n d2) (IFDSNode e_p d4) = do
   g <- getICFG
-  analysis <- gets icfgAnalysis
+  analysis <- gets ifdsAnalysis
   let Just exitNode = lab g e_p
       returnedVals = case exitNode of
         InstNode retInst -> returnVal analysis d4 retInst ci
         ExternalNode ef -> externReturnVal analysis d4 ef ci
       summEdges = map (\d5 -> SummaryEdge n d2 d5) returnedVals
   mapM_ addSummaryEdge summEdges
+{-# INLINE addCallSummaries #-}
 
--- | Handle adding edges for function call instructions (and invokes).
--- This function covers lines 14-19 in the algorithm from Naeem et al
-{-addCallEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
-                => Instruction
-                -> PathEdge domType
-                -> a
-                -> IFDS domType
-                -> IFDS domType
-addCallEdges ci (PathEdge d1 n d2) analysis currentState =
-  tabulate analysis nextState
-  where
-    valuesReachingCall =
-      maybe (S.singleton d1) augmentSet $ M.lookup n (entryValues currentState)
-    augmentSet evs = S.insert d1 evs
-    stateWithD1Cache =
-      currentState { entryValues = M.insert n valuesReachingCall (entryValues currentState) }
-    calleeEntryNodes = getICFGCallEntries (icfg currentState) n
-    -- ^ Possibly a mix of instructions and ExternalFunction nodes
-    nextState = foldl' edgesForPossibleCallee stateWithD1Cache calleeEntryNodes
 
-    -- | Need to add edges for all possible callees (the original RHS
-    -- algorithm only handles single-target calls).  The
-    -- calledProcEntry could be either an InstNode or an ExternalNode
-    edgesForPossibleCallee s calledProcEntry =
-      -- This handles lines 17-19 (propagating edges)
-      foldl' extendCallToReturn summEdgeState d3s
-      where
-        g = (icfgGraph . icfg) currentState
-        Just calleeEntryLabel = lab g calledProcEntry
-        -- | We have to have different interprocedural transfer
-        -- functions for defined functions and for external (possibly
-        -- unknown) functions.
-        argumentToFormalEdges = case calleeEntryLabel of
-          InstNode entryInst -> passArgs analysis d2 ci (instructionFunction entryInst)
-          ExternalNode ef -> externPassArgs analysis d2 ci ef
-        summEdgeState = foldl' (edgesForCalleeWithValue calledProcEntry) s argumentToFormalEdges `debug`
-                          printf "CALLSITE [(%d) %s] with edges %s" n (show ci) (show argumentToFormalEdges)
-        -- ^ This is the block from 14-16 in the algorithm.
-        summaryEdgeD3s =
-          let possibleD3sForSummEdge = M.lookup n (summaryValues {-currentState-} summEdgeState)
-              cachedD3s = maybe S.empty id possibleD3sForSummEdge
-          in filter isInSummaryEdge (S.toList cachedD3s) `debug` printf "  >> Cached d3s: %s" (show cachedD3s)
-        callFlowD3s = callFlow analysis d2 ci intraPredEdges
-        -- FIXME: The summary edge d3s are wrong here - it results in the summary information not
-        -- actually being propagated across the call
-        d3s = concat [ summaryEdgeD3s, callFlowD3s ] `debug`
-                printf " <<< Summary edge d3s in call: %s" (show summaryEdgeD3s)
-        intraPredEdges = map toIntraEdge $ lpre g n
-
-        isInSummaryEdge d3 =
-          let summEdge = SummaryEdge (callNodeToReturnNode n) d2 d3
-          in S.member summEdge (summaryEdges currentState)
-
-    -- | This is lines 15, 15.1 (add <n,d2> to Incoming) and the loop
-    -- following them, which adds summary edges.
-    edgesForCalleeWithValue calledProcEntry s argEdge =
-      S.fold addSummaries s' callerExits
-      where
-        s' = addIncomingNode (propagate s loop) entryNode callNode
-        -- ^ This propagate call (embedded in the incoming node
-        -- addition) is line 15 of the algorithm
-        loop = PathEdge argEdge calledProcEntry argEdge `debug` show (lab (icfgGraph $ icfg s) calledProcEntry)
-        entryNode = IFDSNode calledProcEntry argEdge
-        callNode = IFDSNode n d2
-        callerExits = maybe S.empty id $ M.lookup entryNode (endSummary s')
-
-    -- | The inner loop (line 15.3-15.5) adds some summary edges
-    addSummaries {-callerExit@-}(IFDSNode e_p d4) s =
-      foldl' addSummaryEdge s summEdges `debug` printf "  In call, adding summary edges: %s" (show summEdges)
-      where
-        Just exitNode = lab ((icfgGraph . icfg) currentState) e_p
-        rvs = case exitNode of
-          InstNode retInst -> returnVal analysis d4 retInst ci
-          ExternalNode ef -> externReturnVal analysis d4 ef ci
-        summEdges = map (\d5 -> SummaryEdge n d2 d5) rvs
-
-    -- | Obviously, propagates the reachability of <s_p,d1> to
-    -- <return(n),d3>.  Less obviously, cache the fact that d1 reaches
-    -- a call in this function.  This is an overapproximation of the
-    -- information we need later, but we can filter out excess
-    -- information then by checking to see if the edge from d1 to d3
-    -- is actually in PathEdge.
-    extendCallToReturn s d3 =
-      propagate s (PathEdge d1 (callNodeToReturnNode n) d3) `debug`
-        ("Call to return node: " ++ show (callNodeToReturnNode n))
--}
-{-# INLINE addCallEdges #-}
-
+addIncomingNode :: (Ord domType) => IFDSNode domType -> IFDSNode domType -> IFDSM a domType ()
 addIncomingNode entryNode callNode = do
   s <- get
   let currentNodes = incomingNodes s
       updatedNodes =
-        maybe (S.singleton callNode) (S.insert callNode) (M.lookup entryNodes currentNodes)
-  put s { incomingNodes = M.insert entryNodes updatedNodes currentNodes }
-
-{-
-addIncomingNode :: (Ord domType)
-                   => IFDS domType
-                   -> IFDSNode domType
-                   -> IFDSNode domType
-                   -> IFDS domType
-addIncomingNode s entryNode callNode =
-  s { incomingNodes = updatedNodes }
-  where
-    currentNodes = incomingNodes s
-    updatedNodes = case M.lookup entryNode currentNodes of
-      Nothing -> M.insert entryNode (S.singleton callNode) currentNodes
-      Just ns -> M.insert entryNode (S.insert callNode ns) currentNodes
--}
+        maybe (S.singleton callNode) (S.insert callNode) (M.lookup entryNode currentNodes)
+  put s { incomingNodes = M.insert entryNode updatedNodes currentNodes }
 {-# INLINE addIncomingNode #-}
 
 -- | Given a call node in the ICFG, get all of the entry nodes for its
@@ -473,7 +367,22 @@ isCallToEntry :: ICFGEdge -> Bool
 isCallToEntry (CallToEntry _) = True
 isCallToEntry _ = False
 
-addExitEdges (Left ef) e@(PathEdge d1 n d2) = do
+
+-- | Handle case 2 of the algorithm: function exit nodes (e_p, d_2).
+-- This function adds a summary edge in the caller and adds propagates
+-- local information in the caller along call-to-return edges.
+--
+-- A lot of the work actually happens in 'summarizeCallEdge', which is
+-- broken out just because it was getting large.  Hopefully the
+-- inliner will take care of pasting everything back together for
+-- additional optimization.
+--
+-- Note: n is e_p in the algorithm
+addExitEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
+                => Either (Maybe ExternalFunction) Instruction
+                -> PathEdge domType
+                -> IFDSM a domType ()
+addExitEdges (Left ef) (PathEdge d1 n d2) = do
   unknownId <- gets (icfgUnknownNode . icfg)
   analysis <- gets ifdsAnalysis
   incNodes <- gets incomingNodes
@@ -489,24 +398,29 @@ addExitEdges (Left ef) e@(PathEdge d1 n d2) = do
       callEdges = maybe S.empty id $ M.lookup funcEntry incNodes
 
   addEndSummary funcEntry funcExit
-  mapM_ (summarizeCallEdge retEdgeF e) callEdges
+  mapM_ (summarizeCallEdge retEdgeF) (S.toList callEdges)
   tabulate
 
-addExitEdges (Right ri) e@(PathEdge d1 n d2) = do
+addExitEdges (Right ri) (PathEdge d1 n d2) = do
   analysis <- gets ifdsAnalysis
   incNodes <- gets incomingNodes
-  s_p <- nodeToFunctionEntryNode e_p
   let e_p = n
-      funcEntry = IFDSNode s_p d1
+  s_p <- nodeToFunctionEntryNode e_p
+  let funcEntry = IFDSNode s_p d1
       funcExit = IFDSNode e_p d2
       retEdgeF = returnVal analysis d2 ri
       callEdges = maybe S.empty id $ M.lookup funcEntry incNodes
 
   addEndSummary funcEntry funcExit
-  mapM_ (summarizeCallEdge retEdgeF e) callEdges
+  mapM_ (summarizeCallEdge retEdgeF) (S.toList callEdges)
   tabulate
+{-# INLINE addExitEdges #-}
 
-summarizeCallEdge retEdgeF (PathEdge d1 n d2) nod@(IFDSNode c d4)= do
+summarizeCallEdge :: (Ord domType)
+                     => (Instruction -> [Maybe domType])
+                     -> IFDSNode domType
+                     -> IFDSM a domType ()
+summarizeCallEdge retEdgeF (IFDSNode c d4)= do
   g <- getICFG
   let Just (InstNode callInst) = lab g c
       retEdges = retEdgeF callInst
@@ -522,7 +436,7 @@ summarizeCallEdge retEdgeF (PathEdge d1 n d2) nod@(IFDSNode c d4)= do
           addSummaryEdge summEdge
           entValMap <- gets entryValues
           let entVals = maybe S.empty id (M.lookup c entValMap)
-          mapM_ (addCallToReturns d5) entVals
+          mapM_ (addCallToReturns d5) (S.toList entVals)
     addCallToReturns d5 d3 = do
       pedges <- gets pathEdges
       let e1 = PathEdge d3 c d4
@@ -530,124 +444,17 @@ summarizeCallEdge retEdgeF (PathEdge d1 n d2) nod@(IFDSNode c d4)= do
       case e1 `S.member` pedges of
         False -> return () -- This edge isn't actually in G#
         True -> propagate callToReturnEdge
+{-# INLINE summarizeCallEdge #-}
 
--- | Handle case 2 of the algorithm: function exit nodes (e_p, d_2).
--- This function adds a summary edge in the caller and adds propagates
--- local information in the caller along call-to-return edges.
---
--- A lot of the work actually happens in 'summarizeCallEdge', which is
--- broken out just because it was getting large.  Hopefully the
--- inliner will take care of pasting everything back together for
--- additional optimization.
---
--- Note: n is e_p in the algorithm
-{-addExitEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
-                => Either (Maybe ExternalFunction) Instruction
-                -> PathEdge domType
-                -> a
-                -> IFDS domType
-                -> IFDS domType
-addExitEdges riOrEf (PathEdge d1 n d2) analysis currentState =
-  tabulate analysis (addEndSummary funcEntry funcExit nextState) `debug`
-    printf "RETCASE: [%s] incoming edges to call: %s" (show riOrEf) (show callEdges)
-  where
-    e_p = n
-    -- FIXME: This is just plain wrong for extern functions.  Might
-    -- have to split addExitEdges into two parts to handle externs.
-    -- s_p is only nodeToFunctionEntryNode IFF this is a defined
-    -- function. Otherwise it is the node representing the external
-    -- function
-    s_p = case riOrEf of
-      Left Nothing -> let Just uid = icfgUnknownNode (icfg currentState)
-                      in uid
-      Left (Just ef) -> externalFunctionUniqueId ef
-      Right _ -> nodeToFunctionEntryNode (icfg currentState) e_p
 
-    funcEntry = IFDSNode s_p d1
-    funcExit = IFDSNode e_p d2
 
-    retEdgeF = case riOrEf of
-      Left ef -> externReturnVal analysis d2 ef
-      Right ri -> returnVal analysis d2 ri
-
-    -- currentEndSummary = endSummary currentState
-    -- updatedEndSummary = addEndSummary funcEntry funcExit currentEndSummary
-    --   maybe (S.singleton funcExit) (S.insert funcExit) $
-    --     M.lookup funcEntry currentEndSummary
-    -- nextEndSummary = M.insert funcEntry updatedEndSummary currentEndSummary
-    -- ^ Add a node to the EndSummary set saying that <e_p, d_2> is an
-    -- exit node for <s_p,d_1>.
-
-    callEdges = maybe S.empty id $ M.lookup funcEntry (incomingNodes currentState)
-    -- ^ These edges (memoized since we can't compute the inverse flow
-    -- function) are edges from call nodes to the beginning of this
-    -- function.
-
-    nextState = S.fold (summarizeCallEdge retEdgeF) currentState callEdges
-    -- ^ Insert summary edges for the call edge now that we have
-    -- reached the end of this function.
--}
-{-# INLINE addExitEdges #-}
-
+addEndSummary :: (Ord domType) => IFDSNode domType -> IFDSNode domType -> IFDSM a domType ()
 addEndSummary funcEntry funcExit = do
   curSummaries <- gets endSummary
   let updatedSummaries =
         maybe (S.singleton funcExit) (S.insert funcExit) (M.lookup funcEntry curSummaries)
   modify (\s -> s { endSummary = M.insert funcEntry updatedSummaries curSummaries })
-{-
-addEndSummary funcEntry funcExit s = s { endSummary = nextEndSummary }
-  where
-    nextEndSummary = M.insert funcEntry updatedEndSummary (endSummary s)
-    updatedEndSummary = maybe (S.singleton funcExit) (S.insert funcExit) $
-      M.lookup funcEntry (endSummary s)
--}
--- | Insert a summary edge in the caller for this call edge.
---
---  From the algorithm:
---
--- > foreach d_5 in retVal
-{-
-summarizeCallEdge :: (Ord domType, Show domType)
-                     => (Instruction -> [Maybe domType])
-                     -- ^ Edges from the ret node back to the caller
-                     -> IFDSNode domType
-                     -- ^ Call node
-                     -> IFDS domType
-                     -> IFDS domType
-summarizeCallEdge retEdgeF nod@(IFDSNode c d4) currentState =
-  foldl' mkSummaryEdges currentState retEdges `debug`
-    printf "  summarizeCallEdge: %s (Res: %s)" (show nod) (show retEdges)
-  where
-    Just (InstNode callInst) = lab (icfgGraph $ icfg currentState) c
-    retEdges = retEdgeF callInst
-    -- | d5 is one of the values that d4 maps to from the return node
-    -- This function makes the summary edges and propagates local
-    -- information in the caller along call-to-return edges.
-    mkSummaryEdges s d5 = case S.member summEdge (summaryEdges s) of
-      -- Already have summary edge, can skip doing any work here
-      True -> s `debug` printf " > Summary edge %s already exists" (show summEdge)
-      -- Note, state here includes the summary edge
-      False -> S.fold addCallToReturns s' entVals `debug` " > Adding summary edge"
-      where
-        summEdge = SummaryEdge c d4 d5
-        s' = addSummaryEdge s summEdge
-        entVals = maybe S.empty id (M.lookup c{-allerEntryNode-} (entryValues currentState))
-        -- ^ These are a superset of the d3s on line 26.
-        -- 'addCallToReturns' filters out the values where there is
-        -- not an edge in PathEdge.
-
-        addCallToReturns d3 summState =
-          let e1 = PathEdge d3 c d4
-              callToReturnEdge = PathEdge d3 (callNodeToReturnNode c) d5
-          in case S.member e1 (pathEdges summState) of
-            -- This case statement is the condition check in line 26,
-            -- ensuring that this d3 actually produces an edge in
-            -- PathEdge
-            False -> summState `debug` printf "    %s is not in PathEdge" (show e1)
-            True -> propagate summState callToReturnEdge `debug`
-                      printf "    Adding call to return %s" (show callToReturnEdge)
--}
-{-# INLINE summarizeCallEdge #-}
+{-# INLINE addEndSummary #-}
 
 callNodeToReturnNode :: Node -> Node
 callNodeToReturnNode = negate
@@ -656,6 +463,7 @@ callNodeToReturnNode = negate
 -- | Given a node in the ICFG corresponding to some instruction, find
 -- the entry node for the function containing it.
 -- nodeToFunctionEntryNode :: ICFG -> Node -> Node
+nodeToFunctionEntryNode :: Node -> IFDSM a domType Node
 nodeToFunctionEntryNode n = do
   g <- getICFG
   let Just nodLab = lab g n
@@ -664,44 +472,38 @@ nodeToFunctionEntryNode n = do
       f = basicBlockFunction bb
       s = functionEntryInstruction f
   return (instructionUniqueId s)
-{-  where
-    Just nodLab = lab (icfgGraph g) n
-    InstNode i = nodLab
-    Just bb = instructionBasicBlock i
-    f = basicBlockFunction bb
-    s = functionEntryInstruction f
--}
 {-# INLINE nodeToFunctionEntryNode #-}
 
 instructionFunction :: Instruction -> Function
 instructionFunction i = basicBlockFunction bb
   where
     Just bb = instructionBasicBlock i
+{-# INLINE instructionFunction #-}
 
 -- | Handle the case of local control flow (extending the
 -- intraprocedural part of the exploded supergraph).
 addIntraEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
                  => Instruction
                  -> PathEdge domType
-                 -> a
-                 -> IFDS domType
-                 -> IFDS domType
-addIntraEdges i (PathEdge d1 n d2) analysis currentState =
-  tabulate analysis (foldl' propagate currentState newEdges)
-  where
-    g = (icfgGraph . icfg) currentState
-    currentEdges = pathEdges currentState
+                 -> IFDSM a domType ()
+addIntraEdges i (PathEdge d1 n d2) = do
+  g <- getICFG
+  analysis <- gets ifdsAnalysis
 
-    dests = flow analysis d2 i intraPredEdges
-    intraPredEdges = map toIntraEdge $ lpre g n
+  -- Predecessors in the ICFG
+  let intraPredEdges = map toIntraEdge $ lpre g n
+      intraSuccessors = suc g n
+      mkIntraEdge ipes successor = map (\d3 -> PathEdge d1 successor d3) ipes
 
-    intraSuccessors = suc g n
-    inducedEdges = concatMap (mkIntraEdge dests) intraSuccessors
-    newEdges = filter (not . (flip S.member) currentEdges) inducedEdges
-    -- ^ Only keep the edges that are not already known
+  -- Domain elements reachable due to this instruction
+  let dests = flow analysis d2 i intraPredEdges
+      inducedEdges = concatMap (mkIntraEdge dests) intraSuccessors
 
-    mkIntraEdge ipes successor = map (\d3 -> PathEdge d1 successor d3) ipes
+  mapM_ propagate inducedEdges
+
+  tabulate
 {-# INLINE addIntraEdges #-}
+
 
 {-# INLINE toIntraEdge #-}
 toIntraEdge :: (Node, ICFGEdge) -> CFGEdge
@@ -712,41 +514,29 @@ toIntraEdge (_, ie) = e
 addReturnNodeEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
                       => Instruction
                       -> PathEdge domType
-                      -> a
-                      -> IFDS domType
-                      -> IFDS domType
-addReturnNodeEdges i (PathEdge d1 n d2) analysis currentState =
-  tabulate analysis (foldl' propagate currentState newEdges) `debug` ("Handling return node edges: " ++ show newEdges)
+                      -> IFDSM a domType ()
+addReturnNodeEdges i (PathEdge d1 n d2) = do
+  g <- getICFG
+  analysis <- gets ifdsAnalysis
+
+  let dests = returnNodeFlow analysis d2 i
+      intraSuccessors = suc g n
+      inducedEdges = concatMap (mkIntraEdge dests) intraSuccessors
+      mkIntraEdge ipes successor =
+        map (\d3 -> PathEdge d1 successor d3 `debug`
+                    ("Successor: " ++ showGraphNode g successor)) ipes
+
+  mapM_ propagate inducedEdges
+
+  tabulate
+{-# INLINE addReturnNodeEdges #-}
+
+showGraphNode g n = show l
   where
-    g = (icfgGraph . icfg) currentState
-    currentEdges = pathEdges currentState
-
-    dests = returnNodeFlow analysis d2 i
-
-    intraSuccessors = suc g n
-    inducedEdges = concatMap (mkIntraEdge dests) intraSuccessors
-    newEdges = filter (not . (flip S.member) currentEdges) inducedEdges
-    mkIntraEdge ipes successor =
-      map (\d3 -> PathEdge d1 successor d3 `debug`
-                  ("Successor: " ++ showGraphNode currentState successor)) ipes
-
-showGraphNode s n = show l
-  where
-    g = icfgGraph (icfg s)
     Just l = lab g n
 
-{-# INLINE propagate #-}
-    {-
-propagate :: (Ord domType) => IFDS domType -> PathEdge domType -> IFDS domType
-propagate s newEdge@(PathEdge _ n _) =
-  s { pathEdges = newEdge `S.insert` currentEdges
-    , worklist = worklist s |> newEdge
-    }
-  where
-    currentEdges = pathEdges s
--}
 
---propagate :: (Ord domType) => PathEdge domType -> IFDSM _ domType ()
+propagate :: (Ord domType) => PathEdge domType -> IFDSM a domType ()
 propagate newEdge = do
   s <- get
   case newEdge `S.member` pathEdges s of
@@ -754,24 +544,16 @@ propagate newEdge = do
     False -> put s { pathEdges = newEdge `S.insert` (pathEdges s)
                    , ifdsWorklist = (ifdsWorklist s) |> newEdge
                    }
-
 {-# INLINE addSummaryEdge #-}
-{-addSummaryEdge :: (Ord domType) => IFDS domType -> SummaryEdge domType -> IFDS domType
-addSummaryEdge state se@(SummaryEdge callNode _ d') =
-  state { summaryEdges = S.insert se (summaryEdges state)
-        , summaryValues = M.insert callNode updatedCache (summaryValues state)
-        }
-  where
-    updatedCache = case M.lookup callNode (summaryValues state) of
-      Nothing -> S.singleton d'
-      Just s -> S.insert d' s
--}
+
+addSummaryEdge :: (Ord domType) => SummaryEdge domType -> IFDSM a domType ()
 addSummaryEdge se@(SummaryEdge callNode _ d') = do
   s <- get
   let updatedCache = maybe (S.singleton d') (S.insert d') (M.lookup callNode (summaryValues s))
   put s { summaryEdges = S.insert se (summaryEdges s)
         , summaryValues = M.insert callNode updatedCache (summaryValues s)
         }
+{-# INLINE propagate #-}
 
 -- | Build a self loop on the special "null" element for the given
 -- entry point

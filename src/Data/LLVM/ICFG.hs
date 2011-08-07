@@ -4,6 +4,7 @@ module Data.LLVM.ICFG (
   ICFGEdge(..),
   ICFGNode(..),
   CFGEdge(..),
+  ICFGGraphType,
   -- * Constructor
   mkICFG
   ) where
@@ -39,7 +40,9 @@ instance Show ICFGEdge where
 instance GV.Labellable ICFGEdge where
   toLabel = (GV.Label . GV.StrLabel) . show
 
-data ICFG = ICFG { icfgGraph :: Gr ICFGNode ICFGEdge
+type ICFGGraphType = Gr ICFGNode ICFGEdge
+
+data ICFG = ICFG { icfgGraph :: ICFGGraphType
                  , icfgEntryPoints :: [Function]
                  , icfgModule :: Module
                  , icfgUnknownNode :: Maybe Node
