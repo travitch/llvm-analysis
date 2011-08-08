@@ -1,5 +1,43 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
+-- | This is an implementation of the IFDS algorithm as defined by RHS
+-- in
+--
+-- > Precise Interprocedural Dataflow Analysis via Graph Reachability (POPL 1995)
+-- > doi: http://doi.acm.org/10.1145/199448.199462
+--
+-- The algorithm uses dynamic programming to solve some
+-- interprocedural dataflow analysis problems precisely, finding the
+-- meet-over-all-valid-paths solution (instead of the
+-- meet-over-all-paths solution, which includes data flow across
+-- unmatched call/return pairs).  It solves a class of problems called
+-- the Interprocedural Finite Distributive Subset problems in cubic
+-- time; a larger class of problems is addressed by the closely
+-- related IDE framework.
+--
+-- The framework solves _subset_ problems; elements of this set are
+-- drawn from a _domain_ @d@.  To solve a problem, the algorithm takes
+-- the interprocedural control flow graph (called the supergraph in
+-- RHS95) and converts it into an _exploded supergraph_ where each
+-- node in the original ICFG is replaced by a node for _each_ possible
+-- element in @d@.  Edges are drawn between elements in @d@ according
+-- to a set of flow functions (intra-procedural and inter-procedural).
+-- RHS95 refers to the flow functions and the edges they induce
+-- between two statements as the _representation relation_.
+--
+-- Some of the efficiency of the algorithm is derived from this
+-- "point-wise" treatment of the domain.
+--
+-- This particular implementation uses the formulation of Naeem et al
+-- in
+--
+-- > Practical Extensions to the IFDS Algorithm (CC 2010)
+-- > doi: http://dx.doi.org/10.1007/978-3-642-11970-5_8
+--
+-- These extensions make the algorithm practical for larger programs.
+-- In particular, this formulation avoids constructing the entire
+-- exploded supergraph G#; instead, it implicitly constructs only the
+-- reachable portion of the graph.
 module Data.LLVM.Analysis.IFDS (
   -- * Types
   IFDSAnalysis(..),
