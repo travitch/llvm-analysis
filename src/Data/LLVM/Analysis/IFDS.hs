@@ -297,12 +297,11 @@ getSummaryEdgeD3s :: (Ord domType, Show domType)
 getSummaryEdgeD3s n d2 = do
   summVals <- gets summaryValues
   summEdges <- gets summaryEdges
-  let possibleD3s = maybe S.empty id (M.lookup retNode summVals)
+  let possibleD3s = maybe S.empty id (M.lookup n summVals)
   return $ filter (isInSummaryEdge summEdges) (S.toList possibleD3s)
   where
-    retNode = callNodeToReturnNode n
     isInSummaryEdge summEdges d3 =
-      let summEdge = SummaryEdge retNode d2 d3
+      let summEdge = SummaryEdge n d2 d3
       in S.member summEdge summEdges
 {-# INLINE getSummaryEdgeD3s #-}
 
@@ -341,7 +340,7 @@ addCallSummaries ci (PathEdge _ n d2) (IFDSNode e_p d4) = do
       returnedVals = case exitNode of
         InstNode retInst -> returnVal analysis d4 retInst ci
         ExternalNode ef -> externReturnVal analysis d4 ef ci
-      summEdges = map (\d5 -> SummaryEdge (callNodeToReturnNode n) d2 d5) returnedVals
+      summEdges = map (\d5 -> SummaryEdge n d2 d5) returnedVals
   mapM_ addSummaryEdge summEdges
 {-# INLINE addCallSummaries #-}
 
@@ -429,7 +428,7 @@ summarizeCallEdge retEdgeF (IFDSNode c d4)= do
   where
     mkSummaryAndPathEdges d5 = do
       summEdges <- gets summaryEdges
-      let summEdge = SummaryEdge (callNodeToReturnNode c) d4 d5
+      let summEdge = SummaryEdge c d4 d5
       case summEdge `S.member` summEdges of
         True -> return ()
         False -> do
