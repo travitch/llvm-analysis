@@ -118,9 +118,12 @@ inullReturnVal :: INullPtr -> Maybe Value -> Instruction -> Instruction -> [Mayb
 inullReturnVal _ Nothing _ _ = [Nothing]
 inullReturnVal _ v@(Just v') (RetInst { retInstValue = Just rv }) ci
   | isGlobal v' = [v]
-  | otherwise  = case v' == rv of
+  | otherwise = case v' == rv of
     True -> [Just (Value ci)]
     False -> []
+inullReturnVal _ v@(Just v') (RetInst { retInstValue = Nothing}) ci
+  | isGlobal v' = [v]
+  | otherwise = []
 inullReturnVal _ _ _ _ = []
 
 -- | Just be conservative for now and return globals and the call

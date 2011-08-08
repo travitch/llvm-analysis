@@ -415,7 +415,7 @@ addExitEdges (Right ri) (PathEdge d1 n d2) = do
   tabulate
 {-# INLINE addExitEdges #-}
 
-summarizeCallEdge :: (Ord domType)
+summarizeCallEdge :: (Ord domType, Show domType)
                      => (Instruction -> [Maybe domType])
                      -> IFDSNode domType
                      -> IFDSM a domType ()
