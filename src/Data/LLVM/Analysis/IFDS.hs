@@ -24,9 +24,6 @@ import Data.LLVM
 import Data.LLVM.CFG
 import Data.LLVM.ICFG
 
-import Debug.Trace
-debug = flip trace
-
 type Worklist a = Seq (PathEdge a)
 
 -- | The interface to define an IFDS analysis.  There are variants of
@@ -528,11 +525,6 @@ addReturnNodeEdges i (PathEdge d1 n d2) = do
 
   tabulate
 {-# INLINE addReturnNodeEdges #-}
-
-showGraphNode g n = show l
-  where
-    Just l = lab g n
-
 
 propagate :: (Ord domType) => PathEdge domType -> IFDSM a domType ()
 propagate newEdge = do
