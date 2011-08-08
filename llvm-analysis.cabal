@@ -58,6 +58,19 @@ test-suite AndersenTests
                  process, directory, filepath, containers,
                  HUnit, test-framework, test-framework-hunit
 
+
+test-suite IFDSTests
+  default-language: Haskell2010
+  build-depends: llvm-analysis,
+                 base > 3 && < 5, containers,
+                 graphviz, filepath,
+                 HUnit, test-framework, test-framework-hunit
+  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+  ghc-prof-options: -auto-all
+  main-is: INullPtrs.hs
+  hs-source-dirs: tests
+
+
 executable ParserDriver
   default-language: Haskell2010
   build-depends: llvm-analysis, base > 3 && < 5, unordered-containers
@@ -83,14 +96,6 @@ executable ViewICFG
   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
   ghc-prof-options: -auto-all
   main-is: ViewICFG.hs
-  hs-source-dirs: tests
-
-executable NullPtrs
-  default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5, containers, graphviz, filepath
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: INullPtrs.hs
   hs-source-dirs: tests
 
 

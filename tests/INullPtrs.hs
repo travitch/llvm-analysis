@@ -3,12 +3,17 @@
 module Main ( main ) where
 
 import Data.List ( elemIndex )
+import Data.Maybe ( fromJust )
 import System.Environment ( getArgs )
+
+import Test.HUnit
 
 import Data.LLVM
 import Data.LLVM.ICFG
 import Data.LLVM.Analysis.IFDS
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
+
+import Data.LLVM.Testing
 
 import Debug.Trace
 
@@ -149,8 +154,34 @@ inullEntrySetup _ m entry = Nothing : map Just (gvs ++ evs)
       TypePointer (TypePointer _ _) _ -> True
       _ -> False
 
+expectedMapper :: FilePath -> FilePath
+expectedMapper = (++ ".expected")
+
+-- | Test values reachable at the return statement of a function
+reachReturnTest :: Module -> [String]
+reachReturnTest = map (fromJust . valueName) endVals
+  where
+    pta = runPointsToAnalysis m
+    Just progMain = findMain m
+    icfg = mkICFG m pta [progMain]
+    analysis = INullPtr
+    res :: IFDSResult Value
+    res = ifds analysis icfg
+    retInst = functionExitInstruction progMain
+    endVals = ifdsInstructionResult res retInst
+
+
 main :: IO ()
 main = do
+  let reachPattern = "tests/ifds/reach/*.c"
+  testAgainstExpected [ TestDescriptor { testPattern = reachPattern
+                                       , testExpectedMapping = expectedMapper
+                                       , testOptimized = False
+                                       , testResultBuilder = reachReturnTest
+                                       , testResultComparator = assertEqual
+                                       }
+                      ]
+  {-
   [fname] <- getArgs
   Right m <- parseLLVMBitcodeFile defaultParserOptions fname
   let pta = runPointsToAnalysis m
@@ -159,5 +190,6 @@ main = do
       res :: IFDSResult Value
       res = ifds analysis icfg
   print res
+-}
 
 
