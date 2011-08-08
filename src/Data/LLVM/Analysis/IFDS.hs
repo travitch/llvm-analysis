@@ -252,7 +252,7 @@ addCallEdges ci e@(PathEdge d1 n _) = do
 -- single callee of a call site.  The original algorithm assumes that
 -- each call site has a single callee.  This helper just handles all
 -- possible callees.
-addInfoForPotentialCallee :: (IFDSAnalysis a domType, Ord domType)
+addInfoForPotentialCallee :: (IFDSAnalysis a domType, Ord domType, Show domType)
                              => Instruction
                              -> PathEdge domType
                              -> Node
@@ -290,23 +290,24 @@ extendCallToReturn (PathEdge d1 n _) d3 =
 {-# INLINE extendCallToReturn #-}
 
 -- | Part of the query on line 17
-getSummaryEdgeD3s :: (Ord domType)
+getSummaryEdgeD3s :: (Ord domType, Show domType)
                      => Node
                      -> Maybe domType
                      -> IFDSM a domType [Maybe domType]
 getSummaryEdgeD3s n d2 = do
   summVals <- gets summaryValues
   summEdges <- gets summaryEdges
-  let possibleD3s = maybe S.empty id (M.lookup n summVals)
+  let possibleD3s = maybe S.empty id (M.lookup retNode summVals)
   return $ filter (isInSummaryEdge summEdges) (S.toList possibleD3s)
   where
+    retNode = callNodeToReturnNode n
     isInSummaryEdge summEdges d3 =
-      let summEdge = SummaryEdge (callNodeToReturnNode n) d2 d3
+      let summEdge = SummaryEdge retNode d2 d3
       in S.member summEdge summEdges
 {-# INLINE getSummaryEdgeD3s #-}
 
 -- | Inner loop on lines 15-16
-addInterProcAndSummaryEdges :: (IFDSAnalysis a domType, Ord domType)
+addInterProcAndSummaryEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
                                => Instruction
                                -> Node
                                -> PathEdge domType
@@ -328,7 +329,7 @@ addInterProcAndSummaryEdges ci calleeEntry e@(PathEdge _ n d2) argEdgeD3 = do
 
 -- | Handle adding edges for function call instructions (and invokes).
 -- This function covers lines 15.3-15.5 in the algorithm from Naeem et al
-addCallSummaries :: (IFDSAnalysis a domType, Ord domType)
+addCallSummaries :: (IFDSAnalysis a domType, Ord domType, Show domType)
                     => Instruction
                     -> PathEdge domType
                     -> IFDSNode domType
@@ -340,7 +341,7 @@ addCallSummaries ci (PathEdge _ n d2) (IFDSNode e_p d4) = do
       returnedVals = case exitNode of
         InstNode retInst -> returnVal analysis d4 retInst ci
         ExternalNode ef -> externReturnVal analysis d4 ef ci
-      summEdges = map (\d5 -> SummaryEdge n d2 d5) returnedVals
+      summEdges = map (\d5 -> SummaryEdge (callNodeToReturnNode n) d2 d5) returnedVals
   mapM_ addSummaryEdge summEdges
 {-# INLINE addCallSummaries #-}
 
@@ -400,7 +401,6 @@ addExitEdges (Left ef) (PathEdge d1 n d2) = do
   addEndSummary funcEntry funcExit
   mapM_ (summarizeCallEdge retEdgeF) (S.toList callEdges)
   tabulate
-
 addExitEdges (Right ri) (PathEdge d1 n d2) = do
   analysis <- gets ifdsAnalysis
   incNodes <- gets incomingNodes
@@ -429,7 +429,7 @@ summarizeCallEdge retEdgeF (IFDSNode c d4)= do
   where
     mkSummaryAndPathEdges d5 = do
       summEdges <- gets summaryEdges
-      let summEdge = SummaryEdge c d4 d5
+      let summEdge = SummaryEdge (callNodeToReturnNode c) d4 d5
       case summEdge `S.member` summEdges of
         True -> return ()
         False -> do
@@ -523,8 +523,7 @@ addReturnNodeEdges i (PathEdge d1 n d2) = do
       intraSuccessors = suc g n
       inducedEdges = concatMap (mkIntraEdge dests) intraSuccessors
       mkIntraEdge ipes successor =
-        map (\d3 -> PathEdge d1 successor d3 `debug`
-                    ("Successor: " ++ showGraphNode g successor)) ipes
+        map (\d3 -> PathEdge d1 successor d3) ipes
 
   mapM_ propagate inducedEdges
 
