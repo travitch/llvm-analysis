@@ -45,7 +45,8 @@ module Data.LLVM.Analysis.IFDS (
   -- * Entry point
   ifds,
   -- * Accessors
-  ifdsInstructionResult
+  ifdsInstructionResult,
+  ifdsResultEdgeCount
   ) where
 
 import Control.Monad.State
@@ -153,13 +154,13 @@ type IFDSM a domType r = State (IFDS a domType) r
 
 -- | An opaque wrapper around the results of an IFDS analysis.  Use
 -- 'ifdsInstructionResult' to extract information.
-data IFDSResult domType = IFDSResult (Map Instruction (Set domType))
+data IFDSResult domType = IFDSResult Int (Map Instruction (Set domType))
 
 instance (Show domType, Ord domType) => Show (IFDSResult domType) where
   show = showIFDSResult
 
 showIFDSResult :: (Show domType, Ord domType) => IFDSResult domType -> String
-showIFDSResult (IFDSResult r) = unlines $ map showProgramPoint $ M.toList r
+showIFDSResult (IFDSResult _ r) = unlines $ map showProgramPoint $ M.toList r
   where
     showProgramPoint (inst, s) =
       let memberStrings = S.toList $ S.map showMember s
@@ -172,7 +173,13 @@ showIFDSResult (IFDSResult r) = unlines $ map showProgramPoint $ M.toList r
 -- point at the given 'Instruction'.  If the Instruction is not in the
 -- Module, returns Nothing.
 ifdsInstructionResult :: IFDSResult domType -> Instruction -> Maybe (Set domType)
-ifdsInstructionResult (IFDSResult m) i = M.lookup i m
+ifdsInstructionResult (IFDSResult _ m) i = M.lookup i m
+
+-- | Return the number of edges in the reachable portion of the
+-- exploded subgraph.  This is mostly useful for regression testing to
+-- ensure that there aren't too many edges introduced.
+ifdsResultEdgeCount :: IFDSResult domType -> Int
+ifdsResultEdgeCount (IFDSResult c _) = c
 
 -- | Run the IFDS analysis on the given ICFG. Currently it is forward
 -- only.  Support for backwards analysis could be added somewhat
@@ -197,7 +204,7 @@ ifds analysis g = extractSolution finalState
 -- whole-program solution from it
 extractSolution :: (IFDSAnalysis a domType, Ord domType, Show domType)
                    => IFDS a domType -> IFDSResult domType
-extractSolution s = IFDSResult $ S.fold populateSolution M.empty ps
+extractSolution s = IFDSResult (S.size ps) $ S.fold populateSolution M.empty ps
   where
     ps = pathEdges s
     g = (icfgGraph . icfg) s
