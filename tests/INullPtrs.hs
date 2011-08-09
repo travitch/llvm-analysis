@@ -4,7 +4,7 @@ module Main ( main ) where
 
 import Data.List ( elemIndex )
 import Data.Maybe ( fromJust )
-import System.Environment ( getArgs )
+import qualified Data.Set as S
 
 import Test.HUnit
 
@@ -159,7 +159,7 @@ expectedMapper = (++ ".expected")
 
 -- | Test values reachable at the return statement of a function
 reachReturnTest :: Module -> [String]
-reachReturnTest = map (fromJust . valueName) endVals
+reachReturnTest m = map (show . fromJust . valueName) endVals
   where
     pta = runPointsToAnalysis m
     Just progMain = findMain m
@@ -168,7 +168,7 @@ reachReturnTest = map (fromJust . valueName) endVals
     res :: IFDSResult Value
     res = ifds analysis icfg
     retInst = functionExitInstruction progMain
-    endVals = ifdsInstructionResult res retInst
+    endVals = maybe [] S.toList (ifdsInstructionResult res retInst)
 
 
 main :: IO ()
