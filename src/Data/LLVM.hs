@@ -12,19 +12,25 @@ module Data.LLVM (
   ParserOptions(..),
   PositionPrecision(..),
   -- * Inspect the IR
+  findFunctionByName,
   findMain,
   module Data.LLVM.Types
   ) where
 
+import qualified Data.ByteString.Char8 as BS
 import Data.List ( find )
 
 import Data.LLVM.Private.Parser.Options
 import Data.LLVM.Private.Parser.Unmarshal
 import Data.LLVM.Types
 
+-- | Find a function in the Module by its name.
+findFunctionByName :: Module -> String -> Maybe Function
+findFunctionByName m s = find isFunc $ moduleDefinedFunctions m
+  where
+    funcIdent = makeGlobalIdentifier (BS.pack s)
+    isFunc f = functionName f == funcIdent
+
 -- | Find the function named 'main' in the 'Module', if any.
 findMain :: Module -> Maybe Function
-findMain = find isMain . moduleDefinedFunctions
-  where
-    mainName = makeGlobalIdentifier "main"
-    isMain f = functionName f == mainName
+findMain m = findFunctionByName m "main"
