@@ -1,7 +1,9 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans -funbox-strict-fields #-}
 module Data.LLVM.Visualization ( viewCFG, viewCG, viewICFG, icfgParams ) where
 
 import Data.GraphViz
+import Data.Graph.Inductive.Graph ( Node )
 
 import Data.LLVM
 import Data.LLVM.CFG
@@ -39,16 +41,16 @@ instance Show ICFGCluster where
 -- | A set of graphviz parameters suitable for visualizing an 'ICFG'.
 -- These graph settings group instructions into basic blocks and basic
 -- blocks into functions using GraphViz clusters.
-icfgParams :: GraphvizParams ICFGNode ICFGEdge ICFGCluster ICFGNode
+icfgParams :: GraphvizParams Node ICFGNode ICFGEdge ICFGCluster ICFGNode -- ICFGEdge ICFGCluster ICFGNode
 icfgParams =
   defaultParams { fmtNode = formatNode
                 , fmtEdge = formatEdge
                 , clusterBy = nodeCluster
-                , clusterID = Just . clusterIdent
+                , clusterID = clusterIdent
                 , fmtCluster = formatCluster
                 }
   where
-    formatCluster CUnknown = [GraphAttrs { attrs = [toLabel "UnknownFunction"] } ]
+    formatCluster CUnknown = [GraphAttrs [textLabel "UnknownFunction"]]
     formatCluster (CExternalFunction ef) = [GraphAttrs { attrs = [toLabel (show (externalFunctionName ef))] } ]
     formatCluster (CFunction f) = [GraphAttrs { attrs = [toLabel (show (functionName f))] } ]
     formatCluster (CBlock b) = [GraphAttrs { attrs = [toLabel (show (basicBlockName b))] } ]
@@ -63,16 +65,16 @@ icfgParams =
         Just bb = instructionBasicBlock i
         f = basicBlockFunction bb
     formatNode (_,l) = case l of
-      ExternalNode Nothing -> [toLabel "UnknownFunction"]
+      ExternalNode Nothing -> [textLabel "UnknownFunction"]
       ExternalNode (Just ef) -> [toLabel ("ExternalFunction: " ++ show (externalFunctionName ef))]
-      InstNode i -> [toLabel (Value i), Shape BoxShape]
-      ReturnNode _ -> [toLabel "ReturnNode", Shape BoxShape]
+      InstNode i -> [toLabel (Value i), shape BoxShape]
+      ReturnNode _ -> [textLabel "ReturnNode", shape BoxShape]
     formatEdge (_,_,l) =
       let lab = toLabel l
       in case l of
-        CallToEntry _ -> [lab, Style [SItem Dashed []], Color [X11Color DeepSkyBlue]]
-        ReturnToCall _ -> [lab, Style [SItem Dashed []], Color [X11Color Crimson]]
-        CallToReturn -> [lab, Style [SItem Dotted []], Color [X11Color ForestGreen]]
+        CallToEntry _ -> [lab, style dashed, color DeepSkyBlue]
+        ReturnToCall _ -> [lab, style dashed, color Crimson]
+        CallToReturn -> [lab, style dotted, color ForestGreen]
         IntraEdge _ -> [lab]
 
 viewICFG :: ICFG -> IO ()

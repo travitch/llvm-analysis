@@ -1,6 +1,7 @@
 import System.Environment ( getArgs )
 
 import Data.GraphViz
+import qualified Data.Text.Lazy.IO as T
 import System.FilePath
 
 import Data.LLVM
@@ -19,8 +20,8 @@ main = do
   -- res <- runGraphvizCommand dirCommand dg Png (fname <.> "png")
   -- _ <- getChar
   -- putStrLn (show res)
-  let s= printDotGraph dg
-  putStrLn s
+  let s = printDotGraph dg
+  T.putStr s
   return ()
   -- let g = callGraphRepr cg
   --     params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]

@@ -496,7 +496,7 @@ printValue v = case valueContent v of
                  , invokeParamAttrs = pattrs
                  , invokeFunction = f
                  , invokeArguments = args
-                 , invokeAttrs = attrs
+                 , invokeAttrs = atts
                  , invokeNormalLabel = nlabel
                  , invokeUnwindLabel = ulabel
                  , invokeHasSRet = _
@@ -507,7 +507,7 @@ printValue v = case valueContent v of
                 , unwords $ map show pattrs
                 , printConstOrName f
                 , "(", intercalate ", " $ map printArgument args, ")"
-                , unwords $ map show attrs
+                , unwords $ map show atts
                 , "to", printConstOrName (Value nlabel)
                 , "unwind", printConstOrName (Value ulabel)
                 ]
@@ -761,7 +761,7 @@ instance Show Value where
   show = printValue
 
 instance Labellable Value where
-  toLabel = (Label . StrLabel) . show
+  toLabelValue = toLabelValue . show
 
 instance Show Instruction where
   show = printValue . Value

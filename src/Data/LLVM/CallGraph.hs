@@ -60,7 +60,7 @@ instance Show CallNode where
   show UnknownFunction = "unknown"
 
 instance Labellable CallNode where
-  toLabel = (Label . StrLabel) . show
+  toLabelValue = toLabelValue . show
 
 data CallEdge = DirectCall
                 -- ^ A static call to a known function
@@ -78,7 +78,7 @@ instance Show CallEdge where
   show UnknownCall = "??"
 
 instance Labellable CallEdge where
-  toLabel = (Label . StrLabel) . show
+  toLabelValue = toLabelValue . show
 
 -- | An opaque wrapper for the callgraph.  The nodes are functions and
 -- the edges are calls between them.

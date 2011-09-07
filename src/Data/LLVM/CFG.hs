@@ -20,7 +20,7 @@ import Data.LLVM.Types
 type CFGType = Gr Instruction CFGEdge
 
 instance Labellable CFGEdge where
-  toLabel = (Label . StrLabel) . show
+  toLabelValue = toLabelValue . show
 
 -- | The control flow graph representation
 data CFG = CFG { cfgGraph :: CFGType

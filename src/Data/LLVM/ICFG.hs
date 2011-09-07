@@ -10,8 +10,7 @@ module Data.LLVM.ICFG (
   ) where
 
 import Data.Graph.Inductive hiding ( Gr, UGr )
-import Data.GraphViz ( toLabel )
-import qualified Data.GraphViz as GV
+import Data.GraphViz
 import qualified Data.Set as S
 
 import Text.Printf
@@ -37,8 +36,8 @@ instance Show ICFGEdge where
   show CallToReturn = "<call-to-return>"
   show (IntraEdge ce) = show ce
 
-instance GV.Labellable ICFGEdge where
-  toLabel = (GV.Label . GV.StrLabel) . show
+instance Labellable ICFGEdge where
+  toLabelValue = toLabelValue . show
 
 type ICFGGraphType = Gr ICFGNode ICFGEdge
 
