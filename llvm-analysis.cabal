@@ -1,3 +1,4 @@
+
 name: llvm-analysis
 version: 0.1.0
 synopsis: A pure Haskell library for parsing and analyzing LLVM bitcode
@@ -22,7 +23,8 @@ library
   build-depends: base > 3 && < 5, array, bytestring, fgl, mtl > 2, filemanip >= 0.3.5.2,
                  graphviz >= 2999.12.0.3, deepseq, process, filepath, directory,
                  hashable >= 1.1.2.0, unordered-containers, containers >= 0.3,
-                 lattices, llvm-data-interop,
+                 lattices, llvm-data-interop, failure >= 0.1,
+                 data-lens == 2.0.*, data-default >= 0.3,
                  HUnit, test-framework, test-framework-hunit
   hs-source-dirs: src
   exposed-modules: Data.LLVM,
@@ -34,6 +36,7 @@ library
                    Data.LLVM.CallGraph,
                    Data.LLVM.CFG,
                    Data.LLVM.ICFG,
+                   Data.LLVM.Modify,
                    Data.LLVM.Testing,
                    Data.LLVM.Types,
                    Data.LLVM.Visualization

@@ -36,7 +36,7 @@ data Module = Module { moduleIdentifier :: ByteString
                      , moduleExternalValues :: [ExternalValue]
                      , moduleExternalFunctions :: [ExternalFunction]
                      , moduleAliases :: [GlobalAlias]
-                     , moduleNextId :: Int
+                     , moduleNextId :: UniqueId
                      }
 
 -- isNotExternal :: Value -> Bool
