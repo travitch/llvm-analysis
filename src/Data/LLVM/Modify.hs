@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 -- | Note: When building IR nodes to insert, unique IDs are not
 -- available.  They must be assigned by the knot-tying process to
 -- ensure uniqueness.  The values in the new IR nodes will be ignored
@@ -13,7 +14,8 @@ import Data.HashMap.Strict ( HashMap )
 import Data.ByteString ( ByteString )
 import qualified Data.HashMap.Strict as M
 import Data.Int
-import Data.Lens.Strict
+import Data.Lens.Lazy
+import Data.Lens.Template
 import Prelude hiding ( (.), id )
 
 import Data.LLVM.Types
@@ -21,71 +23,59 @@ import Data.LLVM.Types
 -- The mapping type for this module
 type Map = HashMap
 
--- | A helper to modify a field in the state of a 'StateMonad' through
--- a lens
-modifyL :: MonadState s m => Lens s b -> (b -> b) -> m ()
-modifyL lns f = modify (modL lns f)
+-- | The different modifications that can be made to the IR
+data RewriteAction = RAReplaceInst !Instruction !Instruction
+                   | RARemoveInst !Instruction !Value
+                   | RAInsertInstBefore !Instruction !Instruction
+                   | RAInsertInstAfter !Instruction !Instruction
+
+                   | RAAddGlobal !GlobalVariable
+                   | RAReplaceGlobal !GlobalVariable !GlobalVariable
+                   | RARemoveGlobal !GlobalVariable !Value
+
+                   | RAAddGlobalAlias !GlobalAlias
+                   | RAReplaceGlobalAlias !GlobalAlias !GlobalAlias
+                   | RARemoveGlobalAlias !GlobalAlias !Value
+
+                   | RAAddExternalValue !ExternalValue
+                   | RAReplaceExternalValue !ExternalValue !ExternalValue
+                   | RARemoveExternalValue !ExternalValue !Value
+
+                   | RAAddExternalFunction !ExternalFunction
+                   | RAReplaceExternalFunction !ExternalFunction !ExternalFunction
+                   | RARemoveExternalFunction !ExternalFunction !Value
+
+                   | RAAddFunction !Function
+                   | RAReplaceFunction !Function !Function
+                   | RARemoveFunction !Function !Value
 
 -- | This is a structure that describes how the IR should be modified.
 -- It collects "diffs" from the current IR that will all be applied at
 -- once by 'rewriteModule'.  This structure is built in the
 -- ModuleRewriter monad.
 data ModuleRewriterContext =
-  MRC { _rwReplaceInst :: Map Instruction Instruction
-      , _rwRemoveInst :: Map Instruction Value
-      , _rwInsertInstBefore :: Map Instruction Instruction
-      , _rwInsertInstAfter :: Map Instruction Instruction
-      , _rwAddGlobal :: [GlobalVariable]
-      , _rwReplaceGlobal :: Map GlobalVariable GlobalVariable
-      , _rwRemoveGlobal :: Map GlobalVariable Value
+  MRC { _rwActions :: [RewriteAction]
       , _rwNextId :: UniqueId
       }
 
+$(makeLenses [''ModuleRewriterContext])
+
 emptyContext :: Module -> ModuleRewriterContext
-emptyContext m = MRC { _rwReplaceInst = M.empty
-                     , _rwRemoveInst = M.empty
-                     , _rwInsertInstBefore = M.empty
-                     , _rwInsertInstAfter = M.empty
-                     , _rwAddGlobal = []
-                     , _rwReplaceGlobal = M.empty
-                     , _rwRemoveGlobal = M.empty
+emptyContext m = MRC { _rwActions = []
                      , _rwNextId = moduleNextId m
                      }
-
-rwReplaceInst :: Lens ModuleRewriterContext (Map Instruction Instruction)
-rwReplaceInst = lens _rwReplaceInst (\x s -> s { _rwReplaceInst = x })
-
-rwRemoveInst :: Lens ModuleRewriterContext (Map Instruction Value)
-rwRemoveInst = lens _rwRemoveInst (\x s -> s { _rwRemoveInst = x })
-
-rwInsertInstBefore :: Lens ModuleRewriterContext (Map Instruction Instruction)
-rwInsertInstBefore = lens _rwInsertInstBefore (\x s -> s { _rwInsertInstBefore = x })
-
-rwInsertInstAfter :: Lens ModuleRewriterContext (Map Instruction Instruction)
-rwInsertInstAfter = lens _rwInsertInstAfter (\x s -> s { _rwInsertInstAfter = x })
-
-rwAddGlobal :: Lens ModuleRewriterContext [GlobalVariable]
-rwAddGlobal = lens _rwAddGlobal (\x s -> s { _rwAddGlobal = x })
-
-rwReplaceGlobal :: Lens ModuleRewriterContext (Map GlobalVariable GlobalVariable)
-rwReplaceGlobal = lens _rwReplaceGlobal (\x s -> s { _rwReplaceGlobal = x })
-
-rwRemoveGlobal :: Lens ModuleRewriterContext (Map GlobalVariable Value)
-rwRemoveGlobal = lens _rwRemoveGlobal (\x s -> s { _rwRemoveGlobal = x })
-
-rwNextId :: Lens ModuleRewriterContext Int
-rwNextId = lens _rwNextId (\x s -> s { _rwNextId = x })
 
 nextId :: ModuleRewriter Int
 nextId = do
   thisId <- gets _rwNextId
-  modifyL rwNextId (+1)
+  _ <- rwNextId %= (+1)
   return thisId
 
+-- | An instruction which doesn't have its UniqueId field set
 type UInstruction = UniqueId -> Instruction
+-- | A value which doesn't have its UniqueId field set
 type UValue = UniqueId -> Value
 
--- ModuleRewriter is a State monad over ModificationContexts
 type ModuleRewriter = State ModuleRewriterContext
 
 -- | Replace instruction @currentInst@ with @newInst@:
@@ -97,21 +87,28 @@ replaceInstruction :: Instruction -> UInstruction -> ModuleRewriter Instruction
 replaceInstruction currentInst newInst = do
   uid <- nextId
   let newI = newInst uid
-      addMapping = M.insert currentInst newI
-  modifyL rwReplaceInst addMapping
+  _ <- rwActions %= (RAReplaceInst currentInst newI:)
   return newI
 
 -- | Remove @currentInst@ from the instruction stream (cannot remove
 -- terminators).  Replaces all references to @currentInst@ with @newValue@.
 -- The @newValue@ must either already exist in the IR or also be present
 -- in the ModuleRewriter when it is finally applied.
-removeInstruction :: Instruction -> UValue -> ModuleRewriter Value
-removeInstruction currentInst newValue = do
+removeInstructionWithNew :: Instruction -> UValue -> ModuleRewriter Value
+removeInstructionWithNew currentInst newValue = do
   uid <- nextId
   let newV = newValue uid
-      addMapping = M.insert currentInst newV
-  modifyL rwRemoveInst addMapping
+  _ <- rwActions %= (RARemoveInst currentInst newV:)
   return newV
+
+-- | Remove an instruction and replace all uses of it with an existing
+-- value.  This value must exist in the IR (or be inserted into the IR
+-- before this function is called)
+removeInstruction :: Instruction -> Value -> ModuleRewriter ()
+removeInstruction currentInst newValue = do
+  _ <- rwActions %= (RARemoveInst currentInst newValue:)
+  return ()
+
 
 -- | Insert instruction @newInst@ before instruction @target@:
 --
@@ -120,8 +117,7 @@ insertInstructionBefore :: Instruction -> UInstruction -> ModuleRewriter Instruc
 insertInstructionBefore target newInst = do
   uid <- nextId
   let newI = newInst uid
-      addMapping = M.insert target newI
-  modifyL rwInsertInstBefore addMapping
+  _ <- rwActions %= (RAInsertInstBefore target newI:)
   return newI
 
 -- | Insert instruction @newInst@ after @target@:
@@ -137,9 +133,82 @@ insertInstructionAfter :: Instruction -> UInstruction -> ModuleRewriter Instruct
 insertInstructionAfter target newInst = do
   uid <- nextId
   let newI = newInst uid
-      addMapping = M.insert target newI
-  modifyL rwInsertInstAfter addMapping
+  _ <- rwActions %= (RAInsertInstAfter target newI:)
   return newI
+
+data GlobalAliasDescriptor =
+  GAD { gadTarget :: Value
+      , gadLinkage :: LinkageType
+      , gadName :: Identifier
+      , gadVisibility :: VisibilityStyle
+      , gadMetadata :: [Metadata]
+      }
+
+defaultGlobalAliasDescriptor :: Value -> Identifier -> GlobalAliasDescriptor
+defaultGlobalAliasDescriptor v i =
+  GAD { gadTarget = v
+      , gadLinkage = def
+      , gadName = i
+      , gadVisibility = def
+      , gadMetadata = def
+      }
+
+globalAliasDescriptorFromAlias :: GlobalAlias -> GlobalAliasDescriptor
+globalAliasDescriptorFromAlias ga =
+  GAD { gadTarget = globalAliasTarget ga
+      , gadLinkage = globalAliasLinkage ga
+      , gadName = globalAliasName ga
+      , gadVisibility = globalAliasVisibility ga
+      , gadMetadata = globalAliasMetadata ga
+      }
+
+gadToGlobalAlias :: GlobalAliasDescriptor -> UniqueId -> GlobalAlias
+gadToGlobalAlias gad uid =
+  GlobalAlias { globalAliasTarget = gadTarget gad
+              , globalAliasLinkage = gadLinkage gad
+              , globalAliasName = gadName gad
+              , globalAliasVisibility = gadVisibility gad
+              , globalAliasMetadata = gadMetadata gad
+              , globalAliasUniqueId = uid
+              }
+
+-- | Add a new global alias from a 'GlobalAliasDescriptor'
+addGlobalAlias :: GlobalAliasDescriptor -> ModuleRewriter GlobalAlias
+addGlobalAlias gad = do
+  uid <- nextId
+  let ga = gadToGlobalAlias gad uid
+  _ <- rwActions %= (RAAddGlobalAlias ga:)
+  return ga
+
+-- | Replace @gv@ with that described by @gvd@, updating all references.
+--
+-- > replaceGlobalAlias gv gvd
+replaceGlobalAlias :: GlobalAlias -- ^ The global alias to replace
+                         -> GlobalAliasDescriptor -- ^ A description of the replacement alias
+                         -> ModuleRewriter GlobalAlias
+replaceGlobalAlias ga gad = do
+  uid <- nextId
+  let ga' = gadToGlobalAlias gad uid
+  _ <- rwActions %= (RAReplaceGlobalAlias ga ga':)
+  return ga'
+
+removeGlobalAliasWithNew :: GlobalAlias -- ^ The global alias to remove
+                            -> UValue -- ^ The replacement to reference in the Module
+                            -> ModuleRewriter Value
+removeGlobalAliasWithNew ga val = do
+  uid <- nextId
+  let newV = val uid
+  _ <- rwActions %= (RARemoveGlobalAlias ga newV:)
+  return newV
+
+-- | Remove a global alias, replacing all remaining uses with an
+-- existing value.
+removeGlobalAlias :: GlobalAlias
+                     -> Value
+                     -> ModuleRewriter ()
+removeGlobalAlias ga val = do
+  _ <- rwActions %= (RARemoveGlobalAlias ga val:)
+  return ()
 
 data GlobalVariableDescriptor =
   GVD { gvdType :: Type
@@ -203,7 +272,7 @@ addGlobalVariable :: GlobalVariableDescriptor -> ModuleRewriter GlobalVariable
 addGlobalVariable gvd = do
   uid <- nextId
   let gv = gvdToGlobal gvd uid
-  modifyL rwAddGlobal (gv:)
+  _ <- rwActions %= (RAAddGlobal gv:)
   return gv
 
 -- | Replace @gv@ with that described by @gvd@, updating all references.
@@ -215,19 +284,27 @@ replaceGlobalVariable :: GlobalVariable -- ^ The global variable to replace
 replaceGlobalVariable gv gvd = do
   uid <- nextId
   let gv' = gvdToGlobal gvd uid
-      addMapping = M.insert gv gv'
-  modifyL rwReplaceGlobal addMapping
+  _ <- rwActions %= (RAReplaceGlobal gv gv':)
   return gv'
 
-removeGlobalVariable :: GlobalVariable -- ^ The global variable to remove
-                        -> UValue -- ^ The replacement to reference in the Module
-                        -> ModuleRewriter Value
-removeGlobalVariable gv val = do
+removeGlobalVariableWithNew :: GlobalVariable -- ^ The global variable to remove
+                               -> UValue -- ^ The replacement to reference in the Module
+                               -> ModuleRewriter Value
+removeGlobalVariableWithNew gv val = do
   uid <- nextId
   let newV = val uid
-      addMapping = M.insert gv newV
-  modifyL rwRemoveGlobal addMapping
+  _ <- rwActions %= (RARemoveGlobal gv newV:)
   return newV
+
+removeGlobalVariable :: GlobalVariable -- ^ The global variable to remove
+                        -> Value -- ^ The replacement to reference in the Module
+                        -> ModuleRewriter ()
+removeGlobalVariable gv val = do
+  uid <- nextId
+  _ <- rwActions %= (RARemoveGlobal gv val:)
+  return ()
+
+
 
 data ModuleRewriteFailure = ModuleRewriteFailure
 
@@ -246,3 +323,9 @@ data ModuleRewriteFailure = ModuleRewriteFailure
 --                  => Module -- ^ The 'Module' to rewrite
 --                  -> ModuleRewriterContext -- ^ A context built in the 'ModuleRewriter' monad
 --                  -> m Module -- ^ The rewritten module (or an error)
+
+-- rewriteModule :: (Failure ModuleRewriteFailure m, MonadIO m)
+--               => Module
+--               -> ModuleRewriteContext
+--               -> (forall s. Module s -> m s a)
+--               -> a
