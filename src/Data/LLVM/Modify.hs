@@ -4,7 +4,53 @@
 -- ensure uniqueness.  The values in the new IR nodes will be ignored
 -- and can be arbitrary (they will just be re-assigned while
 -- re-building the Module).
-module Data.LLVM.Modify where
+module Data.LLVM.Modify (
+  -- * Types
+  ModuleRewriterContext,
+  ModuleRewriter,
+  UInstruction,
+  UValue,
+  -- * Instructions
+  replaceInstruction,
+  removeInstructionWithNew,
+  removeInstruction,
+  insertInstructionBefore,
+  insertInstructionAfter,
+  -- * External values
+  ExternalValueDescriptor(..),
+  defaultExternalValueDescriptor,
+  externalValueDescriptorFromExternal,
+  addExternalValue,
+  replaceExternalValue,
+  removeExternalValueWithNew,
+  removeExternalValue,
+  -- * External functions
+  ExternalFunctionDescriptor(..),
+  defaultExternalFunctionDescriptor,
+  externalFunctionDescriptorFromExternal,
+  addExternalFunction,
+  replaceExternalFunction,
+  removeExternalFunctionWithNew,
+  removeExternalFunction,
+  -- * Global aliases
+  GlobalAliasDescriptor(..),
+  defaultGlobalAliasDescriptor,
+  globalAliasDescriptorFromAlias,
+  addGlobalAlias,
+  replaceGlobalAlias,
+  removeGlobalAliasWithNew,
+  removeGlobalAlias,
+  -- * Global variables
+  GlobalVariableDescriptor(..),
+  defaultGlobalVariableDescriptor,
+  globalVariableDescriptorFromGlobal,
+  addGlobalVariable,
+  replaceGlobalVariable,
+  removeGlobalVariableWithNew,
+  removeGlobalVariable,
+  -- * Driver
+  ModuleRewriteFailure(..)
+  ) where
 
 import Control.Category
 import Control.Failure
@@ -20,7 +66,7 @@ import Prelude hiding ( (.), id )
 
 import Data.LLVM.Types
 
--- The mapping type for this module
+-- | The mapping type for this module
 type Map = HashMap
 
 -- | The different modifications that can be made to the IR
@@ -53,19 +99,24 @@ data RewriteAction = RAReplaceInst !Instruction !Instruction
 -- It collects "diffs" from the current IR that will all be applied at
 -- once by 'rewriteModule'.  This structure is built in the
 -- ModuleRewriter monad.
+--
+-- Note that the list of actions needs to be reversed before use.
 data ModuleRewriterContext =
-  MRC { _rwActions :: [RewriteAction]
-      , _rwNextId :: UniqueId
+  MRC { _rwActions :: [RewriteAction] -- ^ An ordered list of rewrite actions
+      , _rwNextId :: UniqueId -- ^ The next ID to assign to
+                             -- newly-inserted IR elements.
       }
 
 $(makeLenses [''ModuleRewriterContext])
 
+-- | An empty context used to prime the RewriteMonad
 emptyContext :: Module -> ModuleRewriterContext
 emptyContext m = MRC { _rwActions = []
                      , _rwNextId = moduleNextId m
                      }
 
-nextId :: ModuleRewriter Int
+-- | Get the next UniqueId available
+nextId :: ModuleRewriter UniqueId
 nextId = do
   thisId <- gets _rwNextId
   _ <- rwNextId %= (+1)
@@ -73,9 +124,11 @@ nextId = do
 
 -- | An instruction which doesn't have its UniqueId field set
 type UInstruction = UniqueId -> Instruction
+
 -- | A value which doesn't have its UniqueId field set
 type UValue = UniqueId -> Value
 
+-- | The Monad in which all Module rewriting occurs.
 type ModuleRewriter = State ModuleRewriterContext
 
 -- | Replace instruction @currentInst@ with @newInst@:
@@ -125,10 +178,12 @@ insertInstructionBefore target newInst = do
 -- > insertInstructionAfter target newInst
 --
 -- Note, this function will raise an error if @target@ is a terminator
--- instruction. FIXME: Change basic blocks to have a list of
--- (Instruction Normal) and a single (Instruction Terminator).  This way,
--- this function can just take an (Instruction Normal) and the others can
--- take (Instruction a).  Maybe just use newtype wrappers for terminators?
+-- instruction.
+--
+-- FIXME: Change basic blocks to have a list of (Instruction Normal)
+-- and a single (Instruction Terminator).  This way, this function can
+-- just take an (Instruction Normal) and the others can take
+-- (Instruction a).  Maybe just use newtype wrappers for terminators?
 insertInstructionAfter :: Instruction -> UInstruction -> ModuleRewriter Instruction
 insertInstructionAfter target newInst = do
   uid <- nextId
@@ -136,12 +191,172 @@ insertInstructionAfter target newInst = do
   _ <- rwActions %= (RAInsertInstAfter target newI:)
   return newI
 
+-- | A representation of 'ExternalValue's that has not yet been
+-- inserted into the IR.  This becomes an 'ExternalValue' when
+-- provided with a unique ID for the current Module.
+data ExternalValueDescriptor =
+  EVD { evdType :: Type           -- ^ The type of the external value
+      , evdName :: Identifier     -- ^ The name of the external value
+      , evdMetadata :: [Metadata] -- ^ External value metadata
+      }
+
+-- | Create a new default 'ExternalValueDescriptor'.  A 'Type' and
+-- 'Identifier' are required.
+defaultExternalValueDescriptor :: Type -> Identifier -> ExternalValueDescriptor
+defaultExternalValueDescriptor t i =
+  EVD { evdType = t
+      , evdName = i
+      , evdMetadata = []
+      }
+
+-- | Create a new 'ExternalValueDescriptor' based on an existing
+-- 'ExternalValue'
+externalValueDescriptorFromExternal :: ExternalValue -> ExternalValueDescriptor
+externalValueDescriptorFromExternal ev =
+  EVD { evdType = externalValueType ev
+      , evdName = externalValueName ev
+      , evdMetadata = externalValueMetadata ev
+      }
+
+-- | Converts a descriptor into a real ExternalValue
+evdToExternalValue :: ExternalValueDescriptor -> UniqueId -> ExternalValue
+evdToExternalValue evd uid =
+  ExternalValue { externalValueType = evdType evd
+                , externalValueName = evdName evd
+                , externalValueMetadata = evdMetadata evd
+                , externalValueUniqueId = uid
+                }
+
+-- | Add a new ExternalValue based on the 'ExternalvalueDescriptor'
+addExternalValue :: ExternalValueDescriptor -> ModuleRewriter ExternalValue
+addExternalValue evd = do
+  uid <- nextId
+  let ev = evdToExternalValue evd uid
+  _ <- rwActions %= (RAAddExternalValue ev:)
+  return ev
+
+-- | Replace the ExternalValue @ev@ with another ExternalValue
+-- described by @evd@, updating all references.  This can be used to
+-- modify an existing ExternalValue.
+--
+-- > replaceExternalValue ev evd
+replaceExternalValue :: ExternalValue              -- ^ The external value to replace
+                        -> ExternalValueDescriptor -- ^ A description of the replacement alias
+                        -> ModuleRewriter ExternalValue
+replaceExternalValue ev evd = do
+  uid <- nextId
+  let ev' = evdToExternalValue evd uid
+  _ <- rwActions %= (RAReplaceExternalValue ev ev':)
+  return ev'
+
+-- | Remove an 'ExternalValue' replacing all references with a new
+-- Value that does not yet exist in the IR.  This would probably be a
+-- constant.  The rewriter will give the value a unique ID.
+removeExternalValueWithNew :: ExternalValue -- ^ The external value to remove
+                              -> UValue     -- ^ The replacement to reference in the Module
+                              -> ModuleRewriter Value
+removeExternalValueWithNew ev val = do
+  uid <- nextId
+  let newV = val uid
+  _ <- rwActions %= (RARemoveExternalValue ev newV:)
+  return newV
+
+-- | Remove a global alias, replacing all remaining uses with an
+-- existing value.
+removeExternalValue :: ExternalValue
+                       -> Value
+                       -> ModuleRewriter ()
+removeExternalValue ev val = do
+  _ <- rwActions %= (RARemoveExternalValue ev val:)
+  return ()
+
+-- | A representation of an 'ExternalFunction' that is not yet
+-- inserted into the IR.
+data ExternalFunctionDescriptor =
+  EFD { efdType :: Type
+      , efdName :: Identifier
+      , efdMetadata :: [Metadata]
+      , efdAttrs :: [FunctionAttribute]
+      }
+
+-- | Create a new external function descriptor
+defaultExternalFunctionDescriptor :: Type -> Identifier -> ExternalFunctionDescriptor
+defaultExternalFunctionDescriptor t i =
+  EFD { efdType = t
+      , efdName = i
+      , efdMetadata = def
+      , efdAttrs = def
+      }
+
+-- | Create an external function descriptor based on an existing
+-- 'ExternalFunction'
+externalFunctionDescriptorFromExternal :: ExternalFunction -> ExternalFunctionDescriptor
+externalFunctionDescriptorFromExternal ef =
+  EFD { efdType = externalFunctionType ef
+      , efdName = externalFunctionName ef
+      , efdMetadata = externalFunctionMetadata ef
+      , efdAttrs = externalFunctionAttrs ef
+      }
+
+-- | Convert an external function descriptor into a realy
+-- 'ExternalFunction' by giving it a unique identifier.
+efdToExternal :: ExternalFunctionDescriptor -> UniqueId -> ExternalFunction
+efdToExternal efd uid =
+  ExternalFunction { externalFunctionType = efdType efd
+                   , externalFunctionName = efdName efd
+                   , externalFunctionMetadata = efdMetadata efd
+                   , externalFunctionUniqueId = uid
+                   , externalFunctionAttrs = efdAttrs efd
+                   }
+
+-- | Add a new ExternalFunction
+addExternalFunction :: ExternalFunctionDescriptor -> ModuleRewriter ExternalFunction
+addExternalFunction efd = do
+  uid <- nextId
+  let ef = efdToExternal efd uid
+  _ <- rwActions %= (RAAddExternalFunction ef:)
+  return ef
+
+-- | Replace an 'ExternalFunction' with a new one based on the given
+-- 'ExternalFunctionDescriptor'.  Returns the new 'ExternalFunction'.
+replaceExternalFunction :: ExternalFunction
+                           -> ExternalFunctionDescriptor
+                           -> ModuleRewriter ExternalFunction
+replaceExternalFunction ef efd = do
+  uid <- nextId
+  let ef' = efdToExternal efd uid
+  _ <- rwActions %= (RAReplaceExternalFunction ef ef':)
+  return ef'
+
+-- | Remove an external function and replace all remaining references
+-- to it with the given Value (that does not yet exist in the IR).
+removeExternalFunctionWithNew :: ExternalFunction
+                                 -> UValue
+                                 -> ModuleRewriter Value
+removeExternalFunctionWithNew ef val = do
+  uid <- nextId
+  let newV = val uid
+  _ <- rwActions %= (RARemoveExternalFunction ef newV:)
+  return newV
+
+-- | Remove an external function and replace all remaining references
+-- to it with the given Value that already exists in the IR.
+removeExternalFunction :: ExternalFunction
+                          -> Value
+                          -> ModuleRewriter ()
+removeExternalFunction ef v = do
+  _ <- rwActions %= (RARemoveExternalFunction ef v:)
+  return ()
+
+-- | A representation of 'GlobalAlias'es that have not yet been
+-- inserted into the IR. The rewriter will turn these into real
+-- GlobalAliases.
 data GlobalAliasDescriptor =
-  GAD { gadTarget :: Value
-      , gadLinkage :: LinkageType
-      , gadName :: Identifier
-      , gadVisibility :: VisibilityStyle
-      , gadMetadata :: [Metadata]
+  GAD { gadTarget :: Value               -- ^ The aliasee
+      , gadLinkage :: LinkageType        -- ^ Linkage of the alias
+      , gadName :: Identifier            -- ^ The name assigned to the alias
+      , gadVisibility :: VisibilityStyle -- ^ The visibility of the alias
+      , gadMetadata :: [Metadata]        -- ^ Any metadata
       }
 
 defaultGlobalAliasDescriptor :: Value -> Identifier -> GlobalAliasDescriptor
@@ -300,7 +515,6 @@ removeGlobalVariable :: GlobalVariable -- ^ The global variable to remove
                         -> Value -- ^ The replacement to reference in the Module
                         -> ModuleRewriter ()
 removeGlobalVariable gv val = do
-  uid <- nextId
   _ <- rwActions %= (RARemoveGlobal gv val:)
   return ()
 
@@ -319,11 +533,8 @@ data ModuleRewriteFailure = ModuleRewriteFailure
 --
 -- * Ensure that terminators are not removed (they should be replaced
 --   by other terminators)
--- rewriteModule :: (Monad m, Failure ModuleRewriteFailure m)
---                  => Module -- ^ The 'Module' to rewrite
---                  -> ModuleRewriterContext -- ^ A context built in the 'ModuleRewriter' monad
---                  -> m Module -- ^ The rewritten module (or an error)
-
+--
+-- * SSA verification of changes
 -- rewriteModule :: (Failure ModuleRewriteFailure m, MonadIO m)
 --               => Module
 --               -> ModuleRewriteContext
