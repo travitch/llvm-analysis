@@ -3,7 +3,9 @@
 module Data.LLVM.Types (
   Module(..),
   moduleGlobals,
-  module ReEx
+  module Data.LLVM.Attributes,
+  module Data.LLVM.Identifiers,
+  module Data.LLVM.Private.Types.Referential,
   ) where
 
 import Control.DeepSeq
@@ -14,9 +16,9 @@ import Data.ByteString.Char8 ( ByteString )
 
 import Data.LLVM.Private.ForceModule
 import Data.LLVM.Private.Printers
-import Data.LLVM.Attributes as ReEx
-import Data.LLVM.Identifiers as ReEx
-import Data.LLVM.Private.Types.Referential as ReEx
+import Data.LLVM.Attributes
+import Data.LLVM.Identifiers
+import Data.LLVM.Private.Types.Referential
 
 -- | This is the top-level representation of a program in LLVM.  This
 -- is the type returned from all of the parsers, and all analysis
