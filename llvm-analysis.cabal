@@ -35,7 +35,7 @@ library
                    Data.LLVM.CallGraph,
                    Data.LLVM.CFG,
                    Data.LLVM.ICFG,
-                   Data.LLVM.Modify,
+                   Data.LLVM.Rewrite,
                    Data.LLVM.Testing,
                    Data.LLVM.Types,
                    Data.LLVM.Visualization

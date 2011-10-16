@@ -20,6 +20,7 @@ module Data.LLVM.Private.Types.Referential (
   functionIsVararg,
   functionEntryInstruction,
   functionExitInstruction,
+  instructionIsTerminator,
   llvmDebugVersion
   ) where
 
@@ -500,6 +501,20 @@ instance Hashable ExternalFunction where
 
 instance Ord ExternalFunction where
   f1 `compare` f2 = comparing externalFunctionUniqueId f1 f2
+
+-- | Determine if an instruction is a Terminator instruction (i.e.,
+-- ends a BasicBlock)
+instructionIsTerminator :: Instruction -> Bool
+instructionIsTerminator RetInst {} = True
+instructionIsTerminator UnconditionalBranchInst {} = True
+instructionIsTerminator BranchInst {} = True
+instructionIsTerminator SwitchInst {} = True
+instructionIsTerminator IndirectBranchInst {} = True
+instructionIsTerminator UnwindInst {} = True
+instructionIsTerminator UnreachableInst {} = True
+instructionIsTerminator InvokeInst {} = True
+instructionIsTerminator _ = False
+-- Note, the new ResumeInst needs to be handled
 
 data Instruction = RetInst { instructionType :: Type
                            , instructionName :: !(Maybe Identifier)
