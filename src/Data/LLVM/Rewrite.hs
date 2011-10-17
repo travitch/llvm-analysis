@@ -8,8 +8,8 @@ module Data.LLVM.Rewrite (
   -- * Types
   ModuleRewriterContext,
   ModuleRewriter,
+  UConstant,
   UInstruction,
-  UValue,
   -- * Instructions
   replaceInstruction,
   removeInstructionWithNew,
@@ -135,9 +135,6 @@ nextId = do
 
 -- | An instruction which doesn't have its UniqueId field set
 type UInstruction = UniqueId -> Instruction
-
--- | A value which doesn't have its UniqueId field set
-type UValue = UniqueId -> Value
 
 type UConstant = UniqueId -> Constant
 
