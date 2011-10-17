@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, DeriveDataTypeable #-}
 -- | Note: When building IR nodes to insert, unique IDs are not
 -- available.  They must be assigned by the knot-tying process to
 -- ensure uniqueness.  The values in the new IR nodes will be ignored
@@ -49,7 +49,8 @@ module Data.LLVM.Rewrite (
   removeGlobalVariableWithNew,
   removeGlobalVariable,
   -- * Driver
-  ModuleRewriteFailure(..)
+  ModuleRewriteFailure(..),
+  rewriteModule
   ) where
 
 import Control.Category
@@ -57,18 +58,23 @@ import Control.Exception
 import Control.Monad.State
 import Data.Default
 import Data.ByteString ( ByteString )
+import Data.Hashable
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
+import Data.HashSet ( HashSet )
+import qualified Data.HashSet as S
 import Data.Int
 import Data.Lens.Lazy
 import Data.Lens.Template
 import Data.Ord ( comparing )
+import Data.Typeable
 import Prelude hiding ( (.), id )
 
 import Data.LLVM.Types
 
 -- | The mapping type for this module
 type Map = HashMap
+type Set = HashSet
 
 -- | This is a structure that describes how the IR should be modified.
 -- It collects "diffs" from the current IR that will all be applied at
@@ -80,9 +86,17 @@ data ModuleRewriterContext =
   MRC { _rwMapping :: Map Value Value
       , _rwBlocks :: Map BasicBlock BasicBlock
       , _rwAliases :: Map GlobalAlias GlobalAlias
+      , _rwRemovedAliases :: Set GlobalAlias
+      , _rwAddedAliases :: Set GlobalAlias
       , _rwGlobals :: Map GlobalVariable GlobalVariable
+      , _rwRemovedGlobals :: Set GlobalVariable
+      , _rwAddedGlobals :: Set GlobalVariable
       , _rwExternalVals :: Map ExternalValue ExternalValue
+      , _rwRemovedExternalVals :: Set ExternalValue
+      , _rwAddedExternalVals :: Set ExternalValue
       , _rwExternalFuncs :: Map ExternalFunction ExternalFunction
+      , _rwRemovedExternalFuncs :: Set ExternalFunction
+      , _rwAddedExternalFuncs :: Set ExternalFunction
       , _rwNextId :: UniqueId -- ^ The next ID to assign to
                              -- newly-inserted IR elements.
       }
@@ -95,7 +109,20 @@ type ModuleRewriter = State ModuleRewriterContext
 
 -- | An empty context used to prime the RewriteMonad
 emptyContext :: Module -> ModuleRewriterContext
-emptyContext m = MRC { _rwActions = []
+emptyContext m = MRC { _rwMapping = M.empty
+                     , _rwBlocks = M.empty
+                     , _rwAliases = M.empty
+                     , _rwRemovedAliases = S.empty
+                     , _rwAddedAliases = S.empty
+                     , _rwGlobals = M.empty
+                     , _rwRemovedGlobals = S.empty
+                     , _rwAddedGlobals = S.empty
+                     , _rwExternalVals = M.empty
+                     , _rwRemovedExternalVals = S.empty
+                     , _rwAddedExternalVals = S.empty
+                     , _rwExternalFuncs = M.empty
+                     , _rwRemovedExternalFuncs = S.empty
+                     , _rwAddedExternalFuncs = S.empty
                      , _rwNextId = moduleNextId m
                      }
 
@@ -117,8 +144,11 @@ type UConstant = UniqueId -> Constant
 -- | The failures that can occur while rewriting a module.  Some of
 -- these are only recognizable in the post-rewrite verification stage.
 data ModuleRewriteFailure =
-  InstructionAlreadyReplaced !Instruction !Instruction -- ^ The first Inst was already replaced with the second
+  InstructionAlreadyReplaced !Instruction !Value -- ^ The first Inst was already replaced with the second
+  | GlobalAlreadyReplaced !Value !Value
+  | GlobalAlreadyRemoved !Value
   | InsertedInstructionAfterTerminator !Instruction -- ^ Attempted to insert an Instruction(1) after a terminator Instruction(2)
+  deriving (Typeable, Show)
 
 instance Exception ModuleRewriteFailure
 
@@ -133,9 +163,10 @@ instance Exception ModuleRewriteFailure
 -- instructions when changing their basic blocks - this will all be
 -- done at once in the rewrite phase.
 
+instructionCurrentBlock :: Instruction -> ModuleRewriter BasicBlock
 instructionCurrentBlock i = do
   m <- access rwBlocks
-  let nominalBlock = instructionBasicBlock i
+  let Just nominalBlock = instructionBasicBlock i
   return $ M.lookupDefault nominalBlock nominalBlock m
 
 -- INVARIANT: the instructionBasicBlock field must always point to the
@@ -147,21 +178,26 @@ instructionCurrentBlock i = do
 -- between the parent of a newly-created instruction and an original
 -- instruction.
 
+modifyBlockContainingInst :: Instruction -- ^ An instruction currently in the block
+                             -> ([Instruction] -> [Instruction]) -- ^ A function to rewrite the instruction list in the block
+                             -> ModuleRewriter ()
 modifyBlockContainingInst currentInst blockRewriter = do
   blockId <- nextId
+  bb <- instructionCurrentBlock currentInst
+  let newInsts = blockRewriter (basicBlockInstructions bb)
+      newBlock = bb { basicBlockInstructions = newInsts
+                    , basicBlockUniqueId = blockId
+                    }
   _ <- rwMapping %= M.insert (Value bb) (Value newBlock)
   _ <- rwBlocks %= M.insert bb newBlock
   return ()
-  where
-    bb = instructionCurrentBlock currentInst
-    newInsts = blockRewriter (basicBlockInstructions bb)
-    newBlock = bb { basicBlockInstructions = newInsts
-                  , basicBlockUniqueId = blockId
-                  }
 
 -- | Give the new instruction its temporary unique ID and set its
 -- enclosing basic block to be the same as the instruction it is being
 -- placed near.
+instantiateInstruction :: Instruction -- ^ An existing instruction which is in the same block as the new instruction should be
+                          -> (UniqueId -> Instruction) -- ^ A function yielding an Instruction given a unique id
+                          -> ModuleRewriter Instruction
 instantiateInstruction currentInst newInst = do
   uid <- nextId
   let newI = newInst uid
@@ -179,9 +215,8 @@ replaceInstruction :: Instruction
                       -> ModuleRewriter Instruction
 replaceInstruction currentInst newInst =
   unlessAlreadyReplaced rwMapping (Value currentInst) err $ do
-    uid <- nextId
-    let newI = instantiateInstruction currentInst newInst
-        replaceInst i | EQ == comparing instructionUniqueId i currentInst = newI
+    newI <- instantiateInstruction currentInst newInst
+    let replaceInst i | EQ == comparing instructionUniqueId i currentInst = newI
                       | otherwise = i
         blockRewriter = map replaceInst
     modifyBlockContainingInst currentInst blockRewriter
@@ -193,11 +228,16 @@ replaceInstruction currentInst newInst =
   where
     err x = throw (InstructionAlreadyReplaced currentInst x)
 
+unlessAlreadyReplaced :: Lens ModuleRewriterContext (Map Value Value)
+                         -> Value
+                         -> (Value -> ModuleRewriter a)
+                         -> ModuleRewriter a
+                         -> ModuleRewriter a
 unlessAlreadyReplaced lns k err action = do
   m <- access lns
   case M.lookup k m of
     Nothing -> action
-    Just v -> throw (err v)
+    Just v -> err v
 
 -- | Remove @currentInst@ from the instruction stream (cannot remove
 -- terminators).  Replaces all references to @currentInst@ with @newValue@.
@@ -216,7 +256,7 @@ removeInstructionWithNew currentInst newValue =
         blockRewriter = foldr removeInst []
     modifyBlockContainingInst currentInst blockRewriter
 
-    _ <- rwMapping %= M.insert (Value currentInst) newC
+    _ <- rwMapping %= M.insert (Value currentInst) (Value newC)
 
     return newC
   where
@@ -252,8 +292,8 @@ removeInstruction currentInst newValue =
 insertInstructionBefore :: Instruction -> UInstruction -> ModuleRewriter Instruction
 insertInstructionBefore target newInst =
   unlessAlreadyReplaced rwMapping (Value target) err $ do
-    let newI = instantiateInstruction target newInst
-        insertBefore i lst
+    newI <- instantiateInstruction target newInst
+    let insertBefore i lst
           | EQ == comparing instructionUniqueId i target = newI : i : lst
           | otherwise = i : lst
         blockRewriter = foldr insertBefore []
@@ -279,11 +319,11 @@ insertInstructionAfter target newInst =
   case instructionIsTerminator target of
     True -> throw (InsertedInstructionAfterTerminator target)
     False -> unlessAlreadyReplaced rwMapping (Value target) err $ do
-      let newI = instantiateInstruction target newInst
-          insertAfter i lst
+      newI <- instantiateInstruction target newInst
+      let insertAfter i lst
             | EQ == comparing instructionUniqueId i target = i : newI : lst
             | otherwise = i : lst
-          blockRewriter = foldr insertBefore []
+          blockRewriter = foldr insertAfter []
       modifyBlockContainingInst target blockRewriter
       return newI
   where
@@ -327,11 +367,7 @@ evdToExternalValue evd uid =
 
 -- | Add a new ExternalValue based on the 'ExternalvalueDescriptor'
 addExternalValue :: ExternalValueDescriptor -> ModuleRewriter ExternalValue
-addExternalValue evd = do
-  uid <- nextId
-  let ev = evdToExternalValue evd uid
-  _ <- rwActions %= (RAAddExternalValue ev:)
-  return ev
+addExternalValue = addGlobalEntity rwAddedExternalVals evdToExternalValue
 
 -- | Replace the ExternalValue @ev@ with another ExternalValue
 -- described by @evd@, updating all references.  This can be used to
@@ -341,32 +377,23 @@ addExternalValue evd = do
 replaceExternalValue :: ExternalValue              -- ^ The external value to replace
                         -> ExternalValueDescriptor -- ^ A description of the replacement alias
                         -> ModuleRewriter ExternalValue
-replaceExternalValue ev evd = do
-  uid <- nextId
-  let ev' = evdToExternalValue evd uid
-  _ <- rwActions %= (RAReplaceExternalValue ev ev':)
-  return ev'
+replaceExternalValue = replaceGlobalEntity rwExternalVals evdToExternalValue
 
 -- | Remove an 'ExternalValue' replacing all references with a new
 -- Value that does not yet exist in the IR.  This would probably be a
 -- constant.  The rewriter will give the value a unique ID.
 removeExternalValueWithNew :: ExternalValue -- ^ The external value to remove
-                              -> UValue     -- ^ The replacement to reference in the Module
-                              -> ModuleRewriter Value
-removeExternalValueWithNew ev val = do
-  uid <- nextId
-  let newV = val uid
-  _ <- rwActions %= (RARemoveExternalValue ev newV:)
-  return newV
+                              -> UConstant  -- ^ The replacement to reference in the Module
+                              -> ModuleRewriter Constant
+removeExternalValueWithNew =
+  removeGlobalEntityWithNew rwRemovedExternalVals rwExternalVals
 
 -- | Remove a global alias, replacing all remaining uses with an
 -- existing value.
 removeExternalValue :: ExternalValue
                        -> Value
                        -> ModuleRewriter ()
-removeExternalValue ev val = do
-  _ <- rwActions %= (RARemoveExternalValue ev val:)
-  return ()
+removeExternalValue = removeGlobalEntity rwRemovedExternalVals rwExternalVals
 
 -- | A representation of an 'ExternalFunction' that is not yet
 -- inserted into the IR.
@@ -409,42 +436,29 @@ efdToExternal efd uid =
 
 -- | Add a new ExternalFunction
 addExternalFunction :: ExternalFunctionDescriptor -> ModuleRewriter ExternalFunction
-addExternalFunction efd = do
-  uid <- nextId
-  let ef = efdToExternal efd uid
-  _ <- rwActions %= (RAAddExternalFunction ef:)
-  return ef
+addExternalFunction = addGlobalEntity rwAddedExternalFuncs efdToExternal
 
 -- | Replace an 'ExternalFunction' with a new one based on the given
 -- 'ExternalFunctionDescriptor'.  Returns the new 'ExternalFunction'.
 replaceExternalFunction :: ExternalFunction
                            -> ExternalFunctionDescriptor
                            -> ModuleRewriter ExternalFunction
-replaceExternalFunction ef efd = do
-  uid <- nextId
-  let ef' = efdToExternal efd uid
-  _ <- rwActions %= (RAReplaceExternalFunction ef ef':)
-  return ef'
+replaceExternalFunction = replaceGlobalEntity rwExternalFuncs efdToExternal
 
 -- | Remove an external function and replace all remaining references
 -- to it with the given Value (that does not yet exist in the IR).
 removeExternalFunctionWithNew :: ExternalFunction
-                                 -> UValue
-                                 -> ModuleRewriter Value
-removeExternalFunctionWithNew ef val = do
-  uid <- nextId
-  let newV = val uid
-  _ <- rwActions %= (RARemoveExternalFunction ef newV:)
-  return newV
+                                 -> UConstant
+                                 -> ModuleRewriter Constant
+removeExternalFunctionWithNew =
+  removeGlobalEntityWithNew rwRemovedExternalFuncs rwExternalFuncs
 
 -- | Remove an external function and replace all remaining references
 -- to it with the given Value that already exists in the IR.
 removeExternalFunction :: ExternalFunction
                           -> Value
                           -> ModuleRewriter ()
-removeExternalFunction ef v = do
-  _ <- rwActions %= (RARemoveExternalFunction ef v:)
-  return ()
+removeExternalFunction = removeGlobalEntity rwRemovedExternalFuncs rwExternalFuncs
 
 -- | A representation of 'GlobalAlias'es that have not yet been
 -- inserted into the IR. The rewriter will turn these into real
@@ -485,13 +499,40 @@ gadToGlobalAlias gad uid =
               , globalAliasUniqueId = uid
               }
 
+addGlobalEntity :: (Eq b, Hashable b)
+                   => Lens ModuleRewriterContext (Set b)
+                   -> (a -> UniqueId -> b)
+                   -> a
+                   -> ModuleRewriter b
+addGlobalEntity lns convert descriptor = do
+  uid <- nextId
+  let entity = convert descriptor uid
+  _ <- lns %= S.insert entity
+  return entity
+
 -- | Add a new global alias from a 'GlobalAliasDescriptor'
 addGlobalAlias :: GlobalAliasDescriptor -> ModuleRewriter GlobalAlias
-addGlobalAlias gad = do
-  uid <- nextId
-  let ga = gadToGlobalAlias gad uid
-  _ <- rwActions %= (RAAddGlobalAlias ga:)
-  return ga
+addGlobalAlias = addGlobalEntity rwAddedAliases gadToGlobalAlias
+
+replaceGlobalEntity :: (Eq b, Hashable b, IsValue b)
+                       => Lens ModuleRewriterContext (Map b b)
+                       -> (c -> UniqueId -> b)
+                       -> b
+                       -> c
+                       -> ModuleRewriter b
+replaceGlobalEntity lns convert entity descriptor = do
+  curMap <- access lns
+  case M.lookup entity curMap of
+    Just e -> throw $ GlobalAlreadyReplaced (Value entity) (Value e)
+    Nothing -> do
+      uid <- nextId
+      let entity' = convert descriptor uid
+      -- Update the type-specific map
+      _ <- lns %= M.insert entity entity'
+      -- Update the map used for knot-tying later which is generically
+      -- typed
+      _ <- rwMapping %= M.insert (Value entity) (Value entity')
+      return entity'
 
 -- | Replace @gv@ with that described by @gvd@, updating all references.
 --
@@ -499,29 +540,60 @@ addGlobalAlias gad = do
 replaceGlobalAlias :: GlobalAlias -- ^ The global alias to replace
                          -> GlobalAliasDescriptor -- ^ A description of the replacement alias
                          -> ModuleRewriter GlobalAlias
-replaceGlobalAlias ga gad = do
-  uid <- nextId
-  let ga' = gadToGlobalAlias gad uid
-  _ <- rwActions %= (RAReplaceGlobalAlias ga ga':)
-  return ga'
+replaceGlobalAlias = replaceGlobalEntity rwAliases gadToGlobalAlias
+
+removeGlobalEntityWithNew :: (Eq a, Hashable a, IsValue a)
+                      => Lens ModuleRewriterContext (Set a)
+                      -> Lens ModuleRewriterContext (Map a a)
+                      -> a
+                      -> (UniqueId -> Constant)
+                      -> ModuleRewriter Constant
+removeGlobalEntityWithNew remLns repLns entity constant = do
+  repMap <- access repLns
+  remSet <- access remLns
+  case (M.lookup entity repMap, S.member entity remSet) of
+    (Just x, _) -> throw $ GlobalAlreadyReplaced (Value entity) (Value x)
+    (_, True) -> throw $ GlobalAlreadyRemoved (Value entity)
+    _ -> do
+      uid <- nextId
+      let newC = constant uid
+      _ <- remLns %= S.insert entity
+      _ <- rwMapping %= M.insert (Value entity) (Value newC)
+      return newC
 
 removeGlobalAliasWithNew :: GlobalAlias -- ^ The global alias to remove
-                            -> UValue -- ^ The replacement to reference in the Module
-                            -> ModuleRewriter Value
-removeGlobalAliasWithNew ga val = do
-  uid <- nextId
-  let newV = val uid
-  _ <- rwActions %= (RARemoveGlobalAlias ga newV:)
-  return newV
+                            -> UConstant -- ^ The replacement to reference in the Module
+                            -> ModuleRewriter Constant
+removeGlobalAliasWithNew = removeGlobalEntityWithNew rwRemovedAliases rwAliases
+
+removeGlobalEntity :: (Eq a, Hashable a, IsValue a)
+                      => Lens ModuleRewriterContext (Set a)
+                      -> Lens ModuleRewriterContext (Map a a)
+                      -> a
+                      -> Value
+                      -> ModuleRewriter ()
+removeGlobalEntity remLns repLns entity val = do
+  repMap <- access repLns
+  remSet <- access remLns
+  case (M.lookup entity repMap, S.member entity remSet) of
+    (Just x, _) -> throw $ GlobalAlreadyReplaced (Value entity) (Value x)
+    (_, True) -> throw $ GlobalAlreadyRemoved (Value entity)
+    _ -> do
+      _ <- remLns %= S.insert entity
+      _ <- rwMapping %= M.insert (Value entity) val
+      return ()
+
 
 -- | Remove a global alias, replacing all remaining uses with an
 -- existing value.
 removeGlobalAlias :: GlobalAlias
                      -> Value
                      -> ModuleRewriter ()
-removeGlobalAlias ga val = do
-  _ <- rwActions %= (RARemoveGlobalAlias ga val:)
-  return ()
+removeGlobalAlias = removeGlobalEntity rwRemovedAliases rwAliases
+
+-- FIXME: Add integrity checks for these (replaced thing already replaced)
+-- Handle replacing something that was added here.  Should replacing something
+-- that has been removed be an error? PRobably
 
 data GlobalVariableDescriptor =
   GVD { gvdType :: Type
@@ -582,11 +654,7 @@ gvdToGlobal gvd uid =
 
 -- | Add a new global variable from a 'GlobalVariableDescriptor'
 addGlobalVariable :: GlobalVariableDescriptor -> ModuleRewriter GlobalVariable
-addGlobalVariable gvd = do
-  uid <- nextId
-  let gv = gvdToGlobal gvd uid
-  _ <- rwActions %= (RAAddGlobal gv:)
-  return gv
+addGlobalVariable = addGlobalEntity rwAddedGlobals gvdToGlobal
 
 -- | Replace @gv@ with that described by @gvd@, updating all references.
 --
@@ -594,29 +662,18 @@ addGlobalVariable gvd = do
 replaceGlobalVariable :: GlobalVariable -- ^ The global variable to replace
                          -> GlobalVariableDescriptor -- ^ A description of the replacement variable
                          -> ModuleRewriter GlobalVariable
-replaceGlobalVariable gv gvd = do
-  uid <- nextId
-  let gv' = gvdToGlobal gvd uid
-  _ <- rwActions %= (RAReplaceGlobal gv gv':)
-  return gv'
+replaceGlobalVariable = replaceGlobalEntity rwGlobals gvdToGlobal
 
 removeGlobalVariableWithNew :: GlobalVariable -- ^ The global variable to remove
-                               -> UValue -- ^ The replacement to reference in the Module
-                               -> ModuleRewriter Value
-removeGlobalVariableWithNew gv val = do
-  uid <- nextId
-  let newV = val uid
-  _ <- rwActions %= (RARemoveGlobal gv newV:)
-  return newV
+                               -> UConstant -- ^ The replacement to reference in the Module
+                               -> ModuleRewriter Constant
+removeGlobalVariableWithNew =
+  removeGlobalEntityWithNew rwRemovedGlobals rwGlobals
 
 removeGlobalVariable :: GlobalVariable -- ^ The global variable to remove
                         -> Value -- ^ The replacement to reference in the Module
                         -> ModuleRewriter ()
-removeGlobalVariable gv val = do
-  _ <- rwActions %= (RARemoveGlobal gv val:)
-  return ()
-
-
+removeGlobalVariable = removeGlobalEntity rwRemovedGlobals rwGlobals
 
 -- | Perform the Module rewrite that is specified in the built-up
 -- rewriting context.  This function needs to perform various
@@ -636,13 +693,10 @@ removeGlobalVariable gv val = do
 --               -> ModuleRewriteContext
 --               -> (forall s. Module s -> m s a)
 --               -> a
-rewriteModule :: (Failure ModuleRewriteFailure m)
-                 => Module
+rewriteModule :: Module
                  -> ModuleRewriterContext
                  -> m Module
 rewriteModule m ctx = undefined
-  where
-    actions = rwActions ^$ ctx
 
 
 {-
