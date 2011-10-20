@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, DeriveDataTypeable #-}
+{-# LANGUAGE TemplateHaskell, DeriveDataTypeable, OverloadedStrings #-}
 -- | Note: When building IR nodes to insert, unique IDs are not
 -- available.  They must be assigned by the knot-tying process to
 -- ensure uniqueness.  The values in the new IR nodes will be ignored
@@ -48,13 +48,20 @@ module Data.LLVM.Rewrite (
   replaceGlobalVariable,
   removeGlobalVariableWithNew,
   removeGlobalVariable,
+  -- * Functions
+  FunctionDescriptor(..),
+  defaultFunctionDescriptor,
+  functionDescriptorFromFunction,
+  addFunction,
+  replaceFunction,
+  removeFunction,
   -- * Driver
   ModuleRewriteFailure(..),
   rewriteModule
   ) where
 
 import Control.Category
-import Control.Exception
+import Control.Exception hiding ( block )
 import Control.Monad.State
 import Data.Default
 import Data.ByteString ( ByteString )
@@ -97,6 +104,9 @@ data ModuleRewriterContext =
       , _rwExternalFuncs :: Map ExternalFunction ExternalFunction
       , _rwRemovedExternalFuncs :: Set ExternalFunction
       , _rwAddedExternalFuncs :: Set ExternalFunction
+      , _rwFunctions :: Map Function Function
+      , _rwRemovedFunctions :: Set Function
+      , _rwAddedFunctions :: Set Function
       , _rwNextId :: UniqueId -- ^ The next ID to assign to
                              -- newly-inserted IR elements.
       }
@@ -123,6 +133,9 @@ emptyContext m = MRC { _rwMapping = M.empty
                      , _rwExternalFuncs = M.empty
                      , _rwRemovedExternalFuncs = S.empty
                      , _rwAddedExternalFuncs = S.empty
+                     , _rwFunctions = M.empty
+                     , _rwRemovedFunctions = S.empty
+                     , _rwAddedFunctions = S.empty
                      , _rwNextId = moduleNextId m
                      }
 
@@ -326,6 +339,198 @@ insertInstructionAfter target newInst =
   where
     err x = throw (InstructionAlreadyReplaced target x)
 
+data FunctionDescriptor =
+  EmptyFD { fdType :: Type
+     , fdName :: Identifier
+     , fdMetadata :: [Metadata]
+     , fdLinkage :: LinkageType
+     , fdVisibility :: VisibilityStyle
+     , fdCC :: CallingConvention
+     , fdRetAttrs :: [ParamAttribute]
+     , fdAttrs :: [FunctionAttribute]
+     , fdSection :: Maybe ByteString
+     , fdAlign :: Int64
+     , fdGCName :: Maybe ByteString
+     }
+  | FD { fdType :: Type
+       , fdName :: Identifier
+       , fdMetadata :: [Metadata]
+       , fdParameters :: [Argument]
+       , fdLinkage :: LinkageType
+       , fdVisibility :: VisibilityStyle
+       , fdCC :: CallingConvention
+       , fdRetAttrs :: [ParamAttribute]
+       , fdAttrs :: [FunctionAttribute]
+       , fdSection :: Maybe ByteString
+       , fdAlign :: Int64
+       , fdGCName :: Maybe ByteString
+       , fdBody :: [BasicBlock]
+       }
+
+defaultFunctionDescriptor :: Type -> Identifier -> FunctionDescriptor
+defaultFunctionDescriptor t i =
+  EmptyFD { fdType = t
+          , fdName = i
+          , fdMetadata = def
+          , fdLinkage = def
+          , fdVisibility = def
+          , fdCC = def
+          , fdRetAttrs = def
+          , fdAttrs = def
+          , fdSection = def
+          , fdAlign = 0
+          , fdGCName = def
+          }
+
+functionDescriptorFromFunction :: Function -> FunctionDescriptor
+functionDescriptorFromFunction f =
+  FD { fdType = functionType f
+     , fdName = functionName f
+     , fdMetadata = functionMetadata f
+     , fdParameters = functionParameters f
+     , fdLinkage = functionLinkage f
+     , fdVisibility = functionVisibility f
+     , fdCC = functionCC f
+     , fdRetAttrs = functionRetAttrs f
+     , fdAttrs = functionAttrs f
+     , fdSection = functionSection f
+     , fdAlign = functionAlign f
+     , fdGCName = functionGCName f
+     , fdBody = functionBody f
+     }
+
+-- | Converts a FunctionDescriptor to an actual Function.  Empty
+-- function defs have no parameters and a body with a single return
+-- instruction.  This can be modified later with other functions in this
+-- module.
+--
+-- FunctionDescriptors derived from existing functions have the same
+-- body and parameters as the original (and can again be modified).
+fdToFunction :: FunctionDescriptor -> ModuleRewriter Function
+fdToFunction fd@(EmptyFD {}) = do
+  fid <- nextId
+  blockId <- nextId
+  retId <- nextId
+  let block = BasicBlock { basicBlockType = TypeVoid
+                         , basicBlockName = makeLocalIdentifier "bb0"
+                         , basicBlockMetadata = []
+                         , basicBlockUniqueId = blockId
+                         , basicBlockInstructions = [retInst]
+                         , basicBlockFunction = f
+                         }
+      retInst = RetInst { instructionType = TypeVoid
+                        , instructionName = Nothing
+                        , instructionMetadata = []
+                        , instructionUniqueId = retId
+                        , instructionBasicBlock = Just block
+                        , retInstValue = Nothing
+                        }
+      f = Function { functionType = fdType fd
+                   , functionName = fdName fd
+                   , functionMetadata = fdMetadata fd
+                   , functionUniqueId = fid
+                   , functionParameters = []
+                   , functionBody = [block]
+                   , functionLinkage = fdLinkage fd
+                   , functionVisibility = fdVisibility fd
+                   , functionCC = fdCC fd
+                   , functionRetAttrs = fdRetAttrs fd
+                   , functionAttrs = fdAttrs fd
+                   , functionSection = fdSection fd
+                   , functionAlign = fdAlign fd
+                   , functionGCName = fdGCName fd
+                   }
+  return f
+fdToFunction fd@(FD {}) = do
+  fid <- nextId
+  return Function { functionType = fdType fd
+                  , functionName = fdName fd
+                  , functionMetadata = fdMetadata fd
+                  , functionUniqueId = fid
+                  , functionParameters = fdParameters fd
+                  , functionBody = fdBody fd
+                  , functionLinkage = fdLinkage fd
+                  , functionVisibility = fdVisibility fd
+                  , functionCC = fdCC fd
+                  , functionRetAttrs = fdRetAttrs fd
+                  , functionAttrs = fdAttrs fd
+                  , functionSection = fdSection fd
+                  , functionAlign = fdAlign fd
+                  , functionGCName = fdGCName fd
+                  }
+
+-- NOTE: Remove the parameters from the empty FD constructor and just
+-- have an API: addParameter :: Function -> Argument -> Function.
+
+data CopyState = CopyState { copiedFunction :: Function
+                           , copiedMapping :: Map Value Value
+                           }
+
+-- | Function descriptors built constructed with the FD constructor
+-- are cloned from existing functions.  All of the values they contain
+-- need to be cloned with new IDs and parent references so that later
+-- updates don't accidentally clobber the original (which may still
+-- exist).
+copyFunction :: FunctionDescriptor -> ModuleRewriter Function
+copyFunction EmptyFD {} = error "EmptyFD descriptors do not need to be copied"
+copyFunction fd = do
+  res <- mfix copyFunction'
+  return (copiedFunction res)
+  where
+    copyArgument arg = do
+      argId <- nextId
+      return arg { argumentUniqueId = argId }
+    copyInstruction finalState oldBlock (insts, mapping) i = do
+      instId <- nextId
+      -- FIXME: Unwrap the basic block value (or have a separate
+      -- map...)  Also have to iterate through all operands to replace
+      -- them with values looked up in the map
+      return i { instructionBasicBlock = M.lookupDefault (error "No block mapping for copy") (Value oldBlock) (copiedMapping finalState)
+               , instructionUniqueId = instId
+               }
+    copyBlock finalState (blocks, mapping) b = do
+      blockId <- nextId
+      (newInsts, mapping') <- foldM (copyInstruction finalState b) ([], mapping) (basicBlockInstructions b)
+      let newBlock = b { basicBlockUniqueId = blockId
+                       , basicBlockInstructions = reverse newInsts
+                       , basicBlockFunction = copiedFunction finalState
+                       }
+      return (newBlock : blocks, M.insert (Value b) (Value newBlock) mapping')
+    copyFunction' finalState = do
+      let args = fdParameters fd
+      f <- fdToFunction fd
+      newArgs <- mapM copyArgument args
+      let mapping = foldr (\(old,new) acc -> M.insert (Value old) (Value new) acc) M.empty (zip args newArgs)
+      (newBlocks, mapping') <- foldM (copyBlock finalState) ([], mapping) (fdBody fd)
+      return CopyState { copiedFunction = f { functionBody = reverse newBlocks
+                                            , functionParameters = newArgs
+                                            }
+                       , copiedMapping = mapping'
+                       }
+
+
+addFunction :: FunctionDescriptor -> ModuleRewriter Function
+addFunction fd@(EmptyFD {}) = (addGlobalEntity rwAddedFunctions fdToFunction) fd
+-- This variant copies an existing function.  This is complicated and
+-- all of the blocks and instructions probably need to be updated
+-- somehow to point to the new function container.
+addFunction fd@(FD {}) = do
+  f <- copyFunction fd
+  _ <- rwAddedFunctions %= S.insert f
+  return f
+
+replaceFunction :: Function
+                   -> FunctionDescriptor -- ^ A description of the replacement alias
+                   -> ModuleRewriter Function
+replaceFunction f fd@(EmptyFD {}) = (replaceGlobalEntity rwFunctions fdToFunction) f fd
+replaceFunction f fd@(FD {}) = do
+  c <- copyFunction fd
+  replaceGlobalEntityWithCopy rwFunctions f c
+  return c
+
+removeFunction :: Function -> Value -> ModuleRewriter ()
+removeFunction = removeGlobalEntity rwRemovedFunctions rwFunctions
+
 -- | A representation of 'ExternalValue's that has not yet been
 -- inserted into the IR.  This becomes an 'ExternalValue' when
 -- provided with a unique ID for the current Module.
@@ -354,13 +559,14 @@ externalValueDescriptorFromExternal ev =
       }
 
 -- | Converts a descriptor into a real ExternalValue
-evdToExternalValue :: ExternalValueDescriptor -> UniqueId -> ExternalValue
-evdToExternalValue evd uid =
-  ExternalValue { externalValueType = evdType evd
-                , externalValueName = evdName evd
-                , externalValueMetadata = evdMetadata evd
-                , externalValueUniqueId = uid
-                }
+evdToExternalValue :: ExternalValueDescriptor -> ModuleRewriter ExternalValue
+evdToExternalValue evd = do
+  uid <- nextId
+  return ExternalValue { externalValueType = evdType evd
+                       , externalValueName = evdName evd
+                       , externalValueMetadata = evdMetadata evd
+                       , externalValueUniqueId = uid
+                       }
 
 -- | Add a new ExternalValue based on the 'ExternalvalueDescriptor'
 addExternalValue :: ExternalValueDescriptor -> ModuleRewriter ExternalValue
@@ -422,14 +628,15 @@ externalFunctionDescriptorFromExternal ef =
 
 -- | Convert an external function descriptor into a realy
 -- 'ExternalFunction' by giving it a unique identifier.
-efdToExternal :: ExternalFunctionDescriptor -> UniqueId -> ExternalFunction
-efdToExternal efd uid =
-  ExternalFunction { externalFunctionType = efdType efd
-                   , externalFunctionName = efdName efd
-                   , externalFunctionMetadata = efdMetadata efd
-                   , externalFunctionUniqueId = uid
-                   , externalFunctionAttrs = efdAttrs efd
-                   }
+efdToExternal :: ExternalFunctionDescriptor -> ModuleRewriter ExternalFunction
+efdToExternal efd = do
+  uid <- nextId
+  return ExternalFunction { externalFunctionType = efdType efd
+                          , externalFunctionName = efdName efd
+                          , externalFunctionMetadata = efdMetadata efd
+                          , externalFunctionUniqueId = uid
+                          , externalFunctionAttrs = efdAttrs efd
+                          }
 
 -- | Add a new ExternalFunction
 addExternalFunction :: ExternalFunctionDescriptor -> ModuleRewriter ExternalFunction
@@ -486,24 +693,24 @@ globalAliasDescriptorFromAlias ga =
       , gadMetadata = globalAliasMetadata ga
       }
 
-gadToGlobalAlias :: GlobalAliasDescriptor -> UniqueId -> GlobalAlias
-gadToGlobalAlias gad uid =
-  GlobalAlias { globalAliasTarget = gadTarget gad
-              , globalAliasLinkage = gadLinkage gad
-              , globalAliasName = gadName gad
-              , globalAliasVisibility = gadVisibility gad
-              , globalAliasMetadata = gadMetadata gad
-              , globalAliasUniqueId = uid
-              }
+gadToGlobalAlias :: GlobalAliasDescriptor -> ModuleRewriter GlobalAlias
+gadToGlobalAlias gad = do
+  uid <- nextId
+  return GlobalAlias { globalAliasTarget = gadTarget gad
+                     , globalAliasLinkage = gadLinkage gad
+                     , globalAliasName = gadName gad
+                     , globalAliasVisibility = gadVisibility gad
+                     , globalAliasMetadata = gadMetadata gad
+                     , globalAliasUniqueId = uid
+                     }
 
 addGlobalEntity :: (Eq b, Hashable b)
                    => Lens ModuleRewriterContext (Set b)
-                   -> (a -> UniqueId -> b)
+                   -> (a -> ModuleRewriter b)
                    -> a
                    -> ModuleRewriter b
 addGlobalEntity lns convert descriptor = do
-  uid <- nextId
-  let entity = convert descriptor uid
+  entity <- convert descriptor
   _ <- lns %= S.insert entity
   return entity
 
@@ -513,7 +720,7 @@ addGlobalAlias = addGlobalEntity rwAddedAliases gadToGlobalAlias
 
 replaceGlobalEntity :: (Eq b, Hashable b, IsValue b)
                        => Lens ModuleRewriterContext (Map b b)
-                       -> (c -> UniqueId -> b)
+                       -> (c -> ModuleRewriter b)
                        -> b
                        -> c
                        -> ModuleRewriter b
@@ -522,14 +729,22 @@ replaceGlobalEntity lns convert entity descriptor = do
   case M.lookup entity curMap of
     Just e -> throw $ GlobalAlreadyReplaced (Value entity) (Value e)
     Nothing -> do
-      uid <- nextId
-      let entity' = convert descriptor uid
+      entity' <- convert descriptor
       -- Update the type-specific map
       _ <- lns %= M.insert entity entity'
       -- Update the map used for knot-tying later which is generically
       -- typed
       _ <- rwMapping %= M.insert (Value entity) (Value entity')
       return entity'
+
+replaceGlobalEntityWithCopy lns entity copy = do
+  curMap <- access lns
+  case M.lookup entity curMap of
+    Just e -> throw $ GlobalAlreadyReplaced (Value entity) (Value e)
+    Nothing -> do
+      _ <- lns %= M.insert entity copy
+      _ <- rwMapping %= M.insert (Value entity) (Value copy)
+    return ()
 
 -- | Replace @gv@ with that described by @gvd@, updating all references.
 --
@@ -633,20 +848,21 @@ globalVariableDescriptorFromGlobal gv =
       , gvdIsConstant = globalVariableIsConstant gv
       }
 
-gvdToGlobal :: GlobalVariableDescriptor -> UniqueId -> GlobalVariable
-gvdToGlobal gvd uid =
-  GlobalVariable { globalVariableType = gvdType gvd
-                 , globalVariableName = gvdName gvd
-                 , globalVariableMetadata = gvdMetadata gvd
-                 , globalVariableUniqueId = uid
-                 , globalVariableLinkage = gvdLinkage gvd
-                 , globalVariableVisibility = gvdVisibility gvd
-                 , globalVariableInitializer = gvdInitializer gvd
-                 , globalVariableAlignment = gvdAlignment gvd
-                 , globalVariableSection = gvdSection gvd
-                 , globalVariableIsThreadLocal = gvdIsThreadLocal gvd
-                 , globalVariableIsConstant = gvdIsConstant gvd
-                 }
+gvdToGlobal :: GlobalVariableDescriptor -> ModuleRewriter GlobalVariable
+gvdToGlobal gvd = do
+  uid <- nextId
+  return GlobalVariable { globalVariableType = gvdType gvd
+                        , globalVariableName = gvdName gvd
+                        , globalVariableMetadata = gvdMetadata gvd
+                        , globalVariableUniqueId = uid
+                        , globalVariableLinkage = gvdLinkage gvd
+                        , globalVariableVisibility = gvdVisibility gvd
+                        , globalVariableInitializer = gvdInitializer gvd
+                        , globalVariableAlignment = gvdAlignment gvd
+                        , globalVariableSection = gvdSection gvd
+                        , globalVariableIsThreadLocal = gvdIsThreadLocal gvd
+                        , globalVariableIsConstant = gvdIsConstant gvd
+                        }
 
 
 -- | Add a new global variable from a 'GlobalVariableDescriptor'
@@ -671,6 +887,9 @@ removeGlobalVariable :: GlobalVariable -- ^ The global variable to remove
                         -> Value -- ^ The replacement to reference in the Module
                         -> ModuleRewriter ()
 removeGlobalVariable = removeGlobalEntity rwRemovedGlobals rwGlobals
+
+
+
 
 -- | Perform the Module rewrite that is specified in the built-up
 -- rewriting context.  This function needs to perform various
