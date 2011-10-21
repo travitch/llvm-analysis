@@ -485,9 +485,8 @@ translateFunction finalState vp = do
   args <- liftIO $ cFunctionArguments dataPtr'
   blocks <- liftIO $ cFunctionBlocks dataPtr'
 
-  args' <- mapM (translateArgument finalState) args
-
   f <- mfix (\finalF -> do
+                args' <- mapM (translateArgument finalState finalF) args
                 blocks' <- mapM (translateBasicBlock finalState finalF) blocks
                 let f' = Function { functionParameters = args'
                                   , functionBody = blocks'
@@ -681,8 +680,8 @@ translateConstOrRef finalState vp = do
         False ->
           return $ M.findWithDefault (throw (KnotTyingFailure tag)) ip (valueMap finalState)
 
-translateArgument :: KnotState -> ValuePtr -> KnotMonad Argument
-translateArgument finalState vp = do
+translateArgument :: KnotState -> Function -> ValuePtr -> KnotMonad Argument
+translateArgument finalState finalF vp = do
   tag <- liftIO $ cValueTag vp
   Just name <- liftIO $ cValueName vp
   typePtr <- liftIO $ cValueType vp
@@ -715,6 +714,7 @@ translateArgument finalState vp = do
                    , argumentMetadata = mds
                    , argumentUniqueId = uid
                    , argumentParamAttrs = catMaybes atts
+                   , argumentFunction = finalF
                    }
   recordValue vp (Value a)
   return a

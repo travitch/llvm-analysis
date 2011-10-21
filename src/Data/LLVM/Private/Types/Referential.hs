@@ -359,6 +359,7 @@ data Argument = Argument { argumentType :: Type
                          , argumentMetadata :: [Metadata]
                          , argumentUniqueId :: !UniqueId
                          , argumentParamAttrs :: [ParamAttribute]
+                         , argumentFunction :: Function
                          }
 
 instance IsValue Argument where
