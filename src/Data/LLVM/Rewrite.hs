@@ -59,6 +59,9 @@ module Data.LLVM.Rewrite (
   ArgumentDescriptor(..),
   defaultArgumentDescriptor,
   argumentDescriptorFromArgument,
+  replaceArgument,
+  insertArgumentAfter,
+  insertArgumentBefore,
   appendArgument,
   prependArgument,
   removeArgumentWithNew,
@@ -172,6 +175,7 @@ data ModuleRewriteFailure =
   | GlobalAlreadyReplaced !Value !Value
   | GlobalAlreadyRemoved !Value
   | InsertedInstructionAfterTerminator !Instruction -- ^ Attempted to insert an Instruction(1) after a terminator Instruction(2)
+  | ArgumentAlreadyRemoved !Argument
   deriving (Typeable, Show)
 
 instance Exception ModuleRewriteFailure
@@ -725,40 +729,110 @@ adToArgument ad f = do
                   , argumentFunction = f
                   }
 
--- replaceArgument :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
--- insertArgumentBefore :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
--- insertArgumentAfter :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
+class HasFunction a where
+  functionReference :: a -> Function
+
+instance HasFunction Argument where
+  functionReference = argumentFunction
+
+instance HasFunction Function where
+  functionReference = id
+
+getCurrentFunction :: (HasFunction a) => a -> ModuleRewriter Function
+getCurrentFunction object = do
+  fMapping <- access rwFunctions
+  let ref = functionReference object
+  return $ M.lookupDefault ref ref fMapping
+
+unlessArgumentWasRemoved :: Argument -> ModuleRewriter a -> ModuleRewriter a
+unlessArgumentWasRemoved a action = do
+  removed <- access rwRemovedArguments
+  case S.member a removed of
+    True -> throw (ArgumentAlreadyRemoved a)
+    False -> action
+
+replaceArgument :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
+replaceArgument a ad =
+  unlessArgumentWasRemoved a $ unlessParentRemoved a $ do
+    currentF <- getCurrentFunction a
+    let oldF = argumentFunction a
+    newArg <- adToArgument ad oldF
+    _ <- rwAddedArguments %= S.insert newArg -- ? Necessary?
+    let oldArglist = functionParameters currentF
+        replace arg acc
+          | arg == a = newArg : acc
+          | otherwise = arg : acc
+        newArglist = foldr replace [] oldArglist
+        newF = currentF { functionParameters = newArglist }
+    _ <- rwFunctions %= M.insert oldF newF
+    _ <- rwArguments %= M.insert a newArg
+    _ <- rwMapping %= M.insert (Value a) (Value newArg)
+    return newArg
+
+insertArgumentBefore :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
+insertArgumentBefore a ad =
+  unlessArgumentWasRemoved a $ unlessParentRemoved a $ do
+    currentF <- getCurrentFunction a
+    let oldF = argumentFunction a
+    newArg <- adToArgument ad oldF
+    _ <- rwAddedArguments %= S.insert newArg
+    let oldArglist = functionParameters currentF
+        insertBefore arg acc
+          | arg == a = newArg : arg : acc
+          | otherwise = arg : acc
+        newArglist = foldr insertBefore [] oldArglist
+        newF = currentF { functionParameters = newArglist }
+    _ <- rwFunctions %= M.insert oldF newF
+    return newArg
+
+insertArgumentAfter :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
+insertArgumentAfter a ad =
+  unlessArgumentWasRemoved a $ unlessParentRemoved a $ do
+    currentF <- getCurrentFunction a
+    let oldF = argumentFunction a
+    newArg <- adToArgument ad oldF
+    _ <- rwAddedArguments %= S.insert newArg
+    let oldArglist = functionParameters currentF
+        insertAfter arg acc
+          | arg == a = arg : newArg : acc
+          | otherwise = arg : acc
+        newArglist = foldr insertAfter [] oldArglist
+        newF = currentF { functionParameters = newArglist }
+    _ <- rwFunctions %= M.insert oldF newF
+    return newArg
 
 appendArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
-appendArgument ad f = do
-  newArg <- adToArgument ad f
-  _ <- rwAddedArguments %= S.insert newArg
-  fMapping <- access rwFunctions
-  let currentF = M.lookupDefault f f fMapping
-      oldArglist = functionParameters currentF
-      newArglist = concat [oldArglist, [newArg]]
-      newF = currentF { functionParameters = newArglist }
-  _ <- rwFunctions %= M.insert f newF
-  return newArg
+appendArgument ad f =
+  unlessFunctionRemoved f $ do
+    newArg <- adToArgument ad f
+    _ <- rwAddedArguments %= S.insert newArg
+    currentF <- getCurrentFunction f
+    let oldArglist = functionParameters currentF
+        newArglist = concat [oldArglist, [newArg]]
+        newF = currentF { functionParameters = newArglist }
+    _ <- rwFunctions %= M.insert f newF
+    return newArg
 
 prependArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
-prependArgument ad f = do
-  newArg <- adToArgument ad f
-  _ <- rwAddedArguments %= S.insert newArg
-  fMapping <- access rwFunctions
-  let currentF = M.lookupDefault f f fMapping
-      oldArglist = functionParameters currentF
-      newArglist = newArg : oldArglist
-      newF = currentF { functionParameters = newArglist }
-  _ <- rwFunctions %= M.insert f newF
-  return newArg
+prependArgument ad f =
+  unlessFunctionRemoved f $ do
+    newArg <- adToArgument ad f
+    _ <- rwAddedArguments %= S.insert newArg
+    currentF <- getCurrentFunction f
+    let oldArglist = functionParameters currentF
+        newArglist = newArg : oldArglist
+        newF = currentF { functionParameters = newArglist }
+    _ <- rwFunctions %= M.insert f newF
+    return newArg
 
 -- This isn't quite strong enough - a non-original variant of this
 -- function may have been removed and it is hard to find that with
 -- just (argumentFunction a).  This will require some extra metadata.
 unlessParentRemoved :: Argument -> ModuleRewriter a -> ModuleRewriter a
-unlessParentRemoved a action = do
-  let oldF = argumentFunction a
+unlessParentRemoved a = unlessFunctionRemoved (argumentFunction a)
+
+unlessFunctionRemoved :: Function -> ModuleRewriter a -> ModuleRewriter a
+unlessFunctionRemoved oldF action = do
   removedFuncs <- access rwRemovedFunctions
   case S.member oldF removedFuncs of
     True -> throw (GlobalAlreadyRemoved (Value oldF))
@@ -768,9 +842,8 @@ removeArgumentWithNew :: Argument -> UConstant -> ModuleRewriter Constant
 removeArgumentWithNew a c =
   unlessParentRemoved a $ do
     uid <- nextId
-    fMapping <- access rwFunctions
+    currentF <- getCurrentFunction a
     let oldF = argumentFunction a
-        currentF = M.lookupDefault oldF oldF fMapping
         oldArglist = functionParameters currentF
         newArglist = filter (/=a) oldArglist
         newF = currentF { functionParameters = newArglist }
@@ -795,9 +868,8 @@ removeArgument a v = do
 
   -- Remove the argument from the arglist of the containing function
   unlessParentRemoved a $ do
-    fmapping <- access rwFunctions
+    currentF <- getCurrentFunction a
     let oldF = argumentFunction a
-        currentF = M.lookupDefault oldF oldF fmapping
         oldArglist = functionParameters currentF
         newArglist = filter (/=a) oldArglist
         newF = currentF { functionParameters = newArglist }

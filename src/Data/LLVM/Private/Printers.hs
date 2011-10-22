@@ -554,6 +554,9 @@ printArgument (v, atts) =
           , printConstOrNameNoType v
           ]
 
+instance Show Argument where
+  show a = printArgument (Value a, [])
+
 printConstInst :: Instruction -> String
 printConstInst valT = case valT of
   TruncInst { } -> printTypecastConst "trunc" valT
