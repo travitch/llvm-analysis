@@ -55,13 +55,19 @@ module Data.LLVM.Rewrite (
   addFunction,
   replaceFunction,
   removeFunction,
+  -- * Arguments
+  ArgumentDescriptor(..),
+  defaultArgumentDescriptor,
+  argumentDescriptorFromArgument,
+  removeArgumentWithNew,
+  removeArgument,
   -- * Driver
   ModuleRewriteFailure(..),
   rewriteModule
   ) where
 
 import Control.Category
-import Control.Exception hiding ( block )
+import Control.Exception hiding ( block, mask )
 import Control.Monad.State
 import Data.Default
 import Data.ByteString ( ByteString )
@@ -107,6 +113,9 @@ data ModuleRewriterContext =
       , _rwFunctions :: Map Function Function
       , _rwRemovedFunctions :: Set Function
       , _rwAddedFunctions :: Set Function
+      , _rwArguments :: Map Argument Argument
+      , _rwRemovedArguments :: Set Argument
+      , _rwAddedArguments :: Set Argument
       , _rwNextId :: UniqueId -- ^ The next ID to assign to
                              -- newly-inserted IR elements.
       }
@@ -136,6 +145,9 @@ emptyContext m = MRC { _rwMapping = M.empty
                      , _rwFunctions = M.empty
                      , _rwRemovedFunctions = S.empty
                      , _rwAddedFunctions = S.empty
+                     , _rwArguments = M.empty
+                     , _rwRemovedArguments = S.empty
+                     , _rwAddedArguments = S.empty
                      , _rwNextId = moduleNextId m
                      }
 
@@ -463,6 +475,7 @@ fdToFunction fd@(FD {}) = do
 -- have an API: addParameter :: Function -> Argument -> Function.
 
 data CopyState = CopyState { copiedFunction :: Function
+                           , copiedBlocks :: Map BasicBlock BasicBlock
                            , copiedMapping :: Map Value Value
                            }
 
@@ -477,34 +490,180 @@ copyFunction fd = do
   res <- mfix copyFunction'
   return (copiedFunction res)
   where
-    copyArgument arg = do
+    copyArgument finalState arg = do
       argId <- nextId
-      return arg { argumentUniqueId = argId }
+      return arg { argumentUniqueId = argId
+                 , argumentFunction = copiedFunction finalState
+                 }
     copyInstruction finalState oldBlock (insts, mapping) i = do
       instId <- nextId
-      -- FIXME: Unwrap the basic block value (or have a separate
-      -- map...)  Also have to iterate through all operands to replace
-      -- them with values looked up in the map
-      return i { instructionBasicBlock = M.lookupDefault (error "No block mapping for copy") (Value oldBlock) (copiedMapping finalState)
-               , instructionUniqueId = instId
-               }
-    copyBlock finalState (blocks, mapping) b = do
+      let finMap = copiedMapping finalState
+          bMap = copiedBlocks finalState
+          transVal v = M.lookupDefault v v finMap
+          transBlock b ctx = M.lookupDefault (error ("No block mapping for " ++ ctx)) b bMap
+          caseMap (v, b) = (transVal v, transBlock b "switch case")
+          transArg (v, atts) = (transVal v, atts)
+          transPair (v1, v2) = (transVal v1, transVal v2)
+      let i' = case i of
+            RetInst { retInstValue = Just v } -> i { retInstValue = Just (transVal v) }
+            RetInst {} -> i
+            UnconditionalBranchInst { unconditionalBranchTarget = t } ->
+              i { unconditionalBranchTarget = transBlock t "UBI" }
+            BranchInst { branchCondition = c
+                       , branchTrueTarget = tt
+                       , branchFalseTarget = ft
+                       } ->
+              i { branchCondition = transVal c
+                , branchTrueTarget = transBlock tt "BI True"
+                , branchFalseTarget = transBlock ft "BI False"
+                }
+            SwitchInst { switchValue = v
+                       , switchDefaultTarget = defT
+                       , switchCases = cases
+                       } ->
+              i { switchValue = transVal v
+                , switchDefaultTarget = transBlock defT "Switch default target"
+                , switchCases = map caseMap cases
+                }
+            IndirectBranchInst { indirectBranchAddress = v
+                               , indirectBranchTargets = ts
+                               } ->
+              i { indirectBranchAddress = transVal v
+                , indirectBranchTargets = map (\x -> transBlock x "IBI target") ts
+                }
+            UnwindInst {} -> i
+            UnreachableInst {} -> i
+            ExtractElementInst { extractElementVector = v
+                               , extractElementIndex = ix
+                               } ->
+              i { extractElementVector = transVal v
+                , extractElementIndex = transVal ix
+                }
+            InsertElementInst { insertElementVector = v
+                              , insertElementValue = val
+                              , insertElementIndex = ix
+                              } ->
+              i { insertElementVector = transVal v
+                , insertElementValue = transVal val
+                , insertElementIndex = transVal ix
+                }
+            ShuffleVectorInst { shuffleVectorV1 = v1
+                              , shuffleVectorV2 = v2
+                              , shuffleVectorMask = mask
+                              } ->
+              i { shuffleVectorV1 = transVal v1
+                , shuffleVectorV2 = transVal v2
+                , shuffleVectorMask = transVal mask
+                }
+            ExtractValueInst { extractValueAggregate = v } ->
+              i { extractValueAggregate = transVal v }
+            InsertValueInst { insertValueAggregate = agg
+                            , insertValueValue = v
+                            } ->
+              i { insertValueAggregate = transVal agg
+                , insertValueValue = transVal v
+                }
+            AllocaInst { allocaNumElements = v } ->
+              i { allocaNumElements = transVal v }
+            LoadInst { loadAddress = a } ->
+              i { loadAddress = transVal a }
+            StoreInst { storeValue = v, storeAddress = a } ->
+              i { storeValue = transVal v, storeAddress = transVal a }
+            AddInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            SubInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            MulInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            DivInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            RemInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            ShlInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            LshrInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            AshrInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            AndInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            OrInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            XorInst { binaryLhs = l, binaryRhs = r } ->
+              i { binaryLhs = transVal l, binaryRhs = transVal r }
+            TruncInst { castedValue = v } -> i { castedValue = transVal v }
+            ZExtInst { castedValue = v } -> i { castedValue = transVal v }
+            SExtInst { castedValue = v } -> i { castedValue = transVal v }
+            FPTruncInst { castedValue = v } -> i { castedValue = transVal v }
+            FPExtInst { castedValue = v } -> i { castedValue = transVal v }
+            FPToSIInst { castedValue = v } -> i { castedValue = transVal v }
+            FPToUIInst { castedValue = v } -> i { castedValue = transVal v }
+            SIToFPInst { castedValue = v } -> i { castedValue = transVal v }
+            UIToFPInst { castedValue = v } -> i { castedValue = transVal v }
+            PtrToIntInst { castedValue = v } -> i { castedValue = transVal v }
+            IntToPtrInst { castedValue = v } -> i { castedValue = transVal v }
+            BitcastInst { castedValue = v } -> i { castedValue = transVal v }
+            ICmpInst { cmpV1 = v1, cmpV2 = v2 } ->
+              i { cmpV1 = transVal v1, cmpV2 = transVal v2 }
+            FCmpInst { cmpV1 = v1, cmpV2 = v2 } ->
+              i { cmpV1 = transVal v1, cmpV2 = transVal v2 }
+            SelectInst { selectCondition = c, selectTrueValue = tv, selectFalseValue = fv } ->
+              i { selectCondition = transVal c
+                , selectTrueValue = transVal tv
+                , selectFalseValue = transVal fv
+                }
+            CallInst { callFunction = f, callArguments = args } ->
+              i { callFunction = transVal f
+                , callArguments = map transArg args
+                }
+            GetElementPtrInst { getElementPtrValue = v
+                              , getElementPtrIndices = ixs
+                              } ->
+              i { getElementPtrValue = transVal v
+                , getElementPtrIndices = map transVal ixs
+                }
+            InvokeInst { invokeFunction = f
+                       , invokeArguments = args
+                       , invokeNormalLabel = nl
+                       , invokeUnwindLabel = ul
+                       } ->
+              i { invokeFunction = transVal f
+                , invokeArguments = map transArg args
+                , invokeNormalLabel = transBlock nl "Invoke Normal Label"
+                , invokeUnwindLabel = transBlock ul "Invoke Unwind Label"
+                }
+            VaArgInst { vaArgValue = v } -> i { vaArgValue = transVal v }
+            PhiNode { phiIncomingValues = ivs } ->
+              i { phiIncomingValues = map transPair ivs }
+
+      -- Change the basic block parent to the newly allocated block
+      -- (that knows it contains this instruction) and give the
+      -- instruction a new ID
+      let i'' = i' { instructionBasicBlock = Just $ M.lookupDefault (error "No block mapping for copy") oldBlock bMap
+                   , instructionUniqueId = instId
+                   }
+      return (i : insts, M.insert (Value i) (Value i'') mapping)
+    copyBlock finalState (blocks, mapping, blockMap) b = do
       blockId <- nextId
       (newInsts, mapping') <- foldM (copyInstruction finalState b) ([], mapping) (basicBlockInstructions b)
       let newBlock = b { basicBlockUniqueId = blockId
                        , basicBlockInstructions = reverse newInsts
                        , basicBlockFunction = copiedFunction finalState
                        }
-      return (newBlock : blocks, M.insert (Value b) (Value newBlock) mapping')
+      return (newBlock : blocks,
+              M.insert (Value b) (Value newBlock) mapping',
+              M.insert b newBlock blockMap)
     copyFunction' finalState = do
       let args = fdParameters fd
       f <- fdToFunction fd
-      newArgs <- mapM copyArgument args
-      let mapping = foldr (\(old,new) acc -> M.insert (Value old) (Value new) acc) M.empty (zip args newArgs)
-      (newBlocks, mapping') <- foldM (copyBlock finalState) ([], mapping) (fdBody fd)
+      newArgs <- mapM (copyArgument finalState) args
+      let addArgMapping (old, new) acc = M.insert (Value old) (Value new) acc
+          mapping = foldr addArgMapping M.empty (zip args newArgs)
+      (newBlocks, mapping', blockMap) <- foldM (copyBlock finalState) ([], mapping, M.empty) (fdBody fd)
       return CopyState { copiedFunction = f { functionBody = reverse newBlocks
                                             , functionParameters = newArgs
                                             }
+                       , copiedBlocks = blockMap
                        , copiedMapping = mapping'
                        }
 
@@ -530,6 +689,99 @@ replaceFunction f fd@(FD {}) = do
 
 removeFunction :: Function -> Value -> ModuleRewriter ()
 removeFunction = removeGlobalEntity rwRemovedFunctions rwFunctions
+
+data ArgumentDescriptor =
+  AD { adType :: Type
+     , adName :: Identifier
+     , adMetadata :: [Metadata]
+     , adParamAttrs :: [ParamAttribute]
+     }
+defaultArgumentDescriptor :: Type -> Identifier -> ArgumentDescriptor
+defaultArgumentDescriptor t i =
+  AD { adType = t
+     , adName = i
+     , adMetadata = def
+     , adParamAttrs = def
+     }
+
+argumentDescriptorFromArgument :: Argument -> ArgumentDescriptor
+argumentDescriptorFromArgument a =
+  AD { adType = argumentType a
+     , adName = argumentName a
+     , adMetadata = argumentMetadata a
+     , adParamAttrs = argumentParamAttrs a
+     }
+
+adToArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
+adToArgument ad f = do
+  uid <- nextId
+  return Argument { argumentType = adType ad
+                  , argumentName = adName ad
+                  , argumentMetadata = adMetadata ad
+                  , argumentUniqueId = uid
+                  , argumentParamAttrs = adParamAttrs ad
+                  , argumentFunction = f
+                  }
+
+-- replaceArgument :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
+-- insertArgumentBefore :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
+-- insertArgumentAfter :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
+-- appendArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
+-- prependArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
+
+-- This isn't quite strong enough - a non-original variant of this
+-- function may have been removed and it is hard to find that with
+-- just (argumentFunction a).  This will require some extra metadata.
+unlessParentRemoved :: Argument -> ModuleRewriter a -> ModuleRewriter a
+unlessParentRemoved a action = do
+  let oldF = argumentFunction a
+  removedFuncs <- access rwRemovedFunctions
+  case S.member oldF removedFuncs of
+    True -> throw (GlobalAlreadyRemoved (Value oldF))
+    False -> action
+
+removeArgumentWithNew :: Argument -> UConstant -> ModuleRewriter Constant
+removeArgumentWithNew a c =
+  unlessParentRemoved a $ do
+    uid <- nextId
+    fMapping <- access rwFunctions
+    let oldF = argumentFunction a
+        currentF = M.lookupDefault oldF oldF fMapping
+        oldArglist = functionParameters currentF
+        newArglist = filter (/=a) oldArglist
+        newF = currentF { functionParameters = newArglist }
+        newConstant = c uid
+    _ <- rwFunctions %= M.insert oldF newF
+    _ <- rwMapping %= M.insert (Value a) (Value newConstant)
+    _ <- rwRemovedArguments %= S.insert a
+    return newConstant
+
+-- | Remove an Argument from the argument list of a function and
+-- replace all uses with the given Value.
+removeArgument :: Argument -> Value -> ModuleRewriter ()
+removeArgument a v = do
+  -- FIXME: Check to see if the function for @a@ was removed - throw
+  -- exception if so
+  --
+  -- Note, the Function pointers in the remaining arguments (and
+  -- blocks) are not updated.  They will be corrected during the bulk
+  -- rewrite phase.  The original Function value is always in the
+  -- rwFunctions map, so it can be looked up and associated with the
+  -- newest.
+
+  -- Remove the argument from the arglist of the containing function
+  unlessParentRemoved a $ do
+    fmapping <- access rwFunctions
+    let oldF = argumentFunction a
+        currentF = M.lookupDefault oldF oldF fmapping
+        oldArglist = functionParameters currentF
+        newArglist = filter (/=a) oldArglist
+        newF = currentF { functionParameters = newArglist }
+    _ <- rwFunctions %= M.insert oldF newF
+    -- Update the maps used to rewrite the body
+    _ <- rwMapping %= M.insert (Value a) v
+    _ <- rwRemovedArguments %= S.insert a
+    return ()
 
 -- | A representation of 'ExternalValue's that has not yet been
 -- inserted into the IR.  This becomes an 'ExternalValue' when
@@ -737,6 +989,12 @@ replaceGlobalEntity lns convert entity descriptor = do
       _ <- rwMapping %= M.insert (Value entity) (Value entity')
       return entity'
 
+replaceGlobalEntityWithCopy :: (Eq b, Hashable b, IsValue b)
+                               => Lens ModuleRewriterContext (Map b b)
+                               -> b
+                               -> b
+                               -> ModuleRewriter ()
+
 replaceGlobalEntityWithCopy lns entity copy = do
   curMap <- access lns
   case M.lookup entity curMap of
@@ -744,7 +1002,7 @@ replaceGlobalEntityWithCopy lns entity copy = do
     Nothing -> do
       _ <- lns %= M.insert entity copy
       _ <- rwMapping %= M.insert (Value entity) (Value copy)
-    return ()
+      return ()
 
 -- | Replace @gv@ with that described by @gvd@, updating all references.
 --
