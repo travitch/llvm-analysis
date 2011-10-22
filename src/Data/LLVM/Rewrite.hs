@@ -59,6 +59,8 @@ module Data.LLVM.Rewrite (
   ArgumentDescriptor(..),
   defaultArgumentDescriptor,
   argumentDescriptorFromArgument,
+  appendArgument,
+  prependArgument,
   removeArgumentWithNew,
   removeArgument,
   -- * Driver
@@ -726,8 +728,30 @@ adToArgument ad f = do
 -- replaceArgument :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
 -- insertArgumentBefore :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
 -- insertArgumentAfter :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
--- appendArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
--- prependArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
+
+appendArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
+appendArgument ad f = do
+  newArg <- adToArgument ad f
+  _ <- rwAddedArguments %= S.insert newArg
+  fMapping <- access rwFunctions
+  let currentF = M.lookupDefault f f fMapping
+      oldArglist = functionParameters currentF
+      newArglist = concat [oldArglist, [newArg]]
+      newF = currentF { functionParameters = newArglist }
+  _ <- rwFunctions %= M.insert f newF
+  return newArg
+
+prependArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
+prependArgument ad f = do
+  newArg <- adToArgument ad f
+  _ <- rwAddedArguments %= S.insert newArg
+  fMapping <- access rwFunctions
+  let currentF = M.lookupDefault f f fMapping
+      oldArglist = functionParameters currentF
+      newArglist = newArg : oldArglist
+      newF = currentF { functionParameters = newArglist }
+  _ <- rwFunctions %= M.insert f newF
+  return newArg
 
 -- This isn't quite strong enough - a non-original variant of this
 -- function may have been removed and it is hard to find that with
