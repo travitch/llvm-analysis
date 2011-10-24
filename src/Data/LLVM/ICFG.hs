@@ -18,7 +18,7 @@ import Text.Printf
 import Data.LLVM.Types
 import Data.LLVM.CFG
 import Data.LLVM.Analysis.PointsTo
-import Data.LLVM.Private.PatriciaTree
+import Data.LLVM.Internal.PatriciaTree
 
 data ICFGNode = InstNode Instruction
               | ReturnNode Instruction

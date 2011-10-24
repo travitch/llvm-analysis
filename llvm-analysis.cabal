@@ -11,20 +11,13 @@ cabal-version: >=1.10
 stability: experimental
 tested-with: GHC == 7.0.3
 
--- extra-source-files: configure,
---                     llvm.buildinfo.in,
---                     llvm.buildinfo.windows.in,
---                     src/c++/marshal.h
--- description:
-
 library
   default-language: Haskell2010
   build-depends: base > 3 && < 5, array, bytestring, fgl, mtl > 2, filemanip >= 0.3.5.2,
                  graphviz >= 2999.12.0.3, deepseq, process, filepath, directory,
                  hashable >= 1.1.2.0, unordered-containers, containers >= 0.3,
-                 lattices, llvm-data-interop, failure >= 0.1,
-                 data-lens == 2.0.*, data-lens-template == 2.1.*, data-default >= 0.3,
-                 HUnit, test-framework, test-framework-hunit
+                 lattices, llvm-base-types, failure >= 0.1,
+                 data-lens == 2.0.*, data-lens-template == 2.1.*, data-default >= 0.3
   hs-source-dirs: src
   exposed-modules: Data.LLVM,
                    Data.LLVM.Analysis.Dataflow,
@@ -36,15 +29,9 @@ library
                    Data.LLVM.CFG,
                    Data.LLVM.ICFG,
                    Data.LLVM.Rewrite,
-                   Data.LLVM.Testing,
-                   Data.LLVM.Types,
                    Data.LLVM.Visualization
-  other-modules: Data.LLVM.Private.ForceModule,
-                 Data.LLVM.Private.Parser.Options,
-                 Data.LLVM.Private.Parser.Unmarshal,
-                 Data.LLVM.Private.Printers,
-                 Data.LLVM.Private.Types.Referential,
-                 Data.LLVM.Private.PatriciaTree
+  other-modules: Data.LLVM.Internal.PatriciaTree
+
 
   ghc-options: -Wall -funbox-strict-fields
   ghc-prof-options: -auto-all
@@ -61,45 +48,45 @@ library
 --                  HUnit, test-framework, test-framework-hunit
 
 
-test-suite IFDSTests
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  build-depends: llvm-analysis,
-                 base > 3 && < 5, containers,
-                 graphviz, filepath,
-                 HUnit, test-framework, test-framework-hunit
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: INullPtrs.hs
-  hs-source-dirs: tests
+-- test-suite IFDSTests
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   build-depends: llvm-analysis,
+--                  base > 3 && < 5, containers,
+--                  graphviz, filepath,
+--                  HUnit, test-framework, test-framework-hunit
+--   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: INullPtrs.hs
+--   hs-source-dirs: tests
 
 
-executable ParserDriver
-  default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5, unordered-containers
+-- executable ParserDriver
+--   default-language: Haskell2010
+--   build-depends: llvm-analysis, base > 3 && < 5, unordered-containers
 
-  ghc-options: -Wall -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: TestDriver.hs
-  hs-source-dirs: tests
-  default-extensions: OverloadedStrings
+--   ghc-options: -Wall -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: TestDriver.hs
+--   hs-source-dirs: tests
+--   default-extensions: OverloadedStrings
 
-executable DumpArguments
-  default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5
+-- executable DumpArguments
+--   default-language: Haskell2010
+--   build-depends: llvm-analysis, base > 3 && < 5
 
-  ghc-options: -Wall -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: DumpArguments.hs
-  hs-source-dirs: tests
+--   ghc-options: -Wall -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: DumpArguments.hs
+--   hs-source-dirs: tests
 
-executable ViewICFG
-  default-language: Haskell2010
-  build-depends: llvm-analysis, base > 3 && < 5, containers, graphviz, filepath, text
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: ViewICFG.hs
-  hs-source-dirs: tests
+-- executable ViewICFG
+--   default-language: Haskell2010
+--   build-depends: llvm-analysis, base > 3 && < 5, containers, graphviz, filepath, text
+--   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: ViewICFG.hs
+--   hs-source-dirs: tests
 
 
 -- executable NullabilityAnalysis

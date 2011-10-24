@@ -16,7 +16,7 @@
 --
 -- * 'Data.Graph.Inductive.Graph.emap'
 
-module Data.LLVM.Private.PatriciaTree (
+module Data.LLVM.Internal.PatriciaTree (
   Gr,
   UGr
   ) where

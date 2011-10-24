@@ -7,10 +7,10 @@
 -- convenience.
 module Data.LLVM (
   -- * Constructing the IR
-  parseLLVMBitcodeFile,
-  defaultParserOptions,
-  ParserOptions(..),
-  PositionPrecision(..),
+  -- parseLLVMBitcodeFile,
+  -- defaultParserOptions,
+  -- ParserOptions(..),
+  -- PositionPrecision(..),
   -- * Inspect the IR
   findFunctionByName,
   findMain,
@@ -20,8 +20,8 @@ module Data.LLVM (
 import qualified Data.ByteString.Char8 as BS
 import Data.List ( find )
 
-import Data.LLVM.Private.Parser.Options
-import Data.LLVM.Private.Parser.Unmarshal
+-- import Data.LLVM.Private.Parser.Options
+-- import Data.LLVM.Private.Parser.Unmarshal
 import Data.LLVM.Types
 
 -- | Find a function in the Module by its name.
