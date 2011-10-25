@@ -751,79 +751,82 @@ unlessArgumentWasRemoved a action = do
     True -> throw (ArgumentAlreadyRemoved a)
     False -> action
 
-replaceArgument :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
-replaceArgument a ad =
+-- | Modify the argument list of the function containing @existingArg@
+--
+-- > modifyArgumentList modifier existingArg newArgDescriptor
+--
+-- The modifier is applied by @foldr@ and can arbitrarily modify the
+-- argument list.  The new argument specified by @newArgDescriptor@ is
+-- added to the @rwNewArgments@ set and the updated function
+-- supercedes the old one in @rwFunctions@.
+modifyArgumentList :: (Argument -> Argument -> [Argument] -> [Argument])
+                      -> Argument
+                      -> ArgumentDescriptor
+                      -> ModuleRewriter Argument
+modifyArgumentList modifier a ad = do
   unlessArgumentWasRemoved a $ unlessParentRemoved a $ do
     currentF <- getCurrentFunction a
     let oldF = argumentFunction a
     newArg <- adToArgument ad oldF
-    _ <- rwAddedArguments %= S.insert newArg -- ? Necessary?
     let oldArglist = functionParameters currentF
-        replace arg acc
-          | arg == a = newArg : acc
-          | otherwise = arg : acc
-        newArglist = foldr replace [] oldArglist
+        newArglist = foldr (modifier newArg) [] oldArglist
         newF = currentF { functionParameters = newArglist }
     _ <- rwFunctions %= M.insert oldF newF
-    _ <- rwArguments %= M.insert a newArg
-    _ <- rwMapping %= M.insert (Value a) (Value newArg)
+    _ <- rwAddedArguments %= S.insert newArg
+    _ <- rwMapping %= M.insert (Value oldF) (Value newF)
     return newArg
+
+replaceArgument :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
+replaceArgument a ad = do
+  addedArg <- modifyArgumentList replace a ad
+  -- We added the argument, but this function needs it to replace the
+  -- old argument in the function body
+  _ <- rwMapping %= M.insert (Value a) (Value addedArg)
+  return addedArg
+  where
+    replace newArg arg acc
+      | arg == a = newArg : acc
+      | otherwise = arg : acc
 
 insertArgumentBefore :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
-insertArgumentBefore a ad =
-  unlessArgumentWasRemoved a $ unlessParentRemoved a $ do
-    currentF <- getCurrentFunction a
-    let oldF = argumentFunction a
-    newArg <- adToArgument ad oldF
-    _ <- rwAddedArguments %= S.insert newArg
-    let oldArglist = functionParameters currentF
-        insertBefore arg acc
-          | arg == a = newArg : arg : acc
-          | otherwise = arg : acc
-        newArglist = foldr insertBefore [] oldArglist
-        newF = currentF { functionParameters = newArglist }
-    _ <- rwFunctions %= M.insert oldF newF
-    return newArg
+insertArgumentBefore a =
+  modifyArgumentList insertBefore a
+  where
+    insertBefore newArg arg acc
+      | arg == a = newArg : arg : acc
+      | otherwise = arg : acc
 
 insertArgumentAfter :: Argument -> ArgumentDescriptor -> ModuleRewriter Argument
-insertArgumentAfter a ad =
-  unlessArgumentWasRemoved a $ unlessParentRemoved a $ do
-    currentF <- getCurrentFunction a
-    let oldF = argumentFunction a
-    newArg <- adToArgument ad oldF
+insertArgumentAfter a =
+  modifyArgumentList insertAfter a
+  where
+    insertAfter newArg arg acc
+      | arg == a = arg : newArg : acc
+      | otherwise = arg : acc
+
+addArgument :: (Argument -> [Argument] -> [Argument])
+               -> ArgumentDescriptor
+               -> Function
+               -> ModuleRewriter Argument
+addArgument listMod ad f =
+  unlessFunctionRemoved f $ do
+    newArg <- adToArgument ad f
     _ <- rwAddedArguments %= S.insert newArg
+    currentF <- getCurrentFunction f
     let oldArglist = functionParameters currentF
-        insertAfter arg acc
-          | arg == a = arg : newArg : acc
-          | otherwise = arg : acc
-        newArglist = foldr insertAfter [] oldArglist
+        newArglist = listMod newArg oldArglist
         newF = currentF { functionParameters = newArglist }
-    _ <- rwFunctions %= M.insert oldF newF
+    _ <- rwFunctions %= M.insert f newF
+    _ <- rwMapping %= M.insert (Value f) (Value newF)
     return newArg
 
 appendArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
-appendArgument ad f =
-  unlessFunctionRemoved f $ do
-    newArg <- adToArgument ad f
-    _ <- rwAddedArguments %= S.insert newArg
-    currentF <- getCurrentFunction f
-    let oldArglist = functionParameters currentF
-        newArglist = concat [oldArglist, [newArg]]
-        newF = currentF { functionParameters = newArglist }
-    _ <- rwFunctions %= M.insert f newF
-    return newArg
+appendArgument = addArgument appendArg
+  where
+    appendArg newArg oldArglist = concat [ oldArglist, [ newArg ] ]
 
 prependArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
-prependArgument ad f =
-  unlessFunctionRemoved f $ do
-    newArg <- adToArgument ad f
-    _ <- rwAddedArguments %= S.insert newArg
-    currentF <- getCurrentFunction f
-    let oldArglist = functionParameters currentF
-        newArglist = newArg : oldArglist
-        newF = currentF { functionParameters = newArglist }
-    _ <- rwFunctions %= M.insert f newF
-    return newArg
+prependArgument = addArgument (:)
 
 -- This isn't quite strong enough - a non-original variant of this
 -- function may have been removed and it is hard to find that with
