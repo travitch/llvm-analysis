@@ -13,6 +13,7 @@ import Data.LLVM.ICFG
 import Data.LLVM.Analysis.IFDS
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 
+import Data.LLVM.ParseBitcode
 import Data.LLVM.Testing
 
 import Debug.Trace
@@ -174,13 +175,13 @@ reachReturnTest m = map (show . fromJust . valueName) endVals
 main :: IO ()
 main = do
   let reachPattern = "tests/ifds/reach/*.c"
-  testAgainstExpected [ TestDescriptor { testPattern = reachPattern
-                                       , testExpectedMapping = expectedMapper
-                                       , testOptimized = False
-                                       , testResultBuilder = reachReturnTest
-                                       , testResultComparator = assertEqual
-                                       }
-                      ]
+      testDescriptors = [ TestDescriptor { testPattern = reachPattern
+                                         , testExpectedMapping = expectedMapper
+                                         , testResultBuilder = reachReturnTest
+                                         , testResultComparator = assertEqual
+                                         }
+                        ]
+  testAgainstExpected (parseLLVMBitcodeFile defaultParserOptions) testDescriptors
   {-
   [fname] <- getArgs
   Right m <- parseLLVMBitcodeFile defaultParserOptions fname
