@@ -25,35 +25,37 @@ import Test.Framework ( defaultMain, Test )
 import Test.Framework.Providers.HUnit
 
 import Data.LLVM
-import Data.LLVM.Types
 
-readInputAndExpected :: (Read a) => (FilePath -> FilePath) -> Bool -> FilePath ->
-                        IO (FilePath, Module, a)
-readInputAndExpected expectedFunc optimize inputFile = do
+readInputAndExpected :: (Read a)
+                        => (FilePath -> IO (Either String Module))
+                        -> (FilePath -> FilePath)
+                        -> FilePath
+                        -> IO (FilePath, Module, a)
+readInputAndExpected parseBitcode expectedFunc inputFile = do
   let exFile = expectedFunc inputFile
   exContent <- readFile exFile
   -- use seq here to force the full evaluation of the read file.
   let expected = length exContent `seq` read exContent
-  m <- buildModule inputFile optimize
+  m <- buildModule parseBitcode inputFile
   return (inputFile, m, expected)
 
 data TestDescriptor =
   forall a. (Read a) => TestDescriptor { testPattern :: String
                                        , testExpectedMapping :: FilePath -> FilePath
-                                       , testOptimized :: Bool
                                        , testResultBuilder :: Module -> a
                                        , testResultComparator :: String -> a -> a -> IO ()
                                        }
 
-testAgainstExpected :: [TestDescriptor] -> IO ()
-testAgainstExpected testDescriptors = do
+testAgainstExpected :: (FilePath -> IO (Either String Module))
+                        -> [TestDescriptor]
+                        -> IO ()
+testAgainstExpected parseBitcode testDescriptors = do
   caseSets <- mapM mkDescriptorSet testDescriptors
   defaultMain $ concat caseSets
   where
     mkDescriptorSet :: TestDescriptor -> IO [Test]
     mkDescriptorSet TestDescriptor { testPattern = pat
                                    , testExpectedMapping = mapping
-                                   , testOptimized = opt
                                    , testResultBuilder = br
                                    , testResultComparator = cmp
                                    } = do
@@ -61,7 +63,7 @@ testAgainstExpected testDescriptors = do
       -- Glob up all of the files in the test directory with the target extension
       testInputFiles <- namesMatching pat
       -- Read in the expected results and corresponding modules
-      inputsAndExpecteds <- mapM (readInputAndExpected mapping opt) testInputFiles
+      inputsAndExpecteds <- mapM (readInputAndExpected parseBitcode mapping) testInputFiles
       -- Build actual test cases by applying the result builder
       mapM (mkTest br cmp) inputsAndExpecteds
 
@@ -69,11 +71,10 @@ testAgainstExpected testDescriptors = do
       let actual = br m
       return $ testCase file $ cmp file expected actual
 
--- | Build a 'Module' from a C or C++ file using clang.  Optionally,
--- apply light optimizations (-O1, -mem2reg) using opt.  Both binaries
--- must be in your path.
-buildModule :: FilePath -> Bool -> IO Module
-buildModule inputFilePath optimize =
+-- | Build a 'Module' from a C or C++ file using clang.  The binary
+-- must be in PATH
+buildModule :: (FilePath -> IO (Either String Module)) -> FilePath -> IO Module
+buildModule parseBitcode inputFilePath =
   bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode buildModule'
   where
     compileDriver = case takeExtension inputFilePath of
@@ -84,14 +85,7 @@ buildModule inputFilePath optimize =
     buildModule' (fp, h) = do
       -- If we are optimizing, wire opt into the process pipeline.
       -- Otherwise, just have clang write directly to the output file.
-      (clangHandle, mOptProc) <- case optimize of
-        True -> do
-          let optimizeCmd = proc "opt" [ "-O1", "-mem2reg", "-o", "-" ]
-              optCmd = optimizeCmd { std_out = UseHandle h
-                                   , std_in = CreatePipe }
-          (Just optH, _, _, optProc) <- createProcess optCmd
-          return (optH, Just optProc)
-        False -> return (h, Nothing)
+      (clangHandle, mOptProc) <- return (h, Nothing)
       let baseCmd = proc compileDriver [ "-emit-llvm", "-o", "-", "-c", inputFilePath ]
           clangCmd = baseCmd { std_out = UseHandle clangHandle }
       (_, _, _, clangProc) <- createProcess clangCmd
@@ -100,7 +94,7 @@ buildModule inputFilePath optimize =
       when (clangrc /= ExitSuccess) (error $ printf "Failed to compile %s" inputFilePath)
       when (optrc /= ExitSuccess) (error $ printf "Failed to optimize %s" inputFilePath)
 
-      parseResult <- parseLLVMBitcodeFile defaultParserOptions fp
+      parseResult <- parseBitcode fp
       either error return parseResult
 
 -- | Clean up after a temporary bitcode file
