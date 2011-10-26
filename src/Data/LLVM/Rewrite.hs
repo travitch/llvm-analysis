@@ -55,6 +55,7 @@ module Data.LLVM.Rewrite (
   addFunction,
   replaceFunction,
   removeFunction,
+  splitBasicBlockBefore,
   -- * Arguments
   ArgumentDescriptor(..),
   defaultArgumentDescriptor,
@@ -359,17 +360,17 @@ insertInstructionAfter target newInst =
 
 data FunctionDescriptor =
   EmptyFD { fdType :: Type
-     , fdName :: Identifier
-     , fdMetadata :: [Metadata]
-     , fdLinkage :: LinkageType
-     , fdVisibility :: VisibilityStyle
-     , fdCC :: CallingConvention
-     , fdRetAttrs :: [ParamAttribute]
-     , fdAttrs :: [FunctionAttribute]
-     , fdSection :: Maybe ByteString
-     , fdAlign :: Int64
-     , fdGCName :: Maybe ByteString
-     }
+          , fdName :: Identifier
+          , fdMetadata :: [Metadata]
+          , fdLinkage :: LinkageType
+          , fdVisibility :: VisibilityStyle
+          , fdCC :: CallingConvention
+          , fdRetAttrs :: [ParamAttribute]
+          , fdAttrs :: [FunctionAttribute]
+          , fdSection :: Maybe ByteString
+          , fdAlign :: Int64
+          , fdGCName :: Maybe ByteString
+          }
   | FD { fdType :: Type
        , fdName :: Identifier
        , fdMetadata :: [Metadata]
@@ -696,6 +697,58 @@ replaceFunction f fd@(FD {}) = do
 removeFunction :: Function -> Value -> ModuleRewriter ()
 removeFunction = removeGlobalEntity rwRemovedFunctions rwFunctions
 
+-- | Splits @bb@ in two *before* the given @instr@.
+--
+-- > (newBlock, updatedBlock) <- splitBasicBlockBefore bb instr
+--
+-- The instructions before @instr@ will be removed from @bb@ and
+-- inserted into a new BasicBlock with an unconditional branch to
+-- @bb@.  The function returns the new block (with the new terminator
+-- instruction) and the modified original block.
+--
+-- Branches that pointed to @bb@ before the split will point to
+-- @newBlock@.
+splitBasicBlockBefore :: BasicBlock
+                         -> Instruction
+                         -> ModuleRewriter (BasicBlock, BasicBlock)
+splitBasicBlockBefore bb i =
+  unlessParentRemoved bb $ do
+    newBlockId <- nextId
+    updatedBlockId <- nextId
+    funcId <- nextId
+    termId <- nextId
+
+    currentF <- getCurrentFunction bb
+    let oldF = basicBlockFunction bb
+        currentInsts = basicBlockInstructions bb
+        (newBlockInsts, updatedBlockInsts) =
+          foldr (splitBlock termId) ([], []) currentInsts
+        newBlock = BasicBlock { basicBlockType = basicBlockType bb
+                              , basicBlockName = undefined
+                              , basicBlockMetadata = []
+                              , basicBlockUniqueId = newBlockId
+                              , basicBlockInstructions = newBlockInsts
+                              , basicBlockFunction = oldF
+                              }
+        updatedBlock = BasicBlock { basicBlockType = basicBlockType bb
+                                  , basicBlockName = undefined
+                                  , basicBlockMetadata = []
+                                  , basicBlockUniqueId = updatedBlockId
+                                  , basicBlockInstructions = updatedBlockInsts
+                                  , basicBlockFunction = oldF
+                                  }
+        currentBlocks = functionBody currentF
+        updatedBlocks = undefined
+        newF = currentF { functionBody = updatedBlocks
+                        , functionUniqueId = funcId
+                        }
+    _ <- rwFunctions %= M.insert oldF newF
+    _ <- rwMapping %= M.insert (Value oldF) (Value newF)
+    _ <- rwMapping %= M.insert (Value bb) (Value newBlock)
+    return (newBlock, updatedBlock)
+  where
+    splitBlock termId i (nbi, ubi) = undefined
+
 data ArgumentDescriptor =
   AD { adType :: Type
      , adName :: Identifier
@@ -737,6 +790,9 @@ instance HasFunction Argument where
 
 instance HasFunction Function where
   functionReference = id
+
+instance HasFunction BasicBlock where
+  functionReference = basicBlockFunction
 
 getCurrentFunction :: (HasFunction a) => a -> ModuleRewriter Function
 getCurrentFunction object = do
@@ -828,11 +884,21 @@ appendArgument = addArgument appendArg
 prependArgument :: ArgumentDescriptor -> Function -> ModuleRewriter Argument
 prependArgument = addArgument (:)
 
+class HasParentFunction a where
+  getParentFunction :: a -> Function
+
+instance HasParentFunction Argument where
+  getParentFunction = argumentFunction
+
+instance HasParentFunction BasicBlock where
+  getParentFunction = basicBlockFunction
+
 -- This isn't quite strong enough - a non-original variant of this
 -- function may have been removed and it is hard to find that with
 -- just (argumentFunction a).  This will require some extra metadata.
-unlessParentRemoved :: Argument -> ModuleRewriter a -> ModuleRewriter a
-unlessParentRemoved a = unlessFunctionRemoved (argumentFunction a)
+unlessParentRemoved :: HasParentFunction a
+                       => a -> ModuleRewriter b -> ModuleRewriter b
+unlessParentRemoved a = unlessFunctionRemoved (getParentFunction a)
 
 unlessFunctionRemoved :: Function -> ModuleRewriter a -> ModuleRewriter a
 unlessFunctionRemoved oldF action = do
@@ -1268,7 +1334,7 @@ removeGlobalVariable = removeGlobalEntity rwRemovedGlobals rwGlobals
 --               -> a
 rewriteModule :: Module
                  -> ModuleRewriterContext
-                 -> m Module
+                 -> Module
 rewriteModule m ctx = undefined
 
 
