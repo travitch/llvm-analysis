@@ -89,7 +89,10 @@ saturate dg worklist g = case viewl worklist of
 -- | Handle adding edges induced by a @StoreInst@.
 addStoreEdges :: DepGraph -> Instruction -> Value -> Value -> Worklist -> PTG -> PTG
 addStoreEdges dg i val dest worklist g =
-  saturate dg2 worklist' g'
+  -- Only update g and the worklist if there were new edges added.
+  case null newEdges of
+    False -> saturate dg2 worklist' g'
+    True -> saturate dg worklist g
   where
     (dg1, newTargets, depHits1) = getLocationsReferencedBy dg val g
     (dg2, newSrcs, depHits2) = getLocationsReferencedBy dg1 dest g
@@ -97,31 +100,51 @@ addStoreEdges dg i val dest worklist g =
     worklist' = worklist >< Seq.fromList (depHits1 ++ depHits2)
     g' = foldl' (flip (&)) g newEdges
 
+-- | Determine which edges need to be added to the graph, based on the
+-- set of discovered sources and targets.  Only new edges are
+-- returned.
 makeNewEdges :: PTG -> [Node] -> [Node] -> [Context NodeTag ()]
 makeNewEdges g newSrcs newTargets =
-  map toContext allPairs
+  map toContext newPairs
   where
-    toContext (t, s) = let Just lbl = lab g s
-                       in ([], s, lbl, [((), t)])
-    allPairs = concatMap (zip newTargets . repeat) newSrcs
+    notInGraph (src, tgt) = notElem tgt (suc g src)
+    toContext (src, tgt) = let Just lbl = lab g src
+                           in ([], src, lbl, [((), tgt)])
+    allPairs = concatMap (zip newSrcs . repeat) newTargets
+    newPairs = filter notInGraph allPairs
 
+-- | Given a @Value@ that is an operand of a @StoreInst@, find all of
+-- the locations in the points-to graph that it refers to.  This means
+-- that the function starts at the given value @v@ and _dereferences_
+-- each @LoadInst@ in the @Value@.
+--
+-- As it progresses, the function also updates the DepGraph that
+-- allows for reverse lookups (which instructions depend on the edges
+-- coming from a given node).  This DepGraph is used to determine
+-- which instructions need to be added to the Worklist due to
+-- additional edges added to the points-to graph each iteration.  Note
+-- that the DepGraph should be updated *before* it is used to compute
+-- the list of affected instructions.
+--
+-- This function treats BitcastInsts as no-ops (i.e., it assumes the
+-- types work out and only deals with memory references).
 getLocationsReferencedBy :: DepGraph -> Value -> PTG -> (DepGraph, [Node], [Instruction])
-getLocationsReferencedBy dg v g = getLocs v [valueUniqueId v]
+getLocationsReferencedBy dg0 v g = getLocs dg0 v [valueUniqueId v]
   where
-    getLocs :: Value -> [Node] -> (DepGraph, [Node], [Instruction])
-    getLocs val locs = case valueContent val of
-      InstructionC i -> dispatchInstruction i locs
+    getLocs :: DepGraph -> Value -> [Node] -> (DepGraph, [Node], [Instruction])
+    getLocs dg val locs = case valueContent val of
+      InstructionC i -> dispatchInstruction dg i locs
       _ -> (dg, locs, [])
     -- For field sensitivity here, handle GetElementPtrInst (ignoring
     -- for now, which is unsound)
-    dispatchInstruction i locs = case i of
+    dispatchInstruction dg i locs = case i of
       -- Just walk right through bitcasts
-      BitcastInst { castedValue = cv } -> getLocs cv locs
+      BitcastInst { castedValue = cv } -> getLocs dg cv locs
       -- For loads, replace locs with everything pointed to in g by
       -- locs
       LoadInst { loadAddress = addr } ->
         let newLocs = concatMap (suc g) locs
-        in getLocs addr newLocs
+        in getLocs dg addr newLocs
 
 -- | This only re-allocates the small part of the list each iteration,
 -- so should remain efficient.
