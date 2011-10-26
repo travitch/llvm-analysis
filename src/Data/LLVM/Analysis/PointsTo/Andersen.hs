@@ -1,182 +1,146 @@
 module Data.LLVM.Analysis.PointsTo.Andersen (
   -- * Types
---  AndersenAnalysis,
+  Andersen,
   -- * Constructor
   runPointsToAnalysis
   ) where
 
-import Data.Hashable
-import Data.List ( sort )
-import Data.Maybe ( fromJust )
+import Data.Graph.Inductive hiding ( Gr, (><) )
+import Data.IntMap ( IntMap )
+import qualified Data.IntMap as IM
+import Data.List ( foldl' )
 import Data.Set ( Set )
 import qualified Data.Set as S
--- import Language.Datalog
+import Data.Sequence ( Seq, (><), ViewL(..), viewl )
+import qualified Data.Sequence as Seq
+
 
 import Data.LLVM.Analysis.PointsTo
+import Data.LLVM.Internal.PatriciaTree
 import Data.LLVM.Types
 
-{-
--- | The wrapper around the result of an Andersen's analysis.  It is
--- an instance of the 'PointsToAnalysis' typeclass and is intended to
--- be used through that interface.
-data AndersenAnalysis = AndersenAnalysis (QueryResult LogicValue)
+data NodeTag = Location Value
+             | Argument Value
+             | DirectCall Value
+             | IndirectCall Value
+             deriving (Ord, Eq)
 
-instance PointsToAnalysis AndersenAnalysis where
-  mayAlias = andersenMayAlias
-  pointsTo = andersenPointsTo
+type PTGNode = (Int, NodeTag)
+type PTG = Gr NodeTag ()
+type Worklist = Seq Instruction
+-- | Define a dependency graph.  The keys are the unique IDs of
+-- locations.  The value for each ID is the set of instructions that
+-- need to be re-processed when a new edge is added to that node id in
+-- the points-to graph.
+type DepGraph = IntMap (Set Instruction)
 
-instance Show AndersenAnalysis where
-  show = showAllResults
--}
--- | A wrapper type to shove values of different types into the
--- Datalog engine.  MemLoc serves to mark certain values as pointing
--- to memory locations.  It basically seeds the analysis with initial
--- points-to information.
-data LogicValue = LLVMValue !Value
-                | MemLoc !Value
-                | DefaultField
-                | IndexValue !Int
-                deriving (Show, Eq, Ord)
+data Andersen = Andersen PTG
 
-instance Hashable LogicValue where
-  hash (LLVMValue v) = hash v
-  hash (MemLoc v) = hash v
-  hash (IndexValue i) = hash i
+instance PointsToAnalysis Andersen where
+  mayAlias (Andersen g) v1 v2 = True
+  pointsTo (Andersen g) v = S.empty
 
--- | Extract an LLVM 'Value' from a LogicValue
-toLLVMValue :: LogicValue -> Value
-toLLVMValue (LLVMValue v) = v
-toLLVMValue (MemLoc v) = v
-toLLVMValue _ = error "Non-llvm value, corrupt domains"
-
-{-
--- | The actual definition of Andersen's points-to analysis.  It takes
--- a whole 'Module' from which it extracts facts.
-andersen :: Module -> Datalog LogicValue (QueryResult LogicValue)
-andersen m = do
-  values <- newDomain "values"
-  locations <- newDomain "locations"
-  fields <- newDomain "fields"
-  index <- newDomain "integer"
-
-  -- Facts
-  initialRef <- newRelation "initialRef" [ values, locations ]
-  storeValToDst <- newRelation "storeValToDst" [ values, values ]
-  loadValFromLoc <- newRelation "loadValFromLoc" [ values, values ]
-
-  varPointsTo <- newRelation "varPointsTo" [ values, locations ]
-  fieldPointsTo <- newRelation "fieldPointsTo" [ locations, locations ]
---  memLoc <- newRelation "memLoc" [ locations, locations ]
-  pointsToR <- newRelation "pointsToR" [ values, locations ]
-
-
-  [ val, dst, loc ] <- mapM newLogicVar [ "val", "dst", "loc" ]
-  [ v1, v2, h1, h2 ] <- mapM newLogicVar [ "v1", "v2", "h1", "h2" ]
-
-  extractFacts (storeValToDst, loadValFromLoc, initialRef) m
-
-
-
-  assertRule varPointsTo [ v1, h1 ] [ rel initialRef [ v1, h1 ] ]
-
-  assertRule fieldPointsTo [ h1, h2 ] [ rel storeValToDst [ val, dst ]
-                                      , rel varPointsTo [ val, h2 ]
-                                      , rel varPointsTo [ dst, h1 ]
-                                      ]
-
-  assertRule varPointsTo [ val, h1 ] [ rel loadValFromLoc [ val, loc ]
-                                    , rel varPointsTo [ loc, h2 ]
-                                    , rel fieldPointsTo [ h2, h1 ]
-                                    ]
-
-
-
-
-  assertRule pointsToR [ v1, h1 ] [ rel varPointsTo [ v1, h1 ] ]
-  assertRule pointsToR [ v1, h1 ] [ rel initialRef [ v1, h2 ]
-                                  , rel fieldPointsTo [ h2, h1 ]
-                                  ]
-
-    -- rel storeValToDst [ val, dst ]
-    --                               , rel pointsTo [ val, h1 ]
-    --                               , rel pointsTo [ dst, h2 ]
-    --                               ]
-
-  -- FIXME: This triggers a bug in datalog
-  -- assertRule pointsToR [ v1, h1 ] [ rel storeValToDst [ v2, v1 ]
-  --                                 , rel pointsToR [ v2, h1 ]
-  --                                 , negRel initialRef [ v2, h1 ]
-  --                                 ]
-
-  queryDatabase pointsToR {-fieldPointsTo-} [ v1, h1 ]
--}
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
 -- results.
-runPointsToAnalysis :: Module -> Int
-runPointsToAnalysis m = undefined -- AndersenAnalysis $ evalDatalog (andersen m)
-
-{-
-andersenMayAlias :: AndersenAnalysis -> Value -> Value -> Bool
-andersenMayAlias a v1 v2 =
-  (andersenPointsTo a v1 `S.intersection` andersenPointsTo a v2) /= S.empty
-
-andersenPointsTo :: AndersenAnalysis -> Value -> Set Value
-andersenPointsTo (AndersenAnalysis res) v = foldr buildRes S.empty rawVals
+runPointsToAnalysis :: Module -> Andersen
+runPointsToAnalysis m = Andersen g
   where
-    vres = restrictResults res [ (0, LLVMValue v) ]
-    -- ^ Restrict the results to just those we are interested in
-    -- (things v points to)
-    rawVals = allResults vres
-    buildRes [ _, target ] s = S.insert (toLLVMValue target) s
-    buildRes _ _ = error "Invalid points-to relation arity"
+    fs = moduleDefinedFunctions m
+    blocks = concatMap functionBody fs
+    insts = concatMap basicBlockInstructions blocks
+    globalLocations = getGlobalLocations m
+    argumentLocations = foldr extractArgs [] fs
+    (localLocations, edgeInducers) = foldr extractLocations ([], []) insts
+    allLocations = concat [globalLocations, argumentLocations, localLocations]
+    graph0 = mkGraph allLocations []
+    worklist0 = Seq.fromList edgeInducers
+    g = saturate IM.empty worklist0 graph0
 
-extractFacts :: (Relation, Relation, Relation) -> Module -> Datalog LogicValue ()
-extractFacts rels m = do
-  mapM_ (extractFunctionFacts rels) (moduleFunctions m)
+extractLocations :: Instruction
+                    -> ([PTGNode], [Instruction])
+                    -> ([PTGNode], [Instruction])
+extractLocations i acc@(ptgNodes, insts) = case i of
+  AllocaInst { instructionUniqueId = uid } ->
+    ((uid, Location (Value i)) : ptgNodes, insts)
+  StoreInst {} -> (ptgNodes, i : insts)
+  CallInst {} -> (ptgNodes, i : insts)
+  InvokeInst {} -> (ptgNodes, i : insts)
+  _ -> acc
 
-functionInstructions :: Value -> [Value]
-functionInstructions Value { valueContent = f@Function {} } =
-  concatMap blockInstructions (functionBody f)
-functionInstructions _ = error "Not a function"
+-- The initial worklist should be all of the store instructions and
+-- calls?  But how do you identify affected stores/calls when adding
+-- edges?
+
+-- | Saturate the points-to graph using a worklist algorithm.
+saturate :: DepGraph -> Worklist -> PTG -> PTG
+saturate dg worklist g = case viewl worklist of
+  EmptyL -> g
+  itm :< rest -> case itm of
+    StoreInst { storeValue = val, storeAddress = dest } ->
+      case isPointerType (valueType val) of
+        False -> saturate dg rest g
+        True -> addStoreEdges dg itm val dest rest g
+    CallInst {} -> saturate dg rest g
+    InvokeInst {} -> saturate dg rest g
+    _ -> error ("Unexpected instruction type: " ++ show itm)
 
 
-extractFunctionFacts :: (Relation, Relation, Relation) -> Value -> Datalog LogicValue ()
-extractFunctionFacts rels v =
-  mapM_ (extractValueFacts rels) (functionInstructions v)
-
-extractValueFacts :: (Relation, Relation, Relation) -> Value -> Datalog LogicValue ()
-extractValueFacts (storeValToDst, loadValFromLoc, initialRef) v =
-  case valueContent v of
-    -- Stores must have the value be of a pointer type, otherwise it
-    -- is a store of a scalar and not interesting
-    StoreInst { storeValue = val
-              , storeAddress = dst@Value { valueType = TypePointer _ _ }
-              }-> do
-      assertFact storeValToDst [ LLVMValue val, LLVMValue dst ]
-      case valueContent val of
-        Argument _ -> assertFact initialRef [ LLVMValue val, MemLoc val ]
-        GlobalDeclaration {} -> assertFact initialRef [ LLVMValue val, MemLoc val ]
-        Function {} -> assertFact initialRef [ LLVMValue val, MemLoc val ]
-        _ -> return ()
-    -- Likewise, loads must be of type T** (at least), or it isn't
-    -- interesting.
-    LoadInst { loadAddress = loc@Value { valueType = TypePointer _ _ } } -> do
-      assertFact loadValFromLoc [ LLVMValue v, LLVMValue loc ]
-      case valueContent loc of
-        Argument _ -> assertFact initialRef [ LLVMValue loc, MemLoc loc ]
-        GlobalDeclaration {} -> assertFact initialRef [ LLVMValue loc, MemLoc loc ]
-        Function {} -> assertFact initialRef [ LLVMValue loc, MemLoc loc ]
-        _ -> return ()
-    AllocaInst _ _ -> do
-      assertFact initialRef [ LLVMValue v, MemLoc v ]
-    _ -> return ()
-
-showAllResults :: AndersenAnalysis -> String
-showAllResults (AndersenAnalysis res) =
-  unlines $ map toS results
+-- | Handle adding edges induced by a @StoreInst@.
+addStoreEdges :: DepGraph -> Instruction -> Value -> Value -> Worklist -> PTG -> PTG
+addStoreEdges dg i val dest worklist g =
+  saturate dg2 worklist' g'
   where
-    results = sort $ allResults res
-    unval = show . fromJust . valueName . toLLVMValue
-    toS [ v1, v2 ] = concat [unval v1, " -> ", unval v2 ]
--}
+    (dg1, newTargets, depHits1) = getLocationsReferencedBy dg val g
+    (dg2, newSrcs, depHits2) = getLocationsReferencedBy dg1 dest g
+    newEdges = makeNewEdges g newSrcs newTargets
+    worklist' = worklist >< Seq.fromList (depHits1 ++ depHits2)
+    g' = foldl' (flip (&)) g newEdges
+
+makeNewEdges :: PTG -> [Node] -> [Node] -> [Context NodeTag ()]
+makeNewEdges g newSrcs newTargets =
+  map toContext allPairs
+  where
+    toContext (t, s) = let Just lbl = lab g s
+                       in ([], s, lbl, [((), t)])
+    allPairs = concatMap (zip newTargets . repeat) newSrcs
+
+getLocationsReferencedBy :: DepGraph -> Value -> PTG -> (DepGraph, [Node], [Instruction])
+getLocationsReferencedBy dg v g = getLocs v [valueUniqueId v]
+  where
+    getLocs :: Value -> [Node] -> (DepGraph, [Node], [Instruction])
+    getLocs val locs = case valueContent val of
+      InstructionC i -> dispatchInstruction i locs
+      _ -> (dg, locs, [])
+    -- For field sensitivity here, handle GetElementPtrInst (ignoring
+    -- for now, which is unsound)
+    dispatchInstruction i locs = case i of
+      -- Just walk right through bitcasts
+      BitcastInst { castedValue = cv } -> getLocs cv locs
+      -- For loads, replace locs with everything pointed to in g by
+      -- locs
+      LoadInst { loadAddress = addr } ->
+        let newLocs = concatMap (suc g) locs
+        in getLocs addr newLocs
+
+-- | This only re-allocates the small part of the list each iteration,
+-- so should remain efficient.
+extractArgs :: Function -> [PTGNode] -> [PTGNode]
+extractArgs f acc = concat [map argToNode (functionParameters f), acc]
+  where
+    argToNode a = (argumentUniqueId a, Location (Value a))
+
+getGlobalLocations :: Module -> [PTGNode]
+getGlobalLocations m = es ++ gs
+  where
+    makeGlobalLocation idExtractor val = (idExtractor val, Location (Value val))
+    externVals = moduleExternalValues m
+    globalVals = moduleGlobalVariables m
+    es = map (makeGlobalLocation externalValueUniqueId) externVals
+    gs = map (makeGlobalLocation globalVariableUniqueId) globalVals
+
+isPointerType :: Type -> Bool
+isPointerType (TypePointer it _) = True
+isPointerType (TypeNamed _ it) = isPointerType it
+isPointerType _ = False
+
