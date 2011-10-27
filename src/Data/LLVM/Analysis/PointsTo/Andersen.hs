@@ -2,10 +2,13 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   -- * Types
   Andersen,
   -- * Constructor
-  runPointsToAnalysis
+  runPointsToAnalysis,
+  -- * Debugging aids
+  viewPointsToGraph,
   ) where
 
 import Data.Graph.Inductive hiding ( Gr, (><) )
+import Data.GraphViz
 import Data.IntMap ( IntMap )
 import qualified Data.IntMap as IM
 import Data.List ( foldl' )
@@ -14,16 +17,22 @@ import qualified Data.Set as S
 import Data.Sequence ( Seq, (><), ViewL(..), viewl )
 import qualified Data.Sequence as Seq
 
-
 import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Internal.PatriciaTree
 import Data.LLVM.Types
+
+import Text.Printf
+import Debug.Trace
+debug = flip trace
 
 data NodeTag = Location Value
              -- | Argument Value
              -- | DirectCall Value
              -- | IndirectCall Value
-             deriving (Ord, Eq)
+             deriving (Ord, Eq, Show)
+
+instance Labellable NodeTag where
+  toLabelValue (Location v) = toLabelValue v
 
 type PTGNode = (Int, NodeTag)
 type PTG = Gr NodeTag ()
@@ -35,6 +44,16 @@ type Worklist = Seq Instruction
 type DepGraph = IntMap (Set Instruction)
 
 data Andersen = Andersen PTG
+
+pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
+                                    , fmtEdge = \(_,_,_) -> [toLabel ""]
+                                    }
+
+viewPointsToGraph :: Andersen -> IO ()
+viewPointsToGraph (Andersen g) = do
+  let dg = graphToDot pointsToParams g
+  _ <- runGraphvizCanvas' dg Gtk
+  return ()
 
 instance PointsToAnalysis Andersen where
   mayAlias (Andersen _) _ _ = True
@@ -53,7 +72,7 @@ runPointsToAnalysis m = Andersen g
     argumentLocations = foldr extractArgs [] fs
     (localLocations, edgeInducers) = foldr extractLocations ([], []) insts
     allLocations = concat [globalLocations, argumentLocations, localLocations]
-    graph0 = mkGraph allLocations []
+    graph0 = mkGraph allLocations [] `debug` printf "Points-to graph has: %s\n" (show allLocations)
     worklist0 = Seq.fromList edgeInducers
     g = saturate IM.empty worklist0 graph0
 
@@ -95,8 +114,8 @@ addStoreEdges dg i val dest worklist g =
     True -> saturate dg worklist g
   where
     accumUsedSrcs acc (_, src, _, _) = S.insert src acc
-    (dg1, newTargets) = getLocationsReferencedBy dg i val g
-    (dg2, newSrcs) = getLocationsReferencedBy dg1 i dest g
+    (dg1, newTargets) = getLocationsReferencedByStore dg i val g
+    (dg2, newSrcs) = getLocationsReferencedByStore dg1 i dest g
     newEdges = makeNewEdges g newSrcs newTargets
     usedSrcs = foldl accumUsedSrcs S.empty newEdges
     worklist' = worklist >< Seq.fromList (affectedInstructions usedSrcs dg2)
@@ -136,24 +155,48 @@ makeNewEdges g newSrcs newTargets =
 --
 -- This function treats BitcastInsts as no-ops (i.e., it assumes the
 -- types work out and only deals with memory references).
-getLocationsReferencedBy :: DepGraph -> Instruction -> Value -> PTG -> (DepGraph, [Node])
-getLocationsReferencedBy dg0 inst v g = getLocs dg0 v [valueUniqueId v]
+--
+-- Algorithm: walk the chain of loads/geps/bitcasts to find the
+-- location being loaded from.  Keep track of the number of
+-- dereferences (loads).  Take that many steps (across all outgoing
+-- edges) from the location in the points-to graph.
+getLocationsReferencedByStore :: DepGraph
+                                 -> Instruction
+                                 -> Value
+                                 -> PTG
+                                 -> (DepGraph, [Node])
+getLocationsReferencedByStore dg0 storeInst v g = getLocs v 0
   where
-    getLocs :: DepGraph -> Value -> [Node] -> (DepGraph, [Node])
-    getLocs dg val locs = case valueContent val of
-      InstructionC i -> dispatchInstruction dg i locs
-      _ -> (dg, locs)
-    -- For field sensitivity here, handle GetElementPtrInst (ignoring
-    -- for now, which is unsound)
-    dispatchInstruction dg i locs = case i of
-      -- Just walk right through bitcasts
-      BitcastInst { castedValue = cv } -> getLocs dg cv locs
-      -- For loads, replace locs with everything pointed to in g by
-      -- locs
-      LoadInst { loadAddress = addr } ->
-        let newLocs = concatMap (suc g) locs
-            dg' = IM.insertWith S.union (valueUniqueId addr) (S.singleton inst) dg
-        in getLocs dg' addr newLocs
+    getLocs :: Value -> Int -> (DepGraph, [Node])
+    getLocs val derefCount = case valueContent val of
+      -- This also needs to handle GEP instructions later, also
+      -- (maybe) select, extractelement, and extractvalue.  This also
+      -- needs to be careful around bitcasts of non-pointer types
+      -- (integers turned into pointers, for example)
+      InstructionC (LoadInst { loadAddress = addr }) ->
+        getLocs addr (derefCount + 1)
+        -- let dg' = IM.insertWith S.union (valueUniqueId addr) (S.singleton storeInst) dg
+        -- in
+      InstructionC (BitcastInst { castedValue = cv }) ->
+        getLocs cv derefCount
+      -- In this fallback case, @val@ should be a node in the
+      -- Points-to graph.  Collect everything @derefCount@ steps from
+      -- it and return that, along with the updated DepGraph.  The
+      -- depgraph needs to be updated with an entry for each non-leaf
+      -- node.
+      _ -> collectLocationNodes g dg0 storeInst val derefCount
+
+collectLocationNodes :: PTG -> DepGraph -> Instruction -> Value -> Int -> (DepGraph, [Node])
+collectLocationNodes g dg0 storeInst val derefCount =
+  collect dg0 derefCount [valueUniqueId val]
+  where
+    addDep dg n = IM.insertWith S.union n (S.singleton storeInst) dg
+    collect dg 0 resultNodes = (dg, resultNodes)
+    collect dg remainingHops startNodes =
+      let nextNodes = concatMap (suc g) startNodes
+          dg' = foldl' addDep dg startNodes
+      in collect dg' (remainingHops - 1) nextNodes
+
 
 -- | This only re-allocates the small part of the list each iteration,
 -- so should remain efficient.
@@ -162,14 +205,20 @@ extractArgs f acc = concat [map argToNode (functionParameters f), acc]
   where
     argToNode a = (argumentUniqueId a, Location (Value a))
 
+-- | Collect all of the global entities representing locations in the
+-- Module
 getGlobalLocations :: Module -> [PTGNode]
-getGlobalLocations m = es ++ gs
+getGlobalLocations m = concat [es, gs, efs, fs]
   where
     makeGlobalLocation idExtractor val = (idExtractor val, Location (Value val))
     externVals = moduleExternalValues m
     globalVals = moduleGlobalVariables m
+    externFuncs = moduleExternalFunctions m
+    funcs = moduleDefinedFunctions m
     es = map (makeGlobalLocation externalValueUniqueId) externVals
     gs = map (makeGlobalLocation globalVariableUniqueId) globalVals
+    efs = map (makeGlobalLocation externalFunctionUniqueId) externFuncs
+    fs = map (makeGlobalLocation functionUniqueId) funcs
 
 isPointerType :: Type -> Bool
 isPointerType (TypePointer _ _) = True
