@@ -20,9 +20,9 @@ import Data.LLVM.Internal.PatriciaTree
 import Data.LLVM.Types
 
 data NodeTag = Location Value
-             | Argument Value
-             | DirectCall Value
-             | IndirectCall Value
+             -- | Argument Value
+             -- | DirectCall Value
+             -- | IndirectCall Value
              deriving (Ord, Eq)
 
 type PTGNode = (Int, NodeTag)
@@ -30,15 +30,15 @@ type PTG = Gr NodeTag ()
 type Worklist = Seq Instruction
 -- | Define a dependency graph.  The keys are the unique IDs of
 -- locations.  The value for each ID is the set of instructions that
--- need to be re-processed when a new edge is added to that node id in
--- the points-to graph.
+-- need to be re-processed when a new edge is added to the points-to graph
+-- with that node ID as its source.
 type DepGraph = IntMap (Set Instruction)
 
 data Andersen = Andersen PTG
 
 instance PointsToAnalysis Andersen where
-  mayAlias (Andersen g) v1 v2 = True
-  pointsTo (Andersen g) v = S.empty
+  mayAlias (Andersen _) _ _ = True
+  pointsTo (Andersen _) _ = S.empty
 
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
@@ -94,11 +94,19 @@ addStoreEdges dg i val dest worklist g =
     False -> saturate dg2 worklist' g'
     True -> saturate dg worklist g
   where
-    (dg1, newTargets, depHits1) = getLocationsReferencedBy dg val g
-    (dg2, newSrcs, depHits2) = getLocationsReferencedBy dg1 dest g
+    accumUsedSrcs acc (_, src, _, _) = S.insert src acc
+    (dg1, newTargets) = getLocationsReferencedBy dg i val g
+    (dg2, newSrcs) = getLocationsReferencedBy dg1 i dest g
     newEdges = makeNewEdges g newSrcs newTargets
-    worklist' = worklist >< Seq.fromList (depHits1 ++ depHits2)
+    usedSrcs = foldl accumUsedSrcs S.empty newEdges
+    worklist' = worklist >< Seq.fromList (affectedInstructions usedSrcs dg2)
     g' = foldl' (flip (&)) g newEdges
+
+affectedInstructions :: Set Int -> DepGraph -> [Instruction]
+affectedInstructions usedSrcs dg = S.toList instSet
+  where
+    instSet = S.fold findAffected S.empty usedSrcs
+    findAffected nodeId acc = S.union acc (IM.findWithDefault S.empty nodeId dg)
 
 -- | Determine which edges need to be added to the graph, based on the
 -- set of discovered sources and targets.  Only new edges are
@@ -128,13 +136,13 @@ makeNewEdges g newSrcs newTargets =
 --
 -- This function treats BitcastInsts as no-ops (i.e., it assumes the
 -- types work out and only deals with memory references).
-getLocationsReferencedBy :: DepGraph -> Value -> PTG -> (DepGraph, [Node], [Instruction])
-getLocationsReferencedBy dg0 v g = getLocs dg0 v [valueUniqueId v]
+getLocationsReferencedBy :: DepGraph -> Instruction -> Value -> PTG -> (DepGraph, [Node])
+getLocationsReferencedBy dg0 inst v g = getLocs dg0 v [valueUniqueId v]
   where
-    getLocs :: DepGraph -> Value -> [Node] -> (DepGraph, [Node], [Instruction])
+    getLocs :: DepGraph -> Value -> [Node] -> (DepGraph, [Node])
     getLocs dg val locs = case valueContent val of
       InstructionC i -> dispatchInstruction dg i locs
-      _ -> (dg, locs, [])
+      _ -> (dg, locs)
     -- For field sensitivity here, handle GetElementPtrInst (ignoring
     -- for now, which is unsound)
     dispatchInstruction dg i locs = case i of
@@ -144,7 +152,8 @@ getLocationsReferencedBy dg0 v g = getLocs dg0 v [valueUniqueId v]
       -- locs
       LoadInst { loadAddress = addr } ->
         let newLocs = concatMap (suc g) locs
-        in getLocs dg addr newLocs
+            dg' = IM.insertWith S.union (valueUniqueId addr) (S.singleton inst) dg
+        in getLocs dg' addr newLocs
 
 -- | This only re-allocates the small part of the list each iteration,
 -- so should remain efficient.
@@ -163,7 +172,7 @@ getGlobalLocations m = es ++ gs
     gs = map (makeGlobalLocation globalVariableUniqueId) globalVals
 
 isPointerType :: Type -> Bool
-isPointerType (TypePointer it _) = True
+isPointerType (TypePointer _ _) = True
 isPointerType (TypeNamed _ it) = isPointerType it
 isPointerType _ = False
 
