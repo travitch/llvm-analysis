@@ -12,6 +12,7 @@ import Data.GraphViz
 import Data.IntMap ( IntMap )
 import qualified Data.IntMap as IM
 import Data.List ( foldl' )
+import Data.Maybe ( mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
 import Data.Sequence ( Seq, (><), ViewL(..), viewl )
@@ -34,6 +35,7 @@ data NodeTag = Location Value
 instance Labellable NodeTag where
   toLabelValue (Location v) = toLabelValue v
 
+type PTGEdge = (Int, Int, ())
 type PTGNode = (Int, NodeTag)
 type PTG = Gr NodeTag ()
 type Worklist = Seq Instruction
@@ -68,11 +70,13 @@ runPointsToAnalysis m = Andersen g
     fs = moduleDefinedFunctions m
     blocks = concatMap functionBody fs
     insts = concatMap basicBlockInstructions blocks
-    globalLocations = getGlobalLocations m
+    (globalLocations, globalEdges) = getGlobalLocations m
     argumentLocations = foldr extractArgs [] fs
     (localLocations, edgeInducers) = foldr extractLocations ([], []) insts
     allLocations = concat [globalLocations, argumentLocations, localLocations]
-    graph0 = mkGraph allLocations [] `debug` printf "Points-to graph has: %s\n" (show allLocations)
+    -- The initial graph contains all locations in the program, along
+    -- with edges induced by global initializers.
+    graph0 = mkGraph allLocations globalEdges `debug` printf "Points-to graph has: %s\n" (show allLocations)
     worklist0 = Seq.fromList edgeInducers
     g = saturate IM.empty worklist0 graph0
 
@@ -207,9 +211,17 @@ extractArgs f acc = concat [map argToNode (functionParameters f), acc]
 
 -- | Collect all of the global entities representing locations in the
 -- Module
-getGlobalLocations :: Module -> [PTGNode]
-getGlobalLocations m = concat [es, gs, efs, fs]
+getGlobalLocations :: Module -> ([PTGNode], [PTGEdge])
+getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
   where
+    -- Only add edges for globals that have initializers that are the
+    -- address of another value.  Constants aren't very interesting
+    -- here.
+    makeGlobalEdge gv = case globalVariableInitializer gv of
+      Nothing -> Nothing
+      Just i -> case valueContent i of
+        ConstantC _ -> Nothing
+        _ -> Just (globalVariableUniqueId gv, valueUniqueId i, ())
     makeGlobalLocation idExtractor val = (idExtractor val, Location (Value val))
     externVals = moduleExternalValues m
     globalVals = moduleGlobalVariables m
@@ -219,6 +231,7 @@ getGlobalLocations m = concat [es, gs, efs, fs]
     gs = map (makeGlobalLocation globalVariableUniqueId) globalVals
     efs = map (makeGlobalLocation externalFunctionUniqueId) externFuncs
     fs = map (makeGlobalLocation functionUniqueId) funcs
+    gedges = mapMaybe makeGlobalEdge globalVals
 
 isPointerType :: Type -> Bool
 isPointerType (TypePointer _ _) = True
