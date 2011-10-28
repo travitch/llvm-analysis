@@ -40,30 +40,29 @@ library
   ghc-prof-options: -auto-all
 
 
--- test-suite AndersenTests
---   default-language: Haskell2010
---   type: exitcode-stdio-1.0
---   main-is: AndersenTest.hs
---   hs-source-dirs: tests
---   build-depends: llvm-analysis,
---                  base > 3 && < 5, filemanip >= 0.3.5.2,
---                  process, directory, filepath, containers,
---                  HUnit, test-framework, test-framework-hunit,
---                  llvm-data-interop
-
-
-test-suite IFDSTests
+test-suite AndersenTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
-  build-depends: llvm-analysis,
-                 base > 3 && < 5, containers,
-                 graphviz, filepath,
-                 HUnit, test-framework, test-framework-hunit,
-                 llvm-data-interop
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: INullPtrs.hs
+  main-is: AndersenTest.hs
   hs-source-dirs: tests
+  build-depends: llvm-analysis,
+                 base > 3 && < 5, filemanip >= 0.3.5.2,
+                 process, directory, filepath, containers,
+                 HUnit, llvm-data-interop
+
+
+-- test-suite IFDSTests
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   build-depends: llvm-analysis,
+--                  base > 3 && < 5, containers,
+--                  graphviz, filepath,
+--                  HUnit, test-framework, test-framework-hunit,
+--                  llvm-data-interop
+--   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: INullPtrs.hs
+--   hs-source-dirs: tests
 
 
 -- executable ParserDriver
@@ -102,13 +101,13 @@ test-suite IFDSTests
 --   main-is: NullabilityAnalysis.hs
 --   hs-source-dirs: tests
 
--- executable PTAnalysis
---   default-language: Haskell2010
---   build-depends: llvm-analysis, base > 3 && < 5, containers
---   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
---   ghc-prof-options: -auto-all
---   main-is: PointsTo.hs
---   hs-source-dirs: tests
+executable PTAnalysis
+  default-language: Haskell2010
+  build-depends: llvm-analysis, base > 3 && < 5, containers, llvm-data-interop
+  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+  ghc-prof-options: -auto-all
+  main-is: PointsTo.hs
+  hs-source-dirs: tests
 
 -- executable ViewCallGraph
 --   default-language: Haskell2010
