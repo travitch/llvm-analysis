@@ -11,7 +11,7 @@ import Data.Graph.Inductive hiding ( Gr, (><) )
 import Data.GraphViz
 import Data.IntMap ( IntMap )
 import qualified Data.IntMap as IM
-import Data.List ( foldl' )
+import Data.List ( foldl', mapAccumR, transpose )
 import Data.Maybe ( mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
@@ -95,10 +95,68 @@ saturate dg worklist g = case viewl worklist of
       case isPointerType (valueType val) of
         False -> saturate dg rest g
         True -> addStoreEdges dg itm val dest rest g
-    CallInst {} -> saturate dg rest g
-    InvokeInst {} -> saturate dg rest g
-    _ -> error ("Unexpected instruction type: " ++ show itm)
+    CallInst { callFunction = cf, callArguments = args } ->
+      addCallEdges dg rest g itm cf (map fst args)
+    InvokeInst { invokeFunction = cf, invokeArguments = args } ->
+      addCallEdges dg rest g itm cf (map fst args)
+    _ -> error ("Unexpected instruction type in Andersen saturation: " ++ show itm)
 
+-- | A call is essentially a copy of a pointer in the caller to an
+-- argument node (which will later be copied in the callee).
+--
+-- Start by zipping together the actual arguments and formal argument
+-- lists.  Filter out the non-pointer entries.
+--
+-- FIXME: Handle var-arg functions somehow
+addCallEdges :: DepGraph -> Worklist -> PTG -> Instruction -> Value -> [Value] -> PTG
+addCallEdges dg worklist g itm calledFunc args =
+  case null newEdges of
+    False -> saturate dg2 worklist' g'
+    True -> saturate dg2 worklist g
+  where
+    (possibleCallees, dg1) = case valueContent calledFunc of
+      -- Direct call
+      FunctionC f -> ([ f ], dg)
+      -- Indirect call: figure out what this value could possibly
+      -- point to by consulting the points-to graph.  Note that this
+      -- actually induces an extra dependency in the DepGraph (this is
+      -- on-the-fly callgraph construction).
+      _ -> undefined
+    possibleFormalLists = map functionParameters possibleCallees
+    formalsByPosition = transpose possibleFormalLists
+    allActualFormalMap = zip args formalsByPosition
+    pointerActualFormalMap = keepPointerParams allActualFormalMap
+    keepPointerParams = filter (isPointerType . valueType . fst)
+    (dg2, locMap) = mapAccumR getLocs dg1 pointerActualFormalMap
+    -- The locations pointed to by the actuals are the targets of new
+    -- points-to edges, while the locations of the formals are the
+    -- sources of the edges.
+    getLocs depGraph (actual, formals) =
+      let (depGraph', actualLocs) = getLocationsReferencedBy g itm depGraph actual
+          (depGraph'', formalLocs) = mapAccumR (getLocationsReferencedBy g itm) depGraph' formals
+      in (depGraph'', zip actualLocs formalLocs)
+
+    newEdges = locMapToEdges g locMap
+    usedSrcs = foldl' accumUsedSrcs S.empty newEdges
+    newWorklistItems = affectedInstructions usedSrcs dg2
+    worklist' = worklist >< Seq.fromList newWorklistItems
+    g' = foldl' (flip (&)) g newEdges
+
+
+-- | The @locMap@ is an assoc list mapping the locations of actual
+-- parameters to all of the potential formal parameter locations they
+-- could correspond to.  The locations of actuals are the *targets* of
+-- points-to graph edges, while the locations of formals are the
+-- *sources*.
+locMapToEdges g locMap = undefined
+-- Fold over the loc-map to deal with each argument, then use an inner
+-- fold over the sources and start identifying/checking edges.
+-- Alternatively, use repeat to "copy" the targets to each pair of
+-- sources and concat them. to use a single fold.
+
+
+accumUsedSrcs :: Set Int -> Context a b -> Set Int
+accumUsedSrcs acc (_, src, _, _) = S.insert src acc
 
 -- | Handle adding edges induced by a @StoreInst@.
 addStoreEdges :: DepGraph -> Instruction -> Value -> Value -> Worklist -> PTG -> PTG
@@ -112,11 +170,10 @@ addStoreEdges dg i val dest worklist g =
     -- possible dependencies to come back.
     True -> saturate dg2 worklist g
   where
-    accumUsedSrcs acc (_, src, _, _) = S.insert src acc
-    (dg1, newTargets) = getLocationsReferencedByStore dg i val g
-    (dg2, newSrcs) = getLocationsReferencedByStore dg1 i dest g
+    (dg1, newTargets) = getLocationsReferencedBy g i dg val
+    (dg2, newSrcs) = getLocationsReferencedBy g i dg1 dest
     newEdges = makeNewEdges g newSrcs newTargets
-    usedSrcs = foldl accumUsedSrcs S.empty newEdges
+    usedSrcs = foldl' accumUsedSrcs S.empty newEdges
     newWorklistItems = affectedInstructions usedSrcs dg2
     worklist' = worklist >< Seq.fromList newWorklistItems
     g' = foldl' (flip (&)) g newEdges
@@ -171,14 +228,15 @@ makeNewEdges g newSrcs newTargets =
 -- location being loaded from.  Keep track of the number of
 -- dereferences (loads).  Take that many steps (across all outgoing
 -- edges) from the location in the points-to graph.
-getLocationsReferencedByStore :: DepGraph
-                                 -> Instruction
-                                 -> Value
-                                 -> PTG
-                                 -> (DepGraph, [Node])
-getLocationsReferencedByStore dg0 storeInst v g = getLocs v 0
+getLocationsReferencedBy :: IsValue a
+                            => PTG
+                            -> Instruction
+                            -> DepGraph
+                            -> a
+                            -> (DepGraph, [Node])
+getLocationsReferencedBy g storeInst dg0 v = getLocs v 0
   where
-    getLocs :: Value -> Int -> (DepGraph, [Node])
+    getLocs :: IsValue a => a -> Int -> (DepGraph, [Node])
     getLocs val derefCount = case valueContent val of
       -- This also needs to handle GEP instructions later, also
       -- (maybe) select, extractelement, and extractvalue.  This also
@@ -195,7 +253,13 @@ getLocationsReferencedByStore dg0 storeInst v g = getLocs v 0
       -- node.
       _ -> collectLocationNodes g dg0 storeInst val derefCount
 
-collectLocationNodes :: PTG -> DepGraph -> Instruction -> Value -> Int -> (DepGraph, [Node])
+collectLocationNodes :: IsValue a
+                        => PTG
+                        -> DepGraph
+                        -> Instruction
+                        -> a
+                        -> Int
+                        -> (DepGraph, [Node])
 collectLocationNodes g dg0 storeInst val derefCount =
   collect dg0 derefCount [valueUniqueId val]
   where
