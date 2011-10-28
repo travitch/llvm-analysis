@@ -22,6 +22,7 @@ import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Internal.PatriciaTree
 import Data.LLVM.Types
 
+import System.IO.Unsafe
 import Text.Printf
 import Debug.Trace
 debug = flip trace
@@ -70,7 +71,7 @@ runPointsToAnalysis m = Andersen g
     allLocations = concat [globalLocations, argumentLocations, localLocations]
     -- The initial graph contains all locations in the program, along
     -- with edges induced by global initializers.
-    graph0 = mkGraph allLocations globalEdges `debug` printf "Points-to graph has: %s\n" (show allLocations)
+    graph0 = mkGraph allLocations globalEdges
     worklist0 = Seq.fromList edgeInducers
     g = saturate IM.empty worklist0 graph0
 
@@ -84,10 +85,6 @@ extractLocations i acc@(ptgNodes, insts) = case i of
   CallInst {} -> (ptgNodes, i : insts)
   InvokeInst {} -> (ptgNodes, i : insts)
   _ -> acc
-
--- The initial worklist should be all of the store instructions and
--- calls?  But how do you identify affected stores/calls when adding
--- edges?
 
 -- | Saturate the points-to graph using a worklist algorithm.
 saturate :: DepGraph -> Worklist -> PTG -> PTG
@@ -120,7 +117,8 @@ addStoreEdges dg i val dest worklist g =
     (dg2, newSrcs) = getLocationsReferencedByStore dg1 i dest g
     newEdges = makeNewEdges g newSrcs newTargets
     usedSrcs = foldl accumUsedSrcs S.empty newEdges
-    worklist' = worklist >< Seq.fromList (affectedInstructions usedSrcs dg2)
+    newWorklistItems = affectedInstructions usedSrcs dg2
+    worklist' = worklist >< Seq.fromList newWorklistItems
     g' = foldl' (flip (&)) g newEdges
 
 affectedInstructions :: Set Int -> DepGraph -> [Instruction]
@@ -134,14 +132,24 @@ affectedInstructions usedSrcs dg = S.toList instSet
 -- returned.
 makeNewEdges :: PTG -> [Node] -> [Node] -> [Context NodeTag ()]
 makeNewEdges g newSrcs newTargets =
-  map toContext newPairs
+  mapMaybe toContext newSrcs
   where
-    notInGraph (src, tgt) = notElem tgt (suc g src)
-    toContext (src, tgt) =
-      let (adjIn, n, lbl, adjOut) = context g src
-      in (adjIn, n, lbl, ((), tgt) : adjOut)
-    allPairs = concatMap (zip newSrcs . repeat) newTargets
-    newPairs = filter notInGraph allPairs
+    notInGraph src tgt = notElem tgt (suc g src)
+    -- | Create a new context for each src in the graph.  A context is
+    -- only created if it adds new targets.  This is to make worklist
+    -- management easier; if there are no new edges, the worklist is
+    -- not updated.
+    --
+    -- Note that all edges for each source are added at once to the
+    -- context.  Using separate contexts for each new edge would
+    -- require changes later, otherwise some contexts could overwrite
+    -- others, losing edges.
+    toContext src =
+      let targets = filter (notInGraph src) newTargets
+          (adjIn, n, lbl, adjOut) = context g src
+      in case targets of
+        [] -> Nothing
+        _ -> Just (adjIn, n, lbl, map (\t->((), t)) targets ++ adjOut)
 
 -- | Given a @Value@ that is an operand of a @StoreInst@, find all of
 -- the locations in the points-to graph that it refers to.  This means
@@ -178,8 +186,6 @@ getLocationsReferencedByStore dg0 storeInst v g = getLocs v 0
       -- (integers turned into pointers, for example)
       InstructionC (LoadInst { loadAddress = addr }) ->
         getLocs addr (derefCount + 1)
-        -- let dg' = IM.insertWith S.union (valueUniqueId addr) (S.singleton storeInst) dg
-        -- in
       InstructionC (BitcastInst { castedValue = cv }) ->
         getLocs cv derefCount
       -- In this fallback case, @val@ should be a node in the
