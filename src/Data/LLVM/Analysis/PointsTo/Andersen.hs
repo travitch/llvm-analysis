@@ -32,9 +32,6 @@ data NodeTag = Location Value
              -- | IndirectCall Value
              deriving (Ord, Eq, Show)
 
-instance Labellable NodeTag where
-  toLabelValue (Location v) = toLabelValue v
-
 type PTGEdge = (Int, Int, ())
 type PTGNode = (Int, NodeTag)
 type PTG = Gr NodeTag ()
@@ -47,19 +44,16 @@ type DepGraph = IntMap (Set Instruction)
 
 data Andersen = Andersen PTG
 
-pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
-                                    , fmtEdge = \(_,_,_) -> [toLabel ""]
-                                    }
-
-viewPointsToGraph :: Andersen -> IO ()
-viewPointsToGraph (Andersen g) = do
-  let dg = graphToDot pointsToParams g
-  _ <- runGraphvizCanvas' dg Gtk
-  return ()
-
 instance PointsToAnalysis Andersen where
   mayAlias (Andersen _) _ _ = True
-  pointsTo (Andersen _) _ = S.empty
+  pointsTo = andersenPointsTo
+
+andersenPointsTo :: (IsValue a) => Andersen -> a -> Set Value
+andersenPointsTo (Andersen g) v =
+  S.fromList $ map (unloc . lab g) (suc g (valueUniqueId v))
+  where
+    unloc (Just (Location l)) = l
+
 
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
@@ -115,7 +109,11 @@ addStoreEdges dg i val dest worklist g =
   -- Only update g and the worklist if there were new edges added.
   case null newEdges of
     False -> saturate dg2 worklist' g'
-    True -> saturate dg worklist g
+    -- IMPORTANT: Note that we need to propagate dependencies (the
+    -- DepGraph) changes even if we didn't add any edges this time.
+    -- Edges could be added later and we need to know all of the
+    -- possible dependencies to come back.
+    True -> saturate dg2 worklist g
   where
     accumUsedSrcs acc (_, src, _, _) = S.insert src acc
     (dg1, newTargets) = getLocationsReferencedByStore dg i val g
@@ -139,8 +137,9 @@ makeNewEdges g newSrcs newTargets =
   map toContext newPairs
   where
     notInGraph (src, tgt) = notElem tgt (suc g src)
-    toContext (src, tgt) = let Just lbl = lab g src
-                           in ([], src, lbl, [((), tgt)])
+    toContext (src, tgt) =
+      let (adjIn, n, lbl, adjOut) = context g src
+      in (adjIn, n, lbl, ((), tgt) : adjOut)
     allPairs = concatMap (zip newSrcs . repeat) newTargets
     newPairs = filter notInGraph allPairs
 
@@ -238,3 +237,19 @@ isPointerType (TypePointer _ _) = True
 isPointerType (TypeNamed _ it) = isPointerType it
 isPointerType _ = False
 
+
+
+-- Debugging visualization stuff
+
+instance Labellable NodeTag where
+  toLabelValue (Location v) = toLabelValue v
+
+pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
+                                    , fmtEdge = \(_,_,_) -> [toLabel ""]
+                                    }
+
+viewPointsToGraph :: Andersen -> IO ()
+viewPointsToGraph (Andersen g) = do
+  let dg = graphToDot pointsToParams g
+  _ <- runGraphvizCanvas' dg Gtk
+  return ()
