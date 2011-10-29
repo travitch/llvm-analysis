@@ -60,7 +60,7 @@ andersenPointsTo (Andersen g) v =
 -- instance of PointsToAnalysis, which can be used to query the
 -- results.
 runPointsToAnalysis :: Module -> Andersen
-runPointsToAnalysis m = Andersen g
+runPointsToAnalysis m = Andersen g -- `debugGraph` g
   where
     fs = moduleDefinedFunctions m
     blocks = concatMap functionBody fs
@@ -101,6 +101,14 @@ saturate dg worklist g = case viewl worklist of
       addCallEdges dg rest g itm cf (map fst args)
     _ -> error ("Unexpected instruction type in Andersen saturation: " ++ show itm)
 
+keepPointerParams :: [(Value, b)] -> [(Value, b)]
+keepPointerParams = filter (isPointerType . valueType . fst)
+
+showContextList :: PTG -> [Context NodeTag ()] -> String
+showContextList g = unlines . concatMap toS
+  where
+    toS (_, _, lbl, adjOut) = map (printf "%s -> %s" (show lbl)) (map (show . lab g . snd) adjOut)
+
 -- | A call is essentially a copy of a pointer in the caller to an
 -- argument node (which will later be copied in the callee).
 --
@@ -111,7 +119,7 @@ saturate dg worklist g = case viewl worklist of
 addCallEdges :: DepGraph -> Worklist -> PTG -> Instruction -> Value -> [Value] -> PTG
 addCallEdges dg worklist g itm calledFunc args =
   case null newEdges of
-    False -> saturate dg2 worklist' g'
+    False -> saturate dg2 worklist' g' `debug` showContextList g newEdges
     True -> saturate dg2 worklist g
   where
     (possibleCallees, dg1) = case valueContent calledFunc of
@@ -123,18 +131,23 @@ addCallEdges dg worklist g itm calledFunc args =
       -- on-the-fly callgraph construction).
       _ -> undefined
     possibleFormalLists = map functionParameters possibleCallees
+    -- All of the formal arguments for all possible callees, grouped
+    -- by argument position.
     formalsByPosition = transpose possibleFormalLists
+    -- The actual arguments paired up with all of their possible
+    -- corresponding formals
     allActualFormalMap = zip args formalsByPosition
+    -- Only the pointer-typed parameters from the allActualFormalMap
     pointerActualFormalMap = keepPointerParams allActualFormalMap
-    keepPointerParams = filter (isPointerType . valueType . fst)
     (dg2, locMap) = mapAccumR getLocs dg1 pointerActualFormalMap
     -- The locations pointed to by the actuals are the targets of new
     -- points-to edges, while the locations of the formals are the
     -- sources of the edges.
+    getLocs :: IsValue a => DepGraph -> (a, [Argument]) -> (DepGraph, ([Node], [Node]))
     getLocs depGraph (actual, formals) =
       let (depGraph', actualLocs) = getLocationsReferencedBy g itm depGraph actual
           (depGraph'', formalLocs) = mapAccumR (getLocationsReferencedBy g itm) depGraph' formals
-      in (depGraph'', zip actualLocs formalLocs)
+      in (depGraph'', (actualLocs, concat formalLocs)) `debug` show (map (show . lab g) actualLocs)
 
     newEdges = locMapToEdges g locMap
     usedSrcs = foldl' accumUsedSrcs S.empty newEdges
@@ -148,7 +161,19 @@ addCallEdges dg worklist g itm calledFunc args =
 -- could correspond to.  The locations of actuals are the *targets* of
 -- points-to graph edges, while the locations of formals are the
 -- *sources*.
-locMapToEdges g locMap = undefined
+locMapToEdges :: PTG -> [([Node], [Node])] -> [Context NodeTag ()]
+locMapToEdges g locMap =
+  IM.foldWithKey makeContexts [] unifiedLocMap
+  where
+    unifiedLocMap = foldl' makeUnifiedLocs IM.empty locMap
+    makeUnifiedLocs m (tgts, srcs) = foldl' (mkEdgesFromSrcs tgts) m srcs
+    mkEdgesFromSrcs tgts m src = IM.insertWith S.union src (S.fromList tgts) m
+    edgeNotInGraph src tgt = notElem tgt (suc g src)
+    makeContexts src tgtSet acc =
+      let newTgts = filter (edgeNotInGraph src) $ S.toList tgtSet
+          (adjIn, n, lbl, adjOut) = context g src
+      in (adjIn, n, lbl, map (\t->((),t)) newTgts ++ adjOut) : acc
+
 -- Fold over the loc-map to deal with each argument, then use an inner
 -- fold over the sources and start identifying/checking edges.
 -- Alternatively, use repeat to "copy" the targets to each pair of
@@ -323,3 +348,7 @@ viewPointsToGraph (Andersen g) = do
   let dg = graphToDot pointsToParams g
   _ <- runGraphvizCanvas' dg Gtk
   return ()
+
+debugGraph v g = unsafePerformIO $ do
+  viewPointsToGraph (Andersen g)
+  return v

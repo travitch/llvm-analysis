@@ -15,17 +15,18 @@ int * r;
 int ** pq;
 int ** pp;
 
-void callee(int * ptr)
+void callee(int ** ptr)
 {
-  *ptr = *q;
+  *ptr = q;
 }
 
 void caller()
 {
-  callee(p);
+  callee(pp);
 }
 
 void setup()
 {
   q = &a;
+  pp = &p;
 }
