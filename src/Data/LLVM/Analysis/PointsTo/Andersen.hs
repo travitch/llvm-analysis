@@ -122,7 +122,7 @@ showContextList tag g = (tag'++) . unlines . concatMap toS
 addCallEdges :: DepGraph -> Worklist -> PTG -> Instruction -> Value -> [Value] -> PTG
 addCallEdges dg worklist g itm calledFunc args =
   case null newEdges of
-    False -> saturate dg2 worklist' g' `debug` showContextList "addCallEdges" g newEdges
+    False -> saturate dg2 worklist' g' `debug` show newEdges -- showContextList "addCallEdges" g newEdges
     True -> saturate dg2 worklist g
   where
     (possibleCallees, dg1) = case valueContent calledFunc of
@@ -179,6 +179,8 @@ locMapToEdges :: PTG -> [([Node], [Node])] -> [Context NodeTag ()]
 locMapToEdges g locMap =
   IM.foldWithKey makeContexts [] unifiedLocMap
   where
+    -- This is a map where each src is mapped to all of the targets
+    -- that will be added.
     unifiedLocMap = foldl' makeUnifiedLocs IM.empty locMap
     makeUnifiedLocs m (tgts, srcs) = foldl' (mkEdgesFromSrcs tgts) m srcs
     mkEdgesFromSrcs tgts m src = IM.insertWith S.union src (S.fromList tgts) m
@@ -188,10 +190,6 @@ locMapToEdges g locMap =
           (adjIn, n, lbl, adjOut) = context g src
       in (adjIn, n, lbl, map (\t->((),t)) newTgts ++ adjOut) : acc `debug`
            showNodeLabels "->newTgtLabels" g newTgts
---         show (map (show . lab g) newTgts)
-
--- the edge %ptr->@a is apparently in adjOut: already in place before
--- locMapToEdges iscalled.  How?
 
 -- Fold over the loc-map to deal with each argument, then use an inner
 -- fold over the sources and start identifying/checking edges.
@@ -221,6 +219,9 @@ addStoreEdges dg i val dest worklist g =
     newWorklistItems = affectedInstructions usedSrcs dg2
     worklist' = worklist >< Seq.fromList newWorklistItems
     g' = foldl' (flip (&)) g newEdges
+
+-- FIXME: use an IntMap here to uniquely map srcs to new targets, then
+-- do the testing.
 
 affectedInstructions :: Set Int -> DepGraph -> [Instruction]
 affectedInstructions usedSrcs dg = S.toList instSet
