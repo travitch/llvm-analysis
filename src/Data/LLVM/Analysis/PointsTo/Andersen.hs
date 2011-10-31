@@ -27,8 +27,8 @@ import Text.Printf
 import Debug.Trace
 debug = flip trace
 
-data NodeTag = Location Value
-             -- | Argument Value
+data NodeTag = PtrToLocation Value
+             | Location Value
              -- | DirectCall Value
              -- | IndirectCall Value
              deriving (Ord, Eq, Show)
@@ -54,6 +54,7 @@ andersenPointsTo (Andersen g) v =
   S.fromList $ map (unloc . lab g) (suc g (valueUniqueId v))
   where
     unloc (Just (Location l)) = l
+    unloc (Just (PtrToLocation l)) = l
 
 
 -- | Run the points-to analysis and return an object that is an
@@ -69,9 +70,10 @@ runPointsToAnalysis m = Andersen g -- `debugGraph` g
     argumentLocations = foldr extractArgs [] fs
     (localLocations, edgeInducers) = foldr extractLocations ([], []) insts
     allLocations = concat [globalLocations, argumentLocations, localLocations]
+    initialEdges = globalEdges
     -- The initial graph contains all locations in the program, along
     -- with edges induced by global initializers.
-    graph0 = mkGraph allLocations globalEdges
+    graph0 = mkGraph allLocations initialEdges
     worklist0 = Seq.fromList edgeInducers
     g = saturate IM.empty worklist0 graph0
 
@@ -80,7 +82,7 @@ extractLocations :: Instruction
                     -> ([PTGNode], [Instruction])
 extractLocations i acc@(ptgNodes, insts) = case i of
   AllocaInst { instructionUniqueId = uid } ->
-    ((uid, Location (Value i)) : ptgNodes, insts)
+    ((uid, PtrToLocation (Value i)) : ptgNodes, insts)
   StoreInst {} -> (ptgNodes, i : insts)
   CallInst {} -> (ptgNodes, i : insts)
   InvokeInst {} -> (ptgNodes, i : insts)
@@ -88,7 +90,7 @@ extractLocations i acc@(ptgNodes, insts) = case i of
 
 -- | Saturate the points-to graph using a worklist algorithm.
 saturate :: DepGraph -> Worklist -> PTG -> PTG
-saturate dg worklist g = case viewl worklist of
+saturate dg worklist g = case viewl worklist `debug` "\nSTEP\n\n" of
   EmptyL -> g
   itm :< rest -> case itm of
     StoreInst { storeValue = val, storeAddress = dest } ->
@@ -104,9 +106,10 @@ saturate dg worklist g = case viewl worklist of
 keepPointerParams :: [(Value, b)] -> [(Value, b)]
 keepPointerParams = filter (isPointerType . valueType . fst)
 
-showContextList :: PTG -> [Context NodeTag ()] -> String
-showContextList g = unlines . concatMap toS
+showContextList :: String -> PTG -> [Context NodeTag ()] -> String
+showContextList tag g = (tag'++) . unlines . concatMap toS
   where
+    tag' = tag ++ "\n"
     toS (_, _, lbl, adjOut) = map (printf "%s -> %s" (show lbl)) (map (show . lab g . snd) adjOut)
 
 -- | A call is essentially a copy of a pointer in the caller to an
@@ -119,7 +122,7 @@ showContextList g = unlines . concatMap toS
 addCallEdges :: DepGraph -> Worklist -> PTG -> Instruction -> Value -> [Value] -> PTG
 addCallEdges dg worklist g itm calledFunc args =
   case null newEdges of
-    False -> saturate dg2 worklist' g' `debug` showContextList g newEdges
+    False -> saturate dg2 worklist' g' `debug` showContextList "addCallEdges" g newEdges
     True -> saturate dg2 worklist g
   where
     (possibleCallees, dg1) = case valueContent calledFunc of
@@ -143,11 +146,16 @@ addCallEdges dg worklist g itm calledFunc args =
     -- The locations pointed to by the actuals are the targets of new
     -- points-to edges, while the locations of the formals are the
     -- sources of the edges.
-    getLocs :: IsValue a => DepGraph -> (a, [Argument]) -> (DepGraph, ([Node], [Node]))
+--    getLocs :: IsValue a => DepGraph -> (a, [Argument]) -> (DepGraph, ([Node], [Node]))
     getLocs depGraph (actual, formals) =
       let (depGraph', actualLocs) = getLocationsReferencedBy g itm depGraph actual
-          (depGraph'', formalLocs) = mapAccumR (getLocationsReferencedBy g itm) depGraph' formals
-      in (depGraph'', (actualLocs, concat formalLocs)) `debug` show (map (show . lab g) actualLocs)
+          formalLocs = map argumentUniqueId formals `debug` show formals
+          addDep m formalLoc = IM.insertWith S.union formalLoc (S.singleton itm) m
+          depGraph'' = foldl' addDep depGraph' formalLocs
+      in (depGraph'', (actualLocs, formalLocs)) `debug`
+            showNodeLabels "->actualLoclLabels" g actualLocs `debug`
+            showNodeLabels "-->formalLocLabels" g formalLocs
+
 
     newEdges = locMapToEdges g locMap
     usedSrcs = foldl' accumUsedSrcs S.empty newEdges
@@ -155,6 +163,12 @@ addCallEdges dg worklist g itm calledFunc args =
     worklist' = worklist >< Seq.fromList newWorklistItems
     g' = foldl' (flip (&)) g newEdges
 
+showNodeLabels :: String -> PTG -> [Node] -> String
+showNodeLabels tag g = (tag'++) . unlines . map toS
+  where
+    tag' = tag ++ "\n"
+    toS n = let Just lbl = lab g n
+            in "  " ++ show lbl
 
 -- | The @locMap@ is an assoc list mapping the locations of actual
 -- parameters to all of the potential formal parameter locations they
@@ -172,7 +186,12 @@ locMapToEdges g locMap =
     makeContexts src tgtSet acc =
       let newTgts = filter (edgeNotInGraph src) $ S.toList tgtSet
           (adjIn, n, lbl, adjOut) = context g src
-      in (adjIn, n, lbl, map (\t->((),t)) newTgts ++ adjOut) : acc
+      in (adjIn, n, lbl, map (\t->((),t)) newTgts ++ adjOut) : acc `debug`
+           showNodeLabels "->newTgtLabels" g newTgts
+--         show (map (show . lab g) newTgts)
+
+-- the edge %ptr->@a is apparently in adjOut: already in place before
+-- locMapToEdges iscalled.  How?
 
 -- Fold over the loc-map to deal with each argument, then use an inner
 -- fold over the sources and start identifying/checking edges.
@@ -184,10 +203,10 @@ accumUsedSrcs :: Set Int -> Context a b -> Set Int
 accumUsedSrcs acc (_, src, _, _) = S.insert src acc
 
 -- | Handle adding edges induced by a @StoreInst@.
-addStoreEdges :: DepGraph -> Instruction -> Value -> Value -> Worklist -> PTG -> PTG
+--addStoreEdges :: DepGraph -> Instruction -> Value -> Value -> Worklist -> PTG -> PTG
 addStoreEdges dg i val dest worklist g =
   -- Only update g and the worklist if there were new edges added.
-  case null newEdges of
+  case null newEdges `debug` showContextList "addStoreEdges" g newEdges `debug` ("From: " ++ show i) of
     False -> saturate dg2 worklist' g'
     -- IMPORTANT: Note that we need to propagate dependencies (the
     -- DepGraph) changes even if we didn't add any edges this time.
@@ -253,7 +272,7 @@ makeNewEdges g newSrcs newTargets =
 -- location being loaded from.  Keep track of the number of
 -- dereferences (loads).  Take that many steps (across all outgoing
 -- edges) from the location in the points-to graph.
-getLocationsReferencedBy :: IsValue a
+getLocationsReferencedBy :: (IsValue a, Show a)
                             => PTG
                             -> Instruction
                             -> DepGraph
@@ -261,7 +280,7 @@ getLocationsReferencedBy :: IsValue a
                             -> (DepGraph, [Node])
 getLocationsReferencedBy g storeInst dg0 v = getLocs v 0
   where
-    getLocs :: IsValue a => a -> Int -> (DepGraph, [Node])
+    getLocs :: (IsValue a, Show a) => a -> Int -> (DepGraph, [Node])
     getLocs val derefCount = case valueContent val of
       -- This also needs to handle GEP instructions later, also
       -- (maybe) select, extractelement, and extractvalue.  This also
@@ -271,35 +290,49 @@ getLocationsReferencedBy g storeInst dg0 v = getLocs v 0
         getLocs addr (derefCount + 1)
       InstructionC (BitcastInst { castedValue = cv }) ->
         getLocs cv derefCount
+      ArgumentC a ->
+        collectLocationNodes g storeInst dg0 ({-derefCount +-} 1) [argumentUniqueId a]
+
+      -- ArgumentC _ ->
+      --   collectLocationNodes g dg0 storeInst val (derefCount - 1)
+
       -- In this fallback case, @val@ should be a node in the
       -- Points-to graph.  Collect everything @derefCount@ steps from
       -- it and return that, along with the updated DepGraph.  The
       -- depgraph needs to be updated with an entry for each non-leaf
       -- node.
-      _ -> collectLocationNodes g dg0 storeInst val derefCount
+      _ -> collectLocationNodes g storeInst dg0 derefCount [valueUniqueId val]
 
-collectLocationNodes :: IsValue a
-                        => PTG
-                        -> DepGraph
+collectLocationNodes :: -- (IsValue a, Show a)
+                       --  =>
+                        PTG
                         -> Instruction
-                        -> a
+                        -> DepGraph
                         -> Int
+                        -> [Node] -- a
                         -> (DepGraph, [Node])
-collectLocationNodes g dg0 storeInst val derefCount =
-  collect dg0 derefCount [valueUniqueId val]
+collectLocationNodes g storeInst dg0 steps seedNodes =
+  collect dg0 steps seedNodes `debug` printf "Taking %d hops from %s" steps (show (lab g (seedNodes !! 0)))  -- of
+--   case valueContent val
+-- --    ArgumentC _ -> collect dg0 (derefCount - 1) [valueUniqueId val]
+--     _ -> collect dg0 derefCount [valueUniqueId val]
   where
     addDep dg n = IM.insertWith S.union n (S.singleton storeInst) dg
-    collect dg 0 resultNodes = (dg, resultNodes)
-    collect dg remainingHops startNodes =
-      let nextNodes = concatMap (suc g) startNodes
-          dg' = foldl' addDep dg startNodes
-      in collect dg' (remainingHops - 1) nextNodes
+    collect dg remainingHops currentNodes
+      | remainingHops <= 0 = (dg, currentNodes)
+      | otherwise =
+        let nextNodes = concatMap (suc g) currentNodes
+            dg' = foldl' addDep dg currentNodes
+        in collect dg' (remainingHops - 1) nextNodes
+
+    -- collect dg 0 resultNodes =
+    -- collect dg remainingHops startNodes =
 
 
 -- | This only re-allocates the small part of the list each iteration,
 -- so should remain efficient.
 extractArgs :: Function -> [PTGNode] -> [PTGNode]
-extractArgs f acc = concat [map argToNode (functionParameters f), acc]
+extractArgs f nacc = map argToNode (functionParameters f) ++ nacc
   where
     argToNode a = (argumentUniqueId a, Location (Value a))
 
@@ -316,7 +349,7 @@ getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
       Just i -> case valueContent i of
         ConstantC _ -> Nothing
         _ -> Just (globalVariableUniqueId gv, valueUniqueId i, ())
-    makeGlobalLocation idExtractor val = (idExtractor val, Location (Value val))
+    makeGlobalLocation idExtractor val = (idExtractor val, PtrToLocation (Value val))
     externVals = moduleExternalValues m
     globalVals = moduleGlobalVariables m
     externFuncs = moduleExternalFunctions m
@@ -338,6 +371,7 @@ isPointerType _ = False
 
 instance Labellable NodeTag where
   toLabelValue (Location v) = toLabelValue v
+  toLabelValue (PtrToLocation v) = toLabelValue v
 
 pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
                                     , fmtEdge = \(_,_,_) -> [toLabel ""]
