@@ -1,3 +1,17 @@
+-- | This is a simple implementation of Andersen's points-to analysis.
+--
+-- TODO:
+--
+-- * Variable-length argument list functions
+--
+-- * Return values
+--
+-- * Arrays and field accesses (GetElementPtr support).  Include field
+--   sensitivity eventually.
+--
+-- * Add a predicate to the constructor to identify instructions that
+--   allocate memory objects.  Add a separate module with some default
+--   predicates (C-only, C and C++, etc)
 module Data.LLVM.Analysis.PointsTo.Andersen (
   -- * Types
   Andersen,
