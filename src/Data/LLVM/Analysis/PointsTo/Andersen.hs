@@ -184,11 +184,13 @@ locMapToEdges g locMap =
     unifiedLocMap = foldl' makeUnifiedLocs IM.empty locMap
     makeUnifiedLocs m (tgts, srcs) = foldl' (mkEdgesFromSrcs tgts) m srcs
     mkEdgesFromSrcs tgts m src = IM.insertWith S.union src (S.fromList tgts) m
-    edgeNotInGraph src tgt = notElem tgt (suc g src)
+    edgeNotInGraph src tgt = notElem tgt (suc g src) `debug` printf "  EdgeTest: %d->%d in %s" src tgt (show (suc g src))
     makeContexts src tgtSet acc =
       let newTgts = filter (edgeNotInGraph src) $ S.toList tgtSet
           (adjIn, n, lbl, adjOut) = context g src
-      in (adjIn, n, lbl, map (\t->((),t)) newTgts ++ adjOut) : acc `debug`
+      in case newTgts of
+        [] -> acc
+        _ -> (adjIn, n, lbl, map (\t->((),t)) newTgts ++ adjOut) : acc `debug`
            showNodeLabels "->newTgtLabels" g newTgts
 
 -- Fold over the loc-map to deal with each argument, then use an inner
