@@ -152,7 +152,7 @@ addCallEdges dg worklist g itm calledFunc args =
       -- on-the-fly callgraph construction).
       _ -> let (dg', flocs) = getLocationsReferencedBy g itm dg calledFunc
                dg'' = IM.insertWith S.union (valueUniqueId calledFunc) (S.singleton itm) dg'
-           in (map (toFunction . lab g) flocs, dg'') `debug` show (map (lab g) flocs)
+           in (map (toFunction . lab g) flocs, dg'')
     possibleFormalLists = map functionParameters possibleCallees
     -- All of the formal arguments for all possible callees, grouped
     -- by argument position.
@@ -222,7 +222,7 @@ accumUsedSrcs acc (_, src, _, _) = S.insert src acc
 addStoreEdges :: DepGraph -> Instruction -> Value -> Value -> Worklist -> PTG -> PTG
 addStoreEdges dg i val dest worklist g =
   -- Only update g and the worklist if there were new edges added.
-  case newEdges `debug` show i of
+  case newEdges of
     -- IMPORTANT: Note that we need to propagate dependencies (the
     -- DepGraph) changes even if we didn't add any edges this time.
     -- Edges could be added later and we need to know all of the
