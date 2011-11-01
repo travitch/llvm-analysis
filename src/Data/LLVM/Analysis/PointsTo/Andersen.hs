@@ -62,16 +62,9 @@ instance PointsToAnalysis Andersen where
   mayAlias (Andersen _) _ _ = True
   pointsTo = andersenPointsTo
 
-
-
-unloc (Just (Location l)) = l
-unloc (Just (PtrToLocation l)) = l
-unloc (Just (PtrToFunction f)) = (Value f)
-
 andersenPointsTo :: (IsValue a) => Andersen -> a -> Set Value
 andersenPointsTo (Andersen g) v =
   S.fromList $ map (unloc . lab g) (suc g (valueUniqueId v))
-
 
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
@@ -122,21 +115,11 @@ saturate dg worklist g = case viewl worklist of
 keepPointerParams :: [(Value, b)] -> [(Value, b)]
 keepPointerParams = filter (isPointerType . valueType . fst)
 
-showContextList :: String -> PTG -> [Context NodeTag ()] -> String
-showContextList tag g = (tag'++) . unlines . concatMap toS
-  where
-    tag' = tag ++ "\n"
-    toS (_, _, lbl, adjOut) = map (printf "%s -> %s" (show lbl)) (map (show . lab g . snd) adjOut)
-
-toFunction (Just (PtrToFunction f)) = f
-
 -- | A call is essentially a copy of a pointer in the caller to an
 -- argument node (which will later be copied in the callee).
 --
 -- Start by zipping together the actual arguments and formal argument
 -- lists.  Filter out the non-pointer entries.
---
--- FIXME: Handle var-arg functions somehow
 addCallEdges :: DepGraph -> Worklist -> PTG -> Instruction -> Value -> [Value] -> PTG
 addCallEdges dg worklist g itm calledFunc args =
   case newEdges of
@@ -180,12 +163,6 @@ addCallEdges dg worklist g itm calledFunc args =
     worklist' = worklist >< Seq.fromList newWorklistItems
     g' = foldl' (flip (&)) g newEdges
 
-showNodeLabels :: String -> PTG -> [Node] -> String
-showNodeLabels tag g = (tag'++) . unlines . map toS
-  where
-    tag' = tag ++ "\n"
-    toS n = let Just lbl = lab g n
-            in "  " ++ show lbl
 
 -- | The @locMap@ is an assoc list mapping the locations of actual
 -- parameters to all of the potential formal parameter locations they
@@ -367,6 +344,8 @@ getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
     fs = map makeFunction funcs
     gedges = mapMaybe makeGlobalEdge globalVals
 
+-- Little helpers
+
 isPointerType :: Type -> Bool
 isPointerType (TypePointer _ _) = True
 isPointerType (TypeNamed _ it) = isPointerType it
@@ -376,6 +355,14 @@ isFunctionType :: Type -> Bool
 isFunctionType (TypeFunction _ _ _) = True
 isFunctionType (TypeNamed _ t) = isFunctionType t
 isFunctionType _ = False
+
+toFunction :: Maybe (NodeTag) -> Function
+toFunction (Just (PtrToFunction f)) = f
+
+unloc :: Maybe NodeTag -> Value
+unloc (Just (Location l)) = l
+unloc (Just (PtrToLocation l)) = l
+unloc (Just (PtrToFunction f)) = (Value f)
 
 
 -- Debugging visualization stuff
@@ -398,3 +385,16 @@ viewPointsToGraph (Andersen g) = do
 debugGraph v g = unsafePerformIO $ do
   viewPointsToGraph (Andersen g)
   return v
+
+showContextList :: String -> PTG -> [Context NodeTag ()] -> String
+showContextList tag g = (tag'++) . unlines . concatMap toS
+  where
+    tag' = tag ++ "\n"
+    toS (_, _, lbl, adjOut) = map (printf "%s -> %s" (show lbl)) (map (show . lab g . snd) adjOut)
+
+showNodeLabels :: String -> PTG -> [Node] -> String
+showNodeLabels tag g = (tag'++) . unlines . map toS
+  where
+    tag' = tag ++ "\n"
+    toS n = let Just lbl = lab g n
+            in "  " ++ show lbl
