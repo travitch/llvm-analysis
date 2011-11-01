@@ -29,6 +29,7 @@ debug = flip trace
 
 data NodeTag = PtrToLocation Value
              | Location Value
+             | PtrToFunction Function
              deriving (Ord, Eq, Show)
 
 type PTGEdge = (Int, Int, ())
@@ -47,12 +48,15 @@ instance PointsToAnalysis Andersen where
   mayAlias (Andersen _) _ _ = True
   pointsTo = andersenPointsTo
 
+
+
+unloc (Just (Location l)) = l
+unloc (Just (PtrToLocation l)) = l
+unloc (Just (PtrToFunction f)) = (Value f)
+
 andersenPointsTo :: (IsValue a) => Andersen -> a -> Set Value
 andersenPointsTo (Andersen g) v =
   S.fromList $ map (unloc . lab g) (suc g (valueUniqueId v))
-  where
-    unloc (Just (Location l)) = l
-    unloc (Just (PtrToLocation l)) = l
 
 
 -- | Run the points-to analysis and return an object that is an
@@ -92,7 +96,7 @@ saturate dg worklist g = case viewl worklist of
   EmptyL -> g
   itm :< rest -> case itm of
     StoreInst { storeValue = val, storeAddress = dest } ->
-      case isPointerType (valueType val) of
+      case isPointerType (valueType val) || isFunctionType (valueType val) of
         False -> saturate dg rest g
         True -> addStoreEdges dg itm val dest rest g
     CallInst { callFunction = cf, callArguments = args } ->
@@ -109,6 +113,8 @@ showContextList tag g = (tag'++) . unlines . concatMap toS
   where
     tag' = tag ++ "\n"
     toS (_, _, lbl, adjOut) = map (printf "%s -> %s" (show lbl)) (map (show . lab g . snd) adjOut)
+
+toFunction (Just (PtrToFunction f)) = f
 
 -- | A call is essentially a copy of a pointer in the caller to an
 -- argument node (which will later be copied in the callee).
@@ -130,7 +136,9 @@ addCallEdges dg worklist g itm calledFunc args =
       -- point to by consulting the points-to graph.  Note that this
       -- actually induces an extra dependency in the DepGraph (this is
       -- on-the-fly callgraph construction).
-      _ -> undefined
+      _ -> let (dg', flocs) = getLocationsReferencedBy g itm dg calledFunc
+               dg'' = IM.insertWith S.union (valueUniqueId calledFunc) (S.singleton itm) dg'
+           in (map (toFunction . lab g) flocs, dg'') `debug` show (map (lab g) flocs)
     possibleFormalLists = map functionParameters possibleCallees
     -- All of the formal arguments for all possible callees, grouped
     -- by argument position.
@@ -200,7 +208,7 @@ accumUsedSrcs acc (_, src, _, _) = S.insert src acc
 addStoreEdges :: DepGraph -> Instruction -> Value -> Value -> Worklist -> PTG -> PTG
 addStoreEdges dg i val dest worklist g =
   -- Only update g and the worklist if there were new edges added.
-  case newEdges of
+  case newEdges `debug` show i of
     -- IMPORTANT: Note that we need to propagate dependencies (the
     -- DepGraph) changes even if we didn't add any edges this time.
     -- Edges could be added later and we need to know all of the
@@ -337,6 +345,7 @@ getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
         ConstantC _ -> Nothing
         _ -> Just (globalVariableUniqueId gv, valueUniqueId i, ())
     makeGlobalLocation idExtractor val = (idExtractor val, PtrToLocation (Value val))
+    makeFunction val = (functionUniqueId val, PtrToFunction val)
     externVals = moduleExternalValues m
     globalVals = moduleGlobalVariables m
     externFuncs = moduleExternalFunctions m
@@ -344,7 +353,7 @@ getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
     es = map (makeGlobalLocation externalValueUniqueId) externVals
     gs = map (makeGlobalLocation globalVariableUniqueId) globalVals
     efs = map (makeGlobalLocation externalFunctionUniqueId) externFuncs
-    fs = map (makeGlobalLocation functionUniqueId) funcs
+    fs = map makeFunction funcs
     gedges = mapMaybe makeGlobalEdge globalVals
 
 isPointerType :: Type -> Bool
@@ -352,6 +361,10 @@ isPointerType (TypePointer _ _) = True
 isPointerType (TypeNamed _ it) = isPointerType it
 isPointerType _ = False
 
+isFunctionType :: Type -> Bool
+isFunctionType (TypeFunction _ _ _) = True
+isFunctionType (TypeNamed _ t) = isFunctionType t
+isFunctionType _ = False
 
 
 -- Debugging visualization stuff
@@ -359,6 +372,7 @@ isPointerType _ = False
 instance Labellable NodeTag where
   toLabelValue (Location v) = toLabelValue v
   toLabelValue (PtrToLocation v) = toLabelValue v
+  toLabelValue (PtrToFunction f) = toLabelValue (Value f)
 
 pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
                                     , fmtEdge = \(_,_,_) -> [toLabel ""]

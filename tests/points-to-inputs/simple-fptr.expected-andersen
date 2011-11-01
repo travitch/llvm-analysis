@@ -1,0 +1,7 @@
+fromList [ ("@q", fromList ["@a"])
+         , ("@r", fromList ["@b"])
+         , ("@pp", fromList ["@p"])
+         , ("@fptr", fromList ["@callee1"])
+         , ("@p", fromList ["@a"])
+         , ("%ptr1", fromList ["@p"])
+         ]
