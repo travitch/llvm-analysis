@@ -238,9 +238,6 @@ addStoreEdges dg i val dest worklist g =
     worklist' = worklist >< Seq.fromList newWorklistItems
     g' = foldl' (flip (&)) g newEdges
 
--- FIXME: use an IntMap here to uniquely map srcs to new targets, then
--- do the testing.
-
 affectedInstructions :: Set Int -> DepGraph -> [Instruction]
 affectedInstructions usedSrcs dg = S.toList instSet
   where
