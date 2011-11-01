@@ -1,3 +1,5 @@
 fromList [ ("@q", fromList ["@a"])
          , ("@p", fromList ["@a"])
+         , ("@pp", fromList ["@p"])
+         , ("%ptr", fromList ["@p"])
          ]
