@@ -2,11 +2,7 @@
 --
 -- TODO:
 --
--- * Test output parameters
---
 -- * Variable-length argument list functions
---
--- * Return values
 --
 -- * Arrays and field accesses (GetElementPtr support).  Include field
 --   sensitivity eventually.
@@ -66,7 +62,7 @@ instance PointsToAnalysis Andersen where
 
 andersenPointsTo :: (IsValue a) => Andersen -> a -> Set Value
 andersenPointsTo (Andersen g) v =
-  S.fromList $ map (unloc . lab g) (suc g (valueUniqueId v))
+  S.fromList $ map (unloc . lab g) (suc g (valueUniqueId v)) `debug` show (map (lab g) (suc g (valueUniqueId v)))
 
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
