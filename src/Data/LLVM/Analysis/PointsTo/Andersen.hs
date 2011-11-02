@@ -2,6 +2,8 @@
 --
 -- TODO:
 --
+-- * Be more robust against type/memory-unsafe programs.
+--
 -- * Variable-length argument list functions
 --
 -- * Arrays and field accesses (GetElementPtr support).  Include field
@@ -60,9 +62,13 @@ instance PointsToAnalysis Andersen where
   mayAlias (Andersen _) _ _ = True
   pointsTo = andersenPointsTo
 
+-- | The main entry point to see what a given value can point to by
+-- just inspecting the points-to graph.
 andersenPointsTo :: (IsValue a) => Andersen -> a -> Set Value
-andersenPointsTo (Andersen g) v =
-  S.fromList $ map (unloc . lab g) (suc g (valueUniqueId v)) `debug` show (map (lab g) (suc g (valueUniqueId v)))
+andersenPointsTo (Andersen g) v = S.fromList nodeValues
+  where
+    pointsToNodes = suc g (valueUniqueId v)
+    nodeValues = map (unloc . lab g) pointsToNodes
 
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
