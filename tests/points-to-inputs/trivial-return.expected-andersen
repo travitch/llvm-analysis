@@ -1,0 +1,4 @@
+fromList [ ("@q", fromList ["@a"])
+         , ("@pq", fromList ["@q"])
+         , ("@p", fromList ["@a"])
+         ]

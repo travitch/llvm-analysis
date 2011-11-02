@@ -2,6 +2,8 @@
 --
 -- TODO:
 --
+-- * Test output parameters
+--
 -- * Variable-length argument list functions
 --
 -- * Return values
@@ -86,6 +88,10 @@ runPointsToAnalysis m = Andersen g -- `debugGraph` g
     worklist0 = Seq.fromList edgeInducers
     g = saturate IM.empty worklist0 graph0
 
+-- | return instructions need to create a location (the
+-- pseudo-location to communicate return values back to callers).
+-- This doesn't have a real location and should be treated similarly
+-- to arguments.
 extractLocations :: Instruction
                     -> ([PTGNode], [Instruction])
                     -> ([PTGNode], [Instruction])
@@ -93,9 +99,24 @@ extractLocations i acc@(ptgNodes, insts) = case i of
   AllocaInst { instructionUniqueId = uid } ->
     ((uid, PtrToLocation (Value i)) : ptgNodes, insts)
   StoreInst {} -> (ptgNodes, i : insts)
-  CallInst {} -> (ptgNodes, i : insts)
-  InvokeInst {} -> (ptgNodes, i : insts)
+  -- Non-void typed calls (i.e., calls that return values) need to
+  -- have a node in the points-to graph representing the returned
+  -- value, too.
+  CallInst {} ->
+    case isPointerOrFunction i of
+      False -> (ptgNodes, i : insts)
+      True -> ((instructionUniqueId i, Location (Value i)) : ptgNodes, i : insts)
+  InvokeInst {} ->
+    case isPointerOrFunction i of
+      False -> (ptgNodes, i : insts)
+      True -> ((instructionUniqueId i, Location (Value i)) : ptgNodes, i : insts)
+  -- Only handle RetInsts if they return a pointer or function value
+  RetInst { retInstValue = Just rv, instructionUniqueId = uid } ->
+    case isPointerOrFunction rv of
+      True -> ((uid, Location (Value i)) : ptgNodes, i : insts)
+      False -> (ptgNodes, insts)
   _ -> acc
+
 
 -- | Saturate the points-to graph using a worklist algorithm.
 saturate :: DepGraph -> Worklist -> PTG -> PTG
@@ -103,14 +124,37 @@ saturate dg worklist g = case viewl worklist of
   EmptyL -> g
   itm :< rest -> case itm of
     StoreInst { storeValue = val, storeAddress = dest } ->
-      case isPointerType (valueType val) || isFunctionType (valueType val) of
+      case isPointerOrFunction val of
         False -> saturate dg rest g
         True -> addStoreEdges dg itm val dest rest g
     CallInst { callFunction = cf, callArguments = args } ->
       addCallEdges dg rest g itm cf (map fst args)
     InvokeInst { invokeFunction = cf, invokeArguments = args } ->
       addCallEdges dg rest g itm cf (map fst args)
+    RetInst { retInstValue = Just rv } ->
+      addReturnEdges dg rest g itm rv
     _ -> error ("Unexpected instruction type in Andersen saturation: " ++ show itm)
+
+-- | Returns can be handled similarly to arguments.  Neither has
+-- actual storage associated with it, and returns are essentially just
+-- parameters going in the other direction (the caller will copy the
+-- value out).  The special return node (the node with the id of the
+-- ret inst) gets an edge to every node referenced by the return
+-- value.
+addReturnEdges :: IsValue a => DepGraph -> Worklist -> PTG -> Instruction -> a -> PTG
+addReturnEdges dg worklist g itm rv =
+  case newEdges of
+    [] -> saturate dg1 worklist g
+    _ -> saturate dg1 worklist' g'
+  where
+    (dg1, retLocs) = getLocationsReferencedBy g itm dg rv
+    retNode = instructionUniqueId itm
+    newEdges = makeNewEdges g [retNode] retLocs
+
+    usedSrcs = foldl' accumUsedSrcs S.empty newEdges
+    newWorklistItems = affectedInstructions usedSrcs dg1
+    worklist' = worklist >< Seq.fromList newWorklistItems
+    g' = foldl' (flip (&)) g newEdges
 
 keepPointerParams :: [(Value, b)] -> [(Value, b)]
 keepPointerParams = filter (isPointerType . valueType . fst)
@@ -123,8 +167,8 @@ keepPointerParams = filter (isPointerType . valueType . fst)
 addCallEdges :: DepGraph -> Worklist -> PTG -> Instruction -> Value -> [Value] -> PTG
 addCallEdges dg worklist g itm calledFunc args =
   case newEdges of
-    [] -> saturate dg2 worklist g
-    _ -> saturate dg2 worklist' g'
+    [] -> saturate dg3 worklist g
+    _ -> saturate dg3 worklist' g'
   where
     (possibleCallees, dg1) = case valueContent calledFunc of
       -- Direct call
@@ -157,11 +201,24 @@ addCallEdges dg worklist g itm calledFunc args =
           depGraph'' = foldl' addDep depGraph' formalLocs
       in (depGraph'', (actualLocs, formalLocs))
 
-    newEdges = locMapToEdges g locMap
+    -- Now find all possible return nodes for this instruction (one
+    -- for each possible callee).  Add edges from the call node to all
+    -- of the things that could be pointed to by the return node.
+    retNodes = case isPointerOrFunction itm of
+      True -> map (instructionUniqueId . functionExitInstruction) possibleCallees
+      False -> []
+    pointedToByRetNodes = concatMap (suc g) retNodes
+    locMap' = (pointedToByRetNodes, [instructionUniqueId itm]) : locMap
+    addDep dg n = IM.insertWith S.union n (S.singleton itm) dg
+    dg3 = foldl' addDep dg2 retNodes
+
+
+    newEdges = locMapToEdges g locMap'
     usedSrcs = foldl' accumUsedSrcs S.empty newEdges
-    newWorklistItems = affectedInstructions usedSrcs dg2
+    newWorklistItems = affectedInstructions usedSrcs dg3
     worklist' = worklist >< Seq.fromList newWorklistItems
     g' = foldl' (flip (&)) g newEdges
+
 
 
 -- | The @locMap@ is an assoc list mapping the locations of actual
@@ -284,6 +341,15 @@ getLocationsReferencedBy g storeInst dg0 v = getLocs v 0
         getLocs addr (derefCount + 1)
       InstructionC (BitcastInst { castedValue = cv }) ->
         getLocs cv derefCount
+
+      -- These locations are a bit special.  Unlike the others
+      -- (globals, locals, etc), which represent pointers to
+      -- locations, these are abstract locations that do not have
+      -- storage.  They must not be dereferenced the "extra" time.
+      InstructionC (ci@CallInst {}) ->
+        collectLocationNodes g storeInst dg0 1 [instructionUniqueId ci]
+      InstructionC (ci@InvokeInst {}) ->
+        collectLocationNodes g storeInst dg0 1 [instructionUniqueId ci]
       ArgumentC a ->
         collectLocationNodes g storeInst dg0 1 [argumentUniqueId a]
 
@@ -355,6 +421,10 @@ isFunctionType :: Type -> Bool
 isFunctionType (TypeFunction _ _ _) = True
 isFunctionType (TypeNamed _ t) = isFunctionType t
 isFunctionType _ = False
+
+isPointerOrFunction :: IsValue a => a -> Bool
+isPointerOrFunction v =
+  isPointerType (valueType v) || isFunctionType (valueType v)
 
 toFunction :: Maybe (NodeTag) -> Function
 toFunction (Just (PtrToFunction f)) = f
