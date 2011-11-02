@@ -56,6 +56,8 @@ type Worklist = Seq Instruction
 -- with that node ID as its source.
 type DepGraph = IntMap (Set Instruction)
 
+-- | A wrapper around the analysis results.  This is opaque to the
+-- user.
 data Andersen = Andersen PTG
 
 instance PointsToAnalysis Andersen where
@@ -84,6 +86,7 @@ runPointsToAnalysis m = Andersen g -- `debugGraph` g
     (localLocations, edgeInducers) = foldr extractLocations ([], []) insts
     allLocations = concat [globalLocations, argumentLocations, localLocations]
     initialEdges = globalEdges
+
     -- The initial graph contains all locations in the program, along
     -- with edges induced by global initializers.
     graph0 = mkGraph allLocations initialEdges
@@ -101,6 +104,7 @@ extractLocations i acc@(ptgNodes, insts) = case i of
   AllocaInst { instructionUniqueId = uid } ->
     ((uid, PtrToLocation (Value i)) : ptgNodes, insts)
   StoreInst {} -> (ptgNodes, i : insts)
+
   -- Non-void typed calls (i.e., calls that return values) need to
   -- have a node in the points-to graph representing the returned
   -- value, too.
@@ -112,6 +116,7 @@ extractLocations i acc@(ptgNodes, insts) = case i of
     case isPointerOrFunction i of
       False -> (ptgNodes, i : insts)
       True -> ((instructionUniqueId i, Location (Value i)) : ptgNodes, i : insts)
+
   -- Only handle RetInsts if they return a pointer or function value
   RetInst { retInstValue = Just rv, instructionUniqueId = uid } ->
     case isPointerOrFunction rv of
@@ -158,8 +163,9 @@ addReturnEdges dg worklist g itm rv =
     worklist' = worklist >< Seq.fromList newWorklistItems
     g' = foldl' (flip (&)) g newEdges
 
+-- | Filter out parameters that are not of pointer-type
 keepPointerParams :: [(Value, b)] -> [(Value, b)]
-keepPointerParams = filter (isPointerType . valueType . fst)
+keepPointerParams = filter (isPointerOrFunction . fst)
 
 -- | A call is essentially a copy of a pointer in the caller to an
 -- argument node (which will later be copied in the callee).
@@ -424,9 +430,12 @@ isFunctionType (TypeFunction _ _ _) = True
 isFunctionType (TypeNamed _ t) = isFunctionType t
 isFunctionType _ = False
 
+isPointerOrFunctionType :: Type -> Bool
+isPointerOrFunctionType t = isPointerType t || isFunctionType t
+
 isPointerOrFunction :: IsValue a => a -> Bool
-isPointerOrFunction v =
-  isPointerType (valueType v) || isFunctionType (valueType v)
+isPointerOrFunction v = isPointerOrFunctionType (valueType v)
+--  isPointerType (valueType v) || isFunctionType (valueType v)
 
 toFunction :: Maybe (NodeTag) -> Function
 toFunction (Just (PtrToFunction f)) = f
