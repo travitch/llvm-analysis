@@ -46,9 +46,15 @@ data NodeTag = PtrToLocation Value
              | PtrToFunction Function
              deriving (Ord, Eq, Show)
 
-type PTGEdge = (Int, Int, ())
+data EdgeTag = DirectEdge
+             | ArrayEdge
+             | KnownIndexEdge !Int
+             | FieldAccessEdge !Int
+             deriving (Ord, Eq, Show)
+
+type PTGEdge = (Int, Int, EdgeTag)
 type PTGNode = (Int, NodeTag)
-type PTG = Gr NodeTag ()
+type PTG = Gr NodeTag EdgeTag
 type Worklist = Seq Instruction
 -- | Define a dependency graph.  The keys are the unique IDs of
 -- locations.  The value for each ID is the set of instructions that
@@ -234,7 +240,7 @@ addCallEdges dg worklist g itm calledFunc args =
 -- could correspond to.  The locations of actuals are the *targets* of
 -- points-to graph edges, while the locations of formals are the
 -- *sources*.
-locMapToEdges :: PTG -> [([Node], [Node])] -> [Context NodeTag ()]
+locMapToEdges :: PTG -> [([Node], [Node])] -> [Context NodeTag EdgeTag]
 locMapToEdges g locMap =
   IM.foldWithKey makeContexts [] unifiedLocMap
   where
@@ -249,7 +255,7 @@ locMapToEdges g locMap =
           (_, n, lbl, adjOut) = context g src
       in case newTgts of
         [] -> acc
-        _ -> let newOut = zip (repeat ()) newTgts ++ adjOut
+        _ -> let newOut = zip (repeat DirectEdge) newTgts ++ adjOut
              in ([], n, lbl, newOut) : acc
 -- Fold over the loc-map to deal with each argument, then use an inner
 -- fold over the sources and start identifying/checking edges.
@@ -289,7 +295,7 @@ affectedInstructions usedSrcs dg = S.toList instSet
 -- | Determine which edges need to be added to the graph, based on the
 -- set of discovered sources and targets.  Only new edges are
 -- returned.
-makeNewEdges :: PTG -> [Node] -> [Node] -> [Context NodeTag ()]
+makeNewEdges :: PTG -> [Node] -> [Node] -> [Context NodeTag EdgeTag]
 makeNewEdges g newSrcs newTargets =
   mapMaybe toContext newSrcs
   where
@@ -308,7 +314,7 @@ makeNewEdges g newSrcs newTargets =
           (_, n, lbl, adjOut) = context g src
       in case targets of
         [] -> Nothing
-        _ -> let newOut = zip (repeat ()) targets ++ adjOut
+        _ -> let newOut = zip (repeat DirectEdge) targets ++ adjOut
              in Just ([], n, lbl, newOut)
 
 -- | Given a @Value@ that is an operand of a @StoreInst@, find all of
@@ -405,7 +411,7 @@ getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
       Nothing -> Nothing
       Just i -> case valueContent i of
         ConstantC _ -> Nothing
-        _ -> Just (globalVariableUniqueId gv, valueUniqueId i, ())
+        _ -> Just (globalVariableUniqueId gv, valueUniqueId i, DirectEdge)
     makeGlobalLocation idExtractor val = (idExtractor val, PtrToLocation (Value val))
     makeFunction val = (functionUniqueId val, PtrToFunction val)
     externVals = moduleExternalValues m
@@ -435,7 +441,6 @@ isPointerOrFunctionType t = isPointerType t || isFunctionType t
 
 isPointerOrFunction :: IsValue a => a -> Bool
 isPointerOrFunction v = isPointerOrFunctionType (valueType v)
---  isPointerType (valueType v) || isFunctionType (valueType v)
 
 toFunction :: Maybe (NodeTag) -> Function
 toFunction (Just (PtrToFunction f)) = f
