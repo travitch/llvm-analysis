@@ -457,15 +457,16 @@ instance Labellable NodeTag where
   toLabelValue (PtrToLocation v) = toLabelValue v
   toLabelValue (PtrToFunction f) = toLabelValue (Value f)
 
-pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
-                                    , fmtEdge = \(_,_,l) -> [toLabel l]
-                                    }
-
 instance Labellable EdgeTag where
   toLabelValue DirectEdge = toLabelValue ""
   toLabelValue ArrayEdge = toLabelValue "[*]"
   toLabelValue (KnownIndexEdge ix) = toLabelValue $ concat ["[", show ix, "]"]
   toLabelValue (FieldAccessEdge ix) = toLabelValue $ concat [".<", show ix, ">"]
+
+pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
+                                    , fmtEdge = \(_,_,l) -> [toLabel l]
+                                    }
+
 
 viewPointsToGraph :: Andersen -> IO ()
 viewPointsToGraph (Andersen g) = do
