@@ -33,6 +33,7 @@ newtype Gr a b = Gr (GraphRep a b)
 
 type GraphRep a b = IntMap (Context' a b)
 type Context' a b = (IntMap [b], a, IntMap [b])
+-- data Context' a b = Context' !(IntMap [b]) !a !(IntMap [b])
 
 type UGr = Gr () ()
 
