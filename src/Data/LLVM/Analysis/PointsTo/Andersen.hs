@@ -2,6 +2,10 @@
 --
 -- TODO:
 --
+-- * Test copying structs containing pointer fields
+--
+-- * Handle SelectInsts (of pointer type)
+--
 -- * Be more robust against type/memory-unsafe programs.
 --
 -- * Variable-length argument list functions
@@ -48,7 +52,6 @@ data NodeTag = PtrToLocation Value
 
 data EdgeTag = DirectEdge
              | ArrayEdge
-             | KnownIndexEdge !Int
              | FieldAccessEdge !Int
              deriving (Ord, Eq, Show)
 
@@ -171,7 +174,7 @@ addReturnEdges dg worklist g itm rv =
 
 -- | Filter out parameters that are not of pointer-type
 keepPointerParams :: [(Value, b)] -> [(Value, b)]
-keepPointerParams = filter (isPointerOrFunction . fst)
+keepPointerParams = filter (hasPointerOrFunction . fst)
 
 -- | A call is essentially a copy of a pointer in the caller to an
 -- argument node (which will later be copied in the callee).
@@ -354,6 +357,10 @@ getLocationsReferencedBy g inst dg0 v = getLocs v 0
         getLocs addr (derefCount + 1)
       InstructionC (BitcastInst { castedValue = cv }) ->
         getLocs cv derefCount
+      InstructionC (GetElementPtrInst { getElementPtrValue = base
+                                      , getElementPtrIndices = idxs
+                                      }) ->
+        getLocs base derefCount
 
       -- These locations are a bit special.  Unlike the others
       -- (globals, locals, etc), which represent pointers to
@@ -372,6 +379,13 @@ getLocationsReferencedBy g inst dg0 v = getLocs v 0
       -- depgraph needs to be updated with an entry for each non-leaf
       -- node.
       _ -> collectLocationNodes g inst dg0 derefCount [valueUniqueId val]
+
+{-
+
+If the first thing in the chain is a GEP, that means the address of
+something is being stored (since GEPs just compute addresses).
+
+-}
 
 collectLocationNodes :: PTG
                         -> Instruction
@@ -441,6 +455,21 @@ isPointerOrFunctionType t = isPointerType t || isFunctionType t
 isPointerOrFunction :: IsValue a => a -> Bool
 isPointerOrFunction v = isPointerOrFunctionType (valueType v)
 
+hasPointerOrFunctionType :: Type -> Bool
+hasPointerOrFunctionType t =
+  case t of
+    TypePointer _ _ -> True
+    TypeNamed _ it -> hasPointerOrFunctionType it
+    TypeFunction _ _ _ -> True
+    TypeArray _ t -> hasPointerOrFunctionType t
+    TypeVector _ t -> hasPointerOrFunctionType t
+    TypeStruct ts _ -> any hasPointerOrFunctionType ts
+    _ -> False
+
+
+hasPointerOrFunction :: IsValue a => a -> Bool
+hasPointerOrFunction = hasPointerOrFunctionType . valueType
+
 toFunction :: Maybe (NodeTag) -> Function
 toFunction (Just (PtrToFunction f)) = f
 
@@ -460,7 +489,6 @@ instance Labellable NodeTag where
 instance Labellable EdgeTag where
   toLabelValue DirectEdge = toLabelValue ""
   toLabelValue ArrayEdge = toLabelValue "[*]"
-  toLabelValue (KnownIndexEdge ix) = toLabelValue $ concat ["[", show ix, "]"]
   toLabelValue (FieldAccessEdge ix) = toLabelValue $ concat [".<", show ix, ">"]
 
 pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]

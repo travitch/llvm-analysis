@@ -24,7 +24,6 @@ import Data.LLVM.Types
 -- | A data type to describe complex points-to relationships.
 data PTRel = Direct !Value
            | ArrayElt PTRel -- ^ The pointed-to entity is at an unknown index into an array
-           | KnownArrayElt !Int PTRel -- ^ The pointed-to entity lives in an array at a known index
            | FieldAccess !Int PTRel -- ^ The pointed-to entity is a field
            deriving (Eq, Ord)
 
@@ -36,7 +35,6 @@ showRel (Direct v) = case valueName v of
   Just n -> show n
   Nothing -> error "Value has no name in points-to request"
 showRel (ArrayElt p) = show p ++ "[*]"
-showRel (KnownArrayElt ix p) = concat [show p, "[", show ix, "]"]
 showRel (FieldAccess ix p) = concat [show p, ".<", show ix, ">"]
 
 -- | The interface to any points-to analysis.
