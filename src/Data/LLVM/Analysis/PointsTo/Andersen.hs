@@ -342,7 +342,7 @@ getLocationsReferencedBy :: (IsValue a)
                             -> DepGraph
                             -> a
                             -> (DepGraph, [Node])
-getLocationsReferencedBy g storeInst dg0 v = getLocs v 0
+getLocationsReferencedBy g inst dg0 v = getLocs v 0
   where
     getLocs :: (IsValue a) => a -> Int -> (DepGraph, [Node])
     getLocs val derefCount = case valueContent val of
@@ -360,18 +360,18 @@ getLocationsReferencedBy g storeInst dg0 v = getLocs v 0
       -- locations, these are abstract locations that do not have
       -- storage.  They must not be dereferenced the "extra" time.
       InstructionC (ci@CallInst {}) ->
-        collectLocationNodes g storeInst dg0 1 [instructionUniqueId ci]
+        collectLocationNodes g inst dg0 1 [instructionUniqueId ci]
       InstructionC (ci@InvokeInst {}) ->
-        collectLocationNodes g storeInst dg0 1 [instructionUniqueId ci]
+        collectLocationNodes g inst dg0 1 [instructionUniqueId ci]
       ArgumentC a ->
-        collectLocationNodes g storeInst dg0 1 [argumentUniqueId a]
+        collectLocationNodes g inst dg0 1 [argumentUniqueId a]
 
       -- In this fallback case, @val@ should be a node in the
       -- Points-to graph.  Collect everything @derefCount@ steps from
       -- it and return that, along with the updated DepGraph.  The
       -- depgraph needs to be updated with an entry for each non-leaf
       -- node.
-      _ -> collectLocationNodes g storeInst dg0 derefCount [valueUniqueId val]
+      _ -> collectLocationNodes g inst dg0 derefCount [valueUniqueId val]
 
 collectLocationNodes :: PTG
                         -> Instruction
@@ -379,10 +379,10 @@ collectLocationNodes :: PTG
                         -> Int
                         -> [Node]
                         -> (DepGraph, [Node])
-collectLocationNodes g storeInst dg0 steps seedNodes =
+collectLocationNodes g inst dg0 steps seedNodes =
   collect dg0 steps seedNodes
   where
-    addDep dg n = IM.insertWith S.union n (S.singleton storeInst) dg
+    addDep dg n = IM.insertWith S.union n (S.singleton inst) dg
     collect dg remainingHops currentNodes
       | remainingHops <= 0 = (dg, currentNodes)
       | otherwise =
