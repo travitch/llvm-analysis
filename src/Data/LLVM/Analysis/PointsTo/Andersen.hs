@@ -211,7 +211,6 @@ addCallEdges dg worklist g itm calledFunc args =
     getLocs depGraph (actual, formals) =
       let (depGraph', actualLocs) = getLocationsReferencedBy g itm depGraph actual
           formalLocs = map argumentUniqueId formals
-          addDep m formalLoc = IM.insertWith S.union formalLoc (S.singleton itm) m
           depGraph'' = foldl' addDep depGraph' formalLocs
       in (depGraph'', (actualLocs, formalLocs))
 
@@ -223,7 +222,7 @@ addCallEdges dg worklist g itm calledFunc args =
       False -> []
     pointedToByRetNodes = concatMap (suc g) retNodes
     locMap' = (pointedToByRetNodes, [instructionUniqueId itm]) : locMap
-    addDep dg n = IM.insertWith S.union n (S.singleton itm) dg
+    addDep m n = IM.insertWith S.union n (S.singleton itm) m
     dg3 = foldl' addDep dg2 retNodes
 
 
@@ -459,8 +458,14 @@ instance Labellable NodeTag where
   toLabelValue (PtrToFunction f) = toLabelValue (Value f)
 
 pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
-                                    , fmtEdge = \(_,_,_) -> [toLabel ""]
+                                    , fmtEdge = \(_,_,l) -> [toLabel l]
                                     }
+
+instance Labellable EdgeTag where
+  toLabelValue DirectEdge = toLabelValue ""
+  toLabelValue ArrayEdge = toLabelValue "[*]"
+  toLabelValue (KnownIndexEdge ix) = toLabelValue $ concat ["[", show ix, "]"]
+  toLabelValue (FieldAccessEdge ix) = toLabelValue $ concat [".<", show ix, ">"]
 
 viewPointsToGraph :: Andersen -> IO ()
 viewPointsToGraph (Andersen g) = do
