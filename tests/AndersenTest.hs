@@ -25,7 +25,7 @@ extractSummary m = foldr addInfo M.empty ptrs
       True -> r
       False -> M.insert (show $ fromJust $ valueName v) vals r
       where
-        vals = S.map (show . fromJust . valueName) (pointsTo pta v)
+        vals = S.map show (pointsTo pta v)
 
 isPointerType t = case t of
   TypePointer _ _ -> True
@@ -52,4 +52,3 @@ testDescriptors = [ TestDescriptor { testPattern = ptPattern
 
 main :: IO ()
 main = testAgainstExpected bcParser testDescriptors
-

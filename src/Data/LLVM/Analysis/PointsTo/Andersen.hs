@@ -66,8 +66,8 @@ instance PointsToAnalysis Andersen where
 
 -- | The main entry point to see what a given value can point to by
 -- just inspecting the points-to graph.
-andersenPointsTo :: (IsValue a) => Andersen -> a -> Set Value
-andersenPointsTo (Andersen g) v = S.fromList nodeValues
+andersenPointsTo :: (IsValue a) => Andersen -> a -> Set PTRel
+andersenPointsTo (Andersen g) v = S.fromList $ map Direct nodeValues
   where
     pointsToNodes = suc g (valueUniqueId v)
     nodeValues = map (unloc . lab g) pointsToNodes

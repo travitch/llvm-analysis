@@ -140,7 +140,7 @@ buildCallEdges pta unknownCallNode inst =
     unknownEdges uid = [ (instid, uid, CallToEntry inst)
                        , (uid, -instid, ReturnToCall inst)
                        ]
-    calledFuncs = S.elems $ pointsTo pta (calledValue inst)
+    calledFuncs = S.elems $ pointsToValues pta (calledValue inst)
     callEdges = foldr mkCallEdge [] calledFuncs
     callEdges' = (instid, -instid, CallToReturn) : callEdges
     mkCallEdge :: Value -> [LEdge ICFGEdge] -> [LEdge ICFGEdge]

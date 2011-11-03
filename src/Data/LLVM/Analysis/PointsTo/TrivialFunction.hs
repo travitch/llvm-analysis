@@ -52,11 +52,11 @@ buildMap v m = case M.lookup vtype m of
 trivialMayAlias :: TrivialFunction -> Value -> Value -> Bool
 trivialMayAlias _ v1 v2 = valueType v1 == valueType v2
 
-trivialPointsTo :: TrivialFunction -> Value -> Set Value
+trivialPointsTo :: TrivialFunction -> Value -> Set PTRel
 trivialPointsTo p@(TrivialFunction m) v =
   case valueContent v of
-    FunctionC _ -> S.singleton v
-    ExternalFunctionC _ -> S.singleton v
+    FunctionC _ -> S.singleton (Direct v)
+    ExternalFunctionC _ -> S.singleton (Direct v)
     GlobalAliasC ga -> trivialPointsTo p (Value ga)
     InstructionC BitcastInst { castedValue = c } -> trivialPointsTo p c
-    _ -> M.lookupDefault S.empty (valueType v) m
+    _ -> S.map Direct $ M.lookupDefault S.empty (valueType v) m

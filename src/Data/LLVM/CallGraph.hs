@@ -165,7 +165,7 @@ buildCallEdges pta caller callInst = build' (getCallee callInst)
         -- Functions can be bitcasted before being called - trace
         -- through those to find the underlying function
         InstructionC BitcastInst { castedValue = bcv } -> build' bcv
-        _ -> let targets = S.toList $ pointsTo pta calledFunc
+        _ -> let targets = S.toList $ pointsToValues pta calledFunc
                  indirectEdges = map (\t -> (callerId, valueUniqueId t, IndirectCall)) targets
                  unknownEdge = (callerId, unknownNodeId, UnknownCall)
              in unknownEdge : indirectEdges
