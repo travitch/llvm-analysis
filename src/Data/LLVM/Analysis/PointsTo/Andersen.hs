@@ -361,7 +361,11 @@ getLocationsReferencedBy g inst dg0 v = getLocs v 0
                                       , getElementPtrIndices = idxs
                                       }) ->
         getLocs base derefCount
-
+      ConstantC (ConstantValue { constantInstruction = GetElementPtrInst { getElementPtrValue = base
+                                                                         , getElementPtrIndices = idxs
+                                                                         }
+                               }) ->
+        getLocs base derefCount
       -- These locations are a bit special.  Unlike the others
       -- (globals, locals, etc), which represent pointers to
       -- locations, these are abstract locations that do not have
