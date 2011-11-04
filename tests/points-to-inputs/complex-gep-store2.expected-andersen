@@ -1,0 +1,5 @@
+fromList [ ("@p", fromList ["@a"])
+         , ("@r", fromList ["@b"])
+         , ("@backingStore", fromList ["@a"])
+         , ("@global", fromList ["@backingStore"])
+         ]

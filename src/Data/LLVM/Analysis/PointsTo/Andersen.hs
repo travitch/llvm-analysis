@@ -10,8 +10,7 @@
 --
 -- * Variable-length argument list functions
 --
--- * Arrays and field accesses (GetElementPtr support).  Include field
---   sensitivity eventually.
+-- * Add field sensitivity eventually. See http://delivery.acm.org/10.1145/1300000/1290524/a4-pearce.pdf?ip=128.105.181.27&acc=ACTIVE%20SERVICE&CFID=52054919&CFTOKEN=71981976&__acm__=1320350342_65be4c25a6fba7e32d7b4cd60f13fe97
 --
 -- * Add a predicate to the constructor to identify instructions that
 --   allocate memory objects.  Add a separate module with some default
