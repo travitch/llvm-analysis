@@ -2,7 +2,10 @@
 --
 -- TODO:
 --
--- * Test copying structs containing pointer fields
+-- * Test copying structs containing pointer fields (translates to:
+-- handle memcpy and memmove intrinsics)
+--
+-- * Handle external functions
 --
 -- * Handle SelectInsts (of pointer type)
 --
@@ -28,7 +31,7 @@ import Data.Graph.Inductive hiding ( Gr, (><) )
 import Data.GraphViz
 import Data.IntMap ( IntMap )
 import qualified Data.IntMap as IM
-import Data.List ( foldl', mapAccumR, transpose )
+import Data.List ( foldl', mapAccumR )
 import Data.Maybe ( mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
@@ -175,6 +178,54 @@ addReturnEdges dg worklist g itm rv =
 keepPointerParams :: [(Value, b)] -> [(Value, b)]
 keepPointerParams = filter (hasPointerOrFunction . fst)
 
+-- Restructure addCallEdges: factor out into handlers for calls to
+-- defined functions, calls to external functions, and intrinsic
+-- handlers.  Fold over the list of possible callees (if indirect)
+-- and apply each handler.
+
+addDefinedFunctionCallEdges :: Instruction -- ^ The CallInst
+                               -> [Value]     -- ^ The actual arguments
+                               -> (DepGraph, Worklist, PTG)
+                               -> Function    -- ^ A possible callee
+                               -> (DepGraph, Worklist, PTG)
+--                               ([Context NodeTag EdgeTag], DepGraph)
+addDefinedFunctionCallEdges callInst args (dg, worklist, g) callee = -- (newEdges, dg2)
+  case newEdges of
+    [] -> (dg2, worklist, g)
+    _ -> (dg2, worklist', g')
+  where
+    formals = functionParameters callee
+    -- FIXME: This needs to change a bit for vararg functions - split
+    -- into two lists and treat the trailing arguments as a single
+    -- memory location
+    actualFormalMap = zip args formals
+    justPointers = keepPointerParams actualFormalMap
+    (dg1, locMap) = mapAccumR getLocs dg justPointers
+    -- Now find all possible return nodes for this instruction (one
+    -- for each possible callee).  Add edges from the call node to all
+    -- of the things that could be pointed to by the return node.
+    retNodes = case isPointerOrFunction callInst of
+      True -> [instructionUniqueId (functionExitInstruction callee)]
+      False -> []
+    pointedToByRetNodes = concatMap (suc g) retNodes
+    locMap' = (pointedToByRetNodes, instructionUniqueId callInst) : locMap
+    dg2 = foldl' addDep dg1 retNodes
+    newEdges = locMapToEdges g locMap'
+
+    usedSrcs = foldl' accumUsedSrcs S.empty newEdges
+    newWorklistItems = affectedInstructions usedSrcs dg2
+    worklist' = worklist >< Seq.fromList newWorklistItems
+    g' = foldl' (flip (&)) g newEdges
+
+
+    addDep m n = IM.insertWith S.union n (S.singleton callInst) m
+    getLocs :: DepGraph -> (Value, Argument) -> (DepGraph, ([Node], Node))
+    getLocs depGraph (actual, formal) =
+      let (depGraph', actualLocs) = getLocationsReferencedBy g callInst depGraph actual
+          formalLoc = argumentUniqueId formal
+          depGraph'' = addDep depGraph' formalLoc
+      in (depGraph'', (actualLocs, formalLoc))
+
 -- | A call is essentially a copy of a pointer in the caller to an
 -- argument node (which will later be copied in the callee).
 --
@@ -182,6 +233,21 @@ keepPointerParams = filter (hasPointerOrFunction . fst)
 -- lists.  Filter out the non-pointer entries.
 addCallEdges :: DepGraph -> Worklist -> PTG -> Instruction -> Value -> [Value] -> PTG
 addCallEdges dg worklist g itm calledFunc args =
+  case valueContent calledFunc of
+    FunctionC f ->
+      let (dg', worklist', g') = addDefinedFunctionCallEdges itm args (dg, worklist, g) f
+      in saturate dg' worklist' g'
+    -- Don't forget case for ExternalFunctionC and then handling both in the fold
+
+    -- Add a dependency in the DepGraph on the node representing the
+    -- functions that may be pointed to here.  This way, if we learn
+    -- about other possible callees, we revisit this call.
+    _ -> let (dg', funcLocs) = getLocationsReferencedBy g itm dg calledFunc
+             dg'' = IM.insertWith S.union (valueUniqueId calledFunc) (S.singleton itm) dg'
+             possibleCallees = map (toFunction . lab g) funcLocs
+             (dg''', worklist', g') = foldl' (addDefinedFunctionCallEdges itm args) (dg'', worklist, g) possibleCallees
+         in saturate dg''' worklist' g'
+{-
   case newEdges of
     [] -> saturate dg3 worklist g
     _ -> saturate dg3 worklist' g'
@@ -189,6 +255,12 @@ addCallEdges dg worklist g itm calledFunc args =
     (possibleCallees, dg1) = case valueContent calledFunc of
       -- Direct call
       FunctionC f -> ([ f ], dg)
+      -- Add cases to handle LLVM intrinsics directly.  Also add cases
+      -- to handle calls to external functions.  Maybe return three
+      -- values here - possible direct callees, possible indirect
+      -- callees.  Still need a handler for the other case of known
+      -- intrinsics.
+
       -- Indirect call: figure out what this value could possibly
       -- point to by consulting the points-to graph.  Note that this
       -- actually induces an extra dependency in the DepGraph (this is
@@ -233,7 +305,7 @@ addCallEdges dg worklist g itm calledFunc args =
     newWorklistItems = affectedInstructions usedSrcs dg3
     worklist' = worklist >< Seq.fromList newWorklistItems
     g' = foldl' (flip (&)) g newEdges
-
+-}
 
 
 -- | The @locMap@ is an assoc list mapping the locations of actual
@@ -241,15 +313,16 @@ addCallEdges dg worklist g itm calledFunc args =
 -- could correspond to.  The locations of actuals are the *targets* of
 -- points-to graph edges, while the locations of formals are the
 -- *sources*.
-locMapToEdges :: PTG -> [([Node], [Node])] -> [Context NodeTag EdgeTag]
+locMapToEdges :: PTG -> [([Node], Node)] -> [Context NodeTag EdgeTag]
 locMapToEdges g locMap =
   IM.foldWithKey makeContexts [] unifiedLocMap
   where
     -- This is a map where each src is mapped to all of the targets
     -- that will be added.
     unifiedLocMap = foldl' makeUnifiedLocs IM.empty locMap
-    makeUnifiedLocs m (tgts, srcs) = foldl' (mkEdgesFromSrcs tgts) m srcs
-    mkEdgesFromSrcs tgts m src = IM.insertWith S.union src (S.fromList tgts) m
+    makeUnifiedLocs m (tgts, src) = IM.insertWith S.union src (S.fromList tgts) m
+    -- makeUnifiedLocs m (tgts, srcs) = foldl' (mkEdgesFromSrcs tgts) m srcs
+    -- mkEdgesFromSrcs tgts m src = IM.insertWith S.union src (S.fromList tgts) m
     edgeNotInGraph src tgt = tgt `notElem` suc g src
     makeContexts src tgtSet acc =
       let newTgts = filter (edgeNotInGraph src) $ S.toList tgtSet
@@ -464,8 +537,8 @@ hasPointerOrFunctionType t =
     TypePointer _ _ -> True
     TypeNamed _ it -> hasPointerOrFunctionType it
     TypeFunction _ _ _ -> True
-    TypeArray _ t -> hasPointerOrFunctionType t
-    TypeVector _ t -> hasPointerOrFunctionType t
+    TypeArray _ t' -> hasPointerOrFunctionType t'
+    TypeVector _ t' -> hasPointerOrFunctionType t'
     TypeStruct ts _ -> any hasPointerOrFunctionType ts
     _ -> False
 
