@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, OverloadedStrings #-}
 -- | This is a simple implementation of Andersen's points-to analysis.
 --
 -- TODO:
@@ -29,13 +29,14 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   ) where
 
 import Control.Monad.State
+import Data.ByteString.Char8 ( isPrefixOf )
 import Data.Graph.Inductive hiding ( Gr, (><) )
 import Data.GraphViz
 import Data.IntMap ( IntMap )
 import qualified Data.IntMap as IM
 import Data.Lens.Lazy
 import Data.Lens.Template
-import Data.List ( foldl' )
+import Data.List ( find, foldl' )
 import Data.Maybe ( mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
@@ -157,7 +158,6 @@ extractLocations i acc@(ptgNodes, insts) = case i of
 
 
 -- | Saturate the points-to graph using a worklist algorithm.
--- saturate :: DepGraph -> Worklist -> PTG -> PTG
 saturate :: PTMonad ()
 saturate = do
   wl <- access ptWorklist
@@ -203,7 +203,16 @@ addEdges newEdges = do
   _ <- ptGraph ~= g'
   return ()
   where
+    accumUsedSrcs acc (_, src, _, _) = S.insert src acc
     usedSrcs = foldl' accumUsedSrcs S.empty newEdges
+
+    affectedInstructions :: Set Int -> PTMonad [Instruction]
+    affectedInstructions usedSrcs = do
+      depGraph <- access ptDepGraph
+      let instSet = S.fold (findAffected depGraph) S.empty usedSrcs
+          findAffected dg nodeId acc = S.union acc (IM.findWithDefault S.empty nodeId dg)
+      return $ S.toList instSet
+
 
 addDefinedFunctionCallEdges :: Instruction -- ^ The CallInst
                                -> [Value] -- ^ Actual arguments
@@ -246,7 +255,6 @@ addDefinedFunctionCallEdges callInst args callee = do
 --
 -- Start by zipping together the actual arguments and formal argument
 -- lists.  Filter out the non-pointer entries.
--- addCallEdges :: DepGraph -> Worklist -> PTG -> Instruction -> Value -> [Value] -> PTG
 addCallEdges :: Instruction -> Value -> [Value] -> PTMonad ()
 addCallEdges callInst calledFunc args =
   case valueContent calledFunc of
@@ -254,6 +262,9 @@ addCallEdges callInst calledFunc args =
       addDefinedFunctionCallEdges callInst args f
       saturate
     -- Don't forget case for ExternalFunctionC and then handling both in the fold
+    ExternalFunctionC e -> case externalIsIntrinsic e of
+      False -> addExternalCallEdges callInst args e
+      True -> addIntrinsicEdges callInst args e
 
     _ -> do
       funcLocs <- getLocationsReferencedBy callInst calledFunc
@@ -266,12 +277,39 @@ addCallEdges callInst calledFunc args =
       mapM_ (addDefinedFunctionCallEdges callInst args) possibleCallees
       saturate
 
-accumUsedSrcs :: Set Int -> Context a b -> Set Int
-accumUsedSrcs acc (_, src, _, _) = S.insert src acc
+addIntrinsicEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
+addIntrinsicEdges callInst args ef =
+  case find ((`isPrefixOf` fname) . fst) handlerMap of
+    Nothing -> return ()
+    Just (_, handler) -> handler callInst args
+  where
+    fname = identifierContent (externalFunctionName ef)
+    -- | Need to figure out how to handle memmove - it is more
+    -- complicated and can, in the worst case, really shuffle up
+    -- points-to relations
+    --
+    -- The va_* stuff also probably needs to be handled
+    --
+    -- memset shouldn't need to be handled since it can't create a
+    -- "valid" address.
+    --
+    -- The other intrinsics only deal with non-pointer values and can
+    -- probably be ignored.
+    handlerMap = [ ("llvm.memcpy.", memcpyHandler)
+                 , ("llvm.memset.", undefined)
+                 ]
+
+memcpyHandler :: Instruction -> [Value] -> PTMonad ()
+memcpyHandler = undefined
+
+-- | FIXME: Implement by having a default conservative handler and
+-- checking a new field in the PTState that enables analysis users to
+-- provide information about external functions.
+addExternalCallEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
+addExternalCallEdges callInst args ef = do
+  return ()
 
 -- | Handle adding edges induced by a @StoreInst@.
--- addStoreEdges :: DepGraph -> Instruction -> Value -> Value -> Worklist -> PTG -> PTG
--- addStoreEdges dg i val dest worklist g =
 addStoreEdges :: Instruction -> Value -> Value -> PTMonad ()
 addStoreEdges i val dest = do
   newTargets <- getLocationsReferencedBy i val
@@ -279,13 +317,6 @@ addStoreEdges i val dest = do
   newEdges <- makeNewEdges newSources newTargets
   addEdges newEdges
   saturate
-
-affectedInstructions :: Set Int -> PTMonad [Instruction]
-affectedInstructions usedSrcs = do
-  depGraph <- access ptDepGraph
-  let instSet = S.fold (findAffected depGraph) S.empty usedSrcs
-      findAffected dg nodeId acc = S.union acc (IM.findWithDefault S.empty nodeId dg)
-  return $ S.toList instSet
 
 -- | Determine which edges need to be added to the graph, based on the
 -- set of discovered sources and targets.  Only new edges are
@@ -473,8 +504,8 @@ instance Labellable NodeTag where
   toLabelValue (PtrToFunction f) = toLabelValue (Value f)
 
 instance Labellable EdgeTag where
-  toLabelValue DirectEdge = toLabelValue ""
-  toLabelValue ArrayEdge = toLabelValue "[*]"
+  toLabelValue DirectEdge = toLabelValue ("" :: String)
+  toLabelValue ArrayEdge = toLabelValue ("[*]" :: String)
   toLabelValue (FieldAccessEdge ix) = toLabelValue $ concat [".<", show ix, ">"]
 
 pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
