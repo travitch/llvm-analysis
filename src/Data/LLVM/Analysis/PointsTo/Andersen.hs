@@ -299,8 +299,16 @@ addIntrinsicEdges callInst args ef =
                  , ("llvm.memset.", undefined)
                  ]
 
+-- | In handling memcpy, we only care about the first two arguments
+-- (until we tackle field-sensitivity): <dest> and <src>.
 memcpyHandler :: Instruction -> [Value] -> PTMonad ()
-memcpyHandler = undefined
+memcpyHandler callInst args = do
+  let dest : src : _ = args
+  newSources <- getLocationsReferencedByOffset (0) callInst dest
+  newTargets <- getLocationsReferencedByOffset (1) callInst src
+  newEdges <- makeNewEdges newSources newTargets
+  addEdges newEdges
+  saturate
 
 -- | FIXME: Implement by having a default conservative handler and
 -- checking a new field in the PTState that enables analysis users to
@@ -364,7 +372,10 @@ makeNewEdges newSrcs newTargets = do
 -- dereferences (loads).  Take that many steps (across all outgoing
 -- edges) from the location in the points-to graph.
 getLocationsReferencedBy :: IsValue a => Instruction -> a -> PTMonad [Node]
-getLocationsReferencedBy inst v = getLocs v 0
+getLocationsReferencedBy = getLocationsReferencedByOffset 0
+
+getLocationsReferencedByOffset :: IsValue a => Int -> Instruction -> a -> PTMonad [Node]
+getLocationsReferencedByOffset offset inst v = getLocs v 0
   where
     getLocs :: (IsValue a) => a -> Int -> PTMonad [Node]
     getLocs val derefCount = case valueContent val of
@@ -385,6 +396,8 @@ getLocationsReferencedBy inst v = getLocs v 0
                                                                          }
                                }) ->
         getLocs base derefCount
+      ConstantC (ConstantValue { constantInstruction = BitcastInst { castedValue = cv } }) ->
+        getLocs cv derefCount
       -- These locations are a bit special.  Unlike the others
       -- (globals, locals, etc), which represent pointers to
       -- locations, these are abstract locations that do not have
@@ -401,7 +414,7 @@ getLocationsReferencedBy inst v = getLocs v 0
       -- it and return that, along with the updated DepGraph.  The
       -- depgraph needs to be updated with an entry for each non-leaf
       -- node.
-      _ -> collectLocationNodes inst derefCount [valueUniqueId val]
+      _ -> collectLocationNodes inst (derefCount + offset) [valueUniqueId val]
 
 addDependency :: Instruction -> Node -> PTMonad ()
 addDependency inst n = do
@@ -519,6 +532,7 @@ viewPointsToGraph (Andersen g) = do
   _ <- runGraphvizCanvas' dg Gtk
   return ()
 
+debugGraph :: a -> PTG -> a
 debugGraph v g = unsafePerformIO $ do
   viewPointsToGraph (Andersen g)
   return v
