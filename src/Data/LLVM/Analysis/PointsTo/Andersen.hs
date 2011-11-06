@@ -307,7 +307,7 @@ memcpyHandler = undefined
 -- provide information about external functions.
 addExternalCallEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
 addExternalCallEdges callInst args ef = do
-  return ()
+  saturate
 
 -- | Handle adding edges induced by a @StoreInst@.
 addStoreEdges :: Instruction -> Value -> Value -> PTMonad ()
