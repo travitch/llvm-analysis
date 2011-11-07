@@ -13,10 +13,6 @@
 --
 -- * Add field sensitivity eventually. See http://delivery.acm.org/10.1145/1300000/1290524/a4-pearce.pdf?ip=128.105.181.27&acc=ACTIVE%20SERVICE&CFID=52054919&CFTOKEN=71981976&__acm__=1320350342_65be4c25a6fba7e32d7b4cd60f13fe97
 --
--- * Add a predicate to the constructor to identify instructions that
---   allocate memory objects.  Add a separate module with some default
---   predicates (C-only, C and C++, etc)
---
 -- * On-the-fly allocator discovery
 module Data.LLVM.Analysis.PointsTo.Andersen (
   -- * Types
@@ -27,7 +23,6 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   viewPointsToGraph,
   ) where
 
-import Control.Monad ( unless )
 import Control.Monad.State
 import Data.ByteString.Char8 ( isPrefixOf )
 import Data.Graph.Inductive hiding ( Gr, (><) )
@@ -103,8 +98,8 @@ andersenPointsTo (Andersen g) v = S.fromList $ map Direct nodeValues
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
 -- results.
-runPointsToAnalysis :: Module -> Andersen
-runPointsToAnalysis m = Andersen g -- `debugGraph` g
+runPointsToAnalysis :: [Instruction -> Bool] -> Module -> Andersen
+runPointsToAnalysis allocTests m = Andersen g -- `debugGraph` g
   where
     fs = moduleDefinedFunctions m
     blocks = concatMap functionBody fs
@@ -123,18 +118,9 @@ runPointsToAnalysis m = Andersen g -- `debugGraph` g
                      , _ptDepGraph = IM.empty
                      , _ptGraph = graph0
                      , _ptExternInfo = []
-                     , _ptIsAllocator = [isMalloc]
+                     , _ptIsAllocator = allocTests
                      }
     g = _ptGraph (execState saturate state0)
-
-isMalloc i = case i of
-  CallInst { callFunction = cv } -> innerIsMalloc cv
-  _ -> False
-  where
-    innerIsMalloc cv = case valueContent cv of
-      ExternalFunctionC ef ->
-        identifierContent (externalFunctionName ef) == "malloc"
-      _ -> False
 
 -- | return instructions need to create a location (the
 -- pseudo-location to communicate return values back to callers).
@@ -218,9 +204,9 @@ addEdges newEdges = do
     usedSrcs = foldl' accumUsedSrcs S.empty newEdges
 
     affectedInstructions :: Set Int -> PTMonad [Instruction]
-    affectedInstructions usedSrcs = do
+    affectedInstructions used = do
       depGraph <- access ptDepGraph
-      let instSet = S.fold (findAffected depGraph) S.empty usedSrcs
+      let instSet = S.fold (findAffected depGraph) S.empty used
           findAffected dg nodeId acc = S.union acc (IM.findWithDefault S.empty nodeId dg)
       return $ S.toList instSet
 
@@ -327,7 +313,7 @@ memcpyHandler callInst args = do
 addExternalCallEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
 addExternalCallEdges callInst args ef = do
   extInfoHndlrs <- access ptExternInfo
-  case lookupDescriptor extInfoHndlrs ef of
+  case lookupDescriptor extInfoHndlrs of
     Nothing -> conservativeExternalHandler callInst args ef
     Just h -> do
       let effects = argumentEffects h
@@ -339,8 +325,8 @@ addExternalCallEdges callInst args ef = do
   saturate
   where
     fname = identifierContent (externalFunctionName ef)
-    lookupDescriptor hlist ef = foldl (lookup' ef) Nothing hlist
-    lookup' ef descriptor hdlr = case descriptor of
+    lookupDescriptor hlist = foldl lookup' Nothing hlist
+    lookup' descriptor hdlr = case descriptor of
       Just _ -> descriptor
       Nothing -> hdlr ef
 

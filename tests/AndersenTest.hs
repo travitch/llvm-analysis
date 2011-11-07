@@ -7,6 +7,7 @@ import System.FilePath
 import Test.HUnit ( assertEqual )
 
 import Data.LLVM
+import Data.LLVM.Analysis.PointsTo.AllocatorProfile
 import Data.LLVM.Analysis.PointsTo.Andersen
 import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.ParseBitcode
@@ -19,7 +20,7 @@ bcParser = parseLLVMBitcodeFile defaultParserOptions
 -- extractSummary :: Module -> ExpectedResult
 extractSummary m = foldr addInfo M.empty ptrs
   where
-    pta = runPointsToAnalysis m
+    pta = runPointsToAnalysis [standardCProfile] m
     ptrs = map Value (globalPointerVariables m) ++ map Value (functionPointerParameters m)
     addInfo v r = case S.null vals of
       True -> r

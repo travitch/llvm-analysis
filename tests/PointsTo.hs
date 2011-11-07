@@ -1,5 +1,6 @@
 import System.Environment ( getArgs )
 
+import Data.LLVM.Analysis.PointsTo.AllocatorProfile
 import Data.LLVM.Analysis.PointsTo.Andersen
 import Data.LLVM.ParseBitcode
 
@@ -10,6 +11,6 @@ main = do
   case mm of
     Left err -> putStrLn err
     Right m -> do
-      let a = runPointsToAnalysis m
+      let a = runPointsToAnalysis [standardCProfile] m
       viewPointsToGraph a
       return ()
