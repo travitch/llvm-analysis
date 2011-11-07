@@ -1,0 +1,4 @@
+fromList [ ("@p", fromList ["@a"])
+         , ("@globalPtr", fromList ["@global", "%3"])
+         , ("@global", fromList ["@a"])
+         ]
