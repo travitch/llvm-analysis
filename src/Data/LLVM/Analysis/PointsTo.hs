@@ -14,7 +14,9 @@
 module Data.LLVM.Analysis.PointsTo (
   -- * Classes
   PointsToAnalysis(..),
-  PTRel(..)
+  PTRel(..),
+  ExternPointerDescriptor(..),
+  ExternFunctionDescriptor(..)
   ) where
 
 import Data.Set ( Set )
@@ -30,6 +32,19 @@ data PTRel = Direct !Value
 instance Show PTRel where
   show = showRel
 
+data PTResult a = PTSet (Set a) -- ^ A set of known targets
+                | UniversalSet (Set a) -- ^ The pointer can point to anything (but the set of known targets is also provided)
+
+-- | These are data tags used in the user hook to provide information
+-- about pointer parameters to external functions.
+data ExternPointerDescriptor = ExternNoAlias
+                             | ExternAnyAlias
+                             | ExternNewLocation
+                             | ExternNotPointer
+data ExternFunctionDescriptor = EFD { argumentEffects :: [ExternPointerDescriptor]
+                                    , returnEffect :: ExternPointerDescriptor
+                                    }
+
 showRel :: PTRel -> String
 showRel (Direct v) = case valueName v of
   Just n -> show n
@@ -41,7 +56,7 @@ showRel (FieldAccess ix p) = concat [show p, ".<", show ix, ">"]
 class PointsToAnalysis a where
   mayAlias :: a -> Value -> Value -> Bool
   -- ^ Check whether or not two values may alias
-  pointsTo :: a -> Value -> Set PTRel -- [PTRel] -- Set Value
+  pointsTo :: a -> Value -> Set PTRel
   -- ^ Retrieve the set of locations that a value may point to
   pointsToValues :: a -> Value -> Set Value
   pointsToValues pta v =

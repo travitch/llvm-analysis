@@ -3,10 +3,7 @@
 --
 -- TODO:
 --
--- * Test copying structs containing pointer fields (translates to:
--- handle memcpy and memmove intrinsics)
---
--- * Handle external functions
+-- * Handle external functions (w/ hooks)
 --
 -- * Handle SelectInsts (of pointer type)
 --
@@ -19,6 +16,8 @@
 -- * Add a predicate to the constructor to identify instructions that
 --   allocate memory objects.  Add a separate module with some default
 --   predicates (C-only, C and C++, etc)
+--
+-- * On-the-fly allocator discovery
 module Data.LLVM.Analysis.PointsTo.Andersen (
   -- * Types
   Andersen,
@@ -28,6 +27,7 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   viewPointsToGraph,
   ) where
 
+import Control.Monad ( unless )
 import Control.Monad.State
 import Data.ByteString.Char8 ( isPrefixOf )
 import Data.Graph.Inductive hiding ( Gr, (><) )
@@ -76,12 +76,12 @@ type DepGraph = IntMap (Set Instruction)
 data PTState = PTState { _ptWorklist :: Worklist
                        , _ptDepGraph :: DepGraph
                        , _ptGraph :: PTG
+                       , _ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
+                       , _ptIsAllocator :: [Instruction -> Bool]
                        }
-
 $(makeLenses [''PTState])
 
 type PTMonad = State PTState
-
 
 -- | A wrapper around the analysis results.  This is opaque to the
 -- user.
@@ -122,8 +122,19 @@ runPointsToAnalysis m = Andersen g -- `debugGraph` g
     state0 = PTState { _ptWorklist = worklist0
                      , _ptDepGraph = IM.empty
                      , _ptGraph = graph0
+                     , _ptExternInfo = []
+                     , _ptIsAllocator = [isMalloc]
                      }
     g = _ptGraph (execState saturate state0)
+
+isMalloc i = case i of
+  CallInst { callFunction = cv } -> innerIsMalloc cv
+  _ -> False
+  where
+    innerIsMalloc cv = case valueContent cv of
+      ExternalFunctionC ef ->
+        identifierContent (externalFunctionName ef) == "malloc"
+      _ -> False
 
 -- | return instructions need to create a location (the
 -- pseudo-location to communicate return values back to callers).
@@ -315,7 +326,25 @@ memcpyHandler callInst args = do
 -- provide information about external functions.
 addExternalCallEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
 addExternalCallEdges callInst args ef = do
+  extInfoHndlrs <- access ptExternInfo
+  case lookupDescriptor extInfoHndlrs ef of
+    Nothing -> conservativeExternalHandler callInst args ef
+    Just h -> do
+      let effects = argumentEffects h
+      unless (length effects == length args) (error ("Mismatched effect length for " ++ show callInst))
+      let mapping = zip args effects
+          ptrMapping = filter (hasPointerOrFunction . fst) mapping
+      -- Ignore arguments with no points-to effects
+      return ()
   saturate
+  where
+    fname = identifierContent (externalFunctionName ef)
+    lookupDescriptor hlist ef = foldl (lookup' ef) Nothing hlist
+    lookup' ef descriptor hdlr = case descriptor of
+      Just _ -> descriptor
+      Nothing -> hdlr ef
+
+conservativeExternalHandler callInst args ef = return ()
 
 -- | Handle adding edges induced by a @StoreInst@.
 addStoreEdges :: Instruction -> Value -> Value -> PTMonad ()
@@ -402,10 +431,16 @@ getLocationsReferencedByOffset offset inst v = getLocs v 0
       -- (globals, locals, etc), which represent pointers to
       -- locations, these are abstract locations that do not have
       -- storage.  They must not be dereferenced the "extra" time.
-      InstructionC (ci@CallInst {}) ->
-        collectLocationNodes inst 1 [instructionUniqueId ci]
-      InstructionC (ci@InvokeInst {}) ->
-        collectLocationNodes inst 1 [instructionUniqueId ci]
+      InstructionC (ci@CallInst {}) -> do
+        isalloc <- isAllocator ci
+        case isalloc of
+          False -> collectLocationNodes inst 1 [instructionUniqueId ci]
+          True -> return [instructionUniqueId ci]
+      InstructionC (ci@InvokeInst {}) -> do
+        isalloc <- isAllocator ci
+        case isalloc of
+          False -> collectLocationNodes inst 1 [instructionUniqueId ci]
+          True -> return [instructionUniqueId ci]
       ArgumentC a ->
         collectLocationNodes inst 1 [argumentUniqueId a]
 
@@ -415,6 +450,10 @@ getLocationsReferencedByOffset offset inst v = getLocs v 0
       -- depgraph needs to be updated with an entry for each non-leaf
       -- node.
       _ -> collectLocationNodes inst (derefCount + offset) [valueUniqueId val]
+    isAllocator i = do
+      allocTests <- access ptIsAllocator
+      return $! foldl' (\acc p -> acc || p i) False allocTests
+
 
 addDependency :: Instruction -> Node -> PTMonad ()
 addDependency inst n = do
