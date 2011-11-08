@@ -19,3 +19,4 @@ dist/
 /up/llvm-2.9/lib/packages-7.0.3.conf/package.cache
 /up/llvm-2.9/lib/packages/00-index.tar
 /.dist-scion
+/.virthualenv
