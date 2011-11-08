@@ -223,7 +223,6 @@ addDefinedFunctionCallEdges callInst args callee = do
   mapM_ (addDependency callInst) retNodes
   newEdges <- mapM (uncurry makeNewEdges) locMap'
   addEdges (concat newEdges)
-  saturate
   where
     formals = functionParameters callee
     -- FIXME: This needs to change a bit for vararg functions - split
@@ -253,11 +252,10 @@ addDefinedFunctionCallEdges callInst args callee = do
 -- Start by zipping together the actual arguments and formal argument
 -- lists.  Filter out the non-pointer entries.
 addCallEdges :: Instruction -> Value -> [Value] -> PTMonad ()
-addCallEdges callInst calledFunc args =
+addCallEdges callInst calledFunc args = do
   case valueContent calledFunc of
-    FunctionC f -> do
-      addDefinedFunctionCallEdges callInst args f
-      saturate
+    FunctionC f -> addDefinedFunctionCallEdges callInst args f
+
     -- Don't forget case for ExternalFunctionC and then handling both in the fold
     ExternalFunctionC e -> case externalIsIntrinsic e of
       False -> addExternalCallEdges callInst args e
@@ -270,15 +268,18 @@ addCallEdges callInst calledFunc args =
       -- about other possible callees, we revisit this call.
       addDependency callInst (valueUniqueId calledFunc)
       g <- access ptGraph
-      let possibleCallees = map (toFunction . lab g) funcLocs
-      mapM_ (addDefinedFunctionCallEdges callInst args) possibleCallees
-      saturate
+      let handler (FunctionC f) = addDefinedFunctionCallEdges callInst args f
+          handler (ExternalFunctionC ef)
+            | externalIsIntrinsic ef = addIntrinsicEdges callInst args ef
+            | otherwise = addExternalCallEdges callInst args ef
+      mapM_ handler (map (valueContent . unloc . lab g) funcLocs)
+  saturate
 
 addIntrinsicEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
 addIntrinsicEdges callInst args ef =
   case find ((`isPrefixOf` fname) . fst) handlerMap of
     Nothing -> return ()
-    Just (_, handler) -> handler callInst args
+    Just (_, handler) -> handler callInst args >> return ()
   where
     fname = identifierContent (externalFunctionName ef)
     -- | Need to figure out how to handle memmove - it is more
@@ -305,7 +306,6 @@ memcpyHandler callInst args = do
   newTargets <- getLocationsReferencedByOffset (1) callInst src
   newEdges <- makeNewEdges newSources newTargets
   addEdges newEdges
-  saturate
 
 -- | FIXME: Implement by having a default conservative handler and
 -- checking a new field in the PTState that enables analysis users to
@@ -322,7 +322,7 @@ addExternalCallEdges callInst args ef = do
           ptrMapping = filter (hasPointerOrFunction . fst) mapping
       -- Ignore arguments with no points-to effects
       return ()
-  saturate
+  return ()
   where
     fname = identifierContent (externalFunctionName ef)
     lookupDescriptor hlist = foldl lookup' Nothing hlist
@@ -524,9 +524,6 @@ hasPointerOrFunctionType t =
 
 hasPointerOrFunction :: IsValue a => a -> Bool
 hasPointerOrFunction = hasPointerOrFunctionType . valueType
-
-toFunction :: Maybe (NodeTag) -> Function
-toFunction (Just (PtrToFunction f)) = f
 
 unloc :: Maybe NodeTag -> Value
 unloc (Just (Location l)) = l
