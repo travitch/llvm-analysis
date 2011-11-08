@@ -272,7 +272,8 @@ addCallEdges callInst calledFunc args = do
           handler (ExternalFunctionC ef)
             | externalIsIntrinsic ef = addIntrinsicEdges callInst args ef
             | otherwise = addExternalCallEdges callInst args ef
-      mapM_ handler (map (valueContent . unloc . lab g) funcLocs)
+          calledFuncVals = map (valueContent . unloc . lab g) funcLocs
+      mapM_ handler calledFuncVals
   saturate
 
 addIntrinsicEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
@@ -330,6 +331,7 @@ addExternalCallEdges callInst args ef = do
       Just _ -> descriptor
       Nothing -> hdlr ef
 
+conservativeExternalHandler :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
 conservativeExternalHandler callInst args ef = return ()
 
 -- | Handle adding edges induced by a @StoreInst@.
@@ -543,6 +545,7 @@ instance Labellable EdgeTag where
   toLabelValue ArrayEdge = toLabelValue ("[*]" :: String)
   toLabelValue (FieldAccessEdge ix) = toLabelValue $ concat [".<", show ix, ">"]
 
+pointsToParams :: GraphvizParams n NodeTag EdgeTag () NodeTag
 pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
                                     , fmtEdge = \(_,_,l) -> [toLabel l]
                                     }
