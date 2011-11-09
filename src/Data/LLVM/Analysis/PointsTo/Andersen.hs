@@ -3,6 +3,8 @@
 --
 -- TODO:
 --
+-- * Add a PHI node test and a NULL pointer test
+--
 -- * Handle external functions (w/ hooks)
 --
 -- * Handle SelectInsts (of pointer type)
@@ -20,6 +22,7 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   -- * Constructor
   runPointsToAnalysis,
   -- * Debugging aids
+  savePointsToGraph,
   viewPointsToGraph,
   ) where
 
@@ -92,8 +95,9 @@ instance PointsToAnalysis Andersen where
 andersenPointsTo :: (IsValue a) => Andersen -> a -> Set PTRel
 andersenPointsTo (Andersen g) v = S.fromList $ map Direct nodeValues
   where
+    errMsg = error "No node in graph for andersenPointsTo"
     pointsToNodes = suc g (valueUniqueId v)
-    nodeValues = map (unloc . lab g) pointsToNodes
+    nodeValues = map (maybe errMsg unloc . lab g) pointsToNodes
 
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
@@ -181,7 +185,7 @@ saturate = do
 -- value out).  The special return node (the node with the id of the
 -- ret inst) gets an edge to every node referenced by the return
 -- value.
-addReturnEdges :: IsValue a => Instruction -> a -> PTMonad ()
+addReturnEdges :: (Show a, IsValue a) => Instruction -> a -> PTMonad ()
 addReturnEdges retInst rv = do
   retLocs <- getLocationsReferencedBy retInst rv
   newEdges <- makeNewEdges [retNode] retLocs
@@ -268,11 +272,16 @@ addCallEdges callInst calledFunc args = do
       -- about other possible callees, we revisit this call.
       addDependency callInst (valueUniqueId calledFunc)
       g <- access ptGraph
-      let handler (FunctionC f) = addDefinedFunctionCallEdges callInst args f
-          handler (ExternalFunctionC ef)
-            | externalIsIntrinsic ef = addIntrinsicEdges callInst args ef
-            | otherwise = addExternalCallEdges callInst args ef
-          calledFuncVals = map (valueContent . unloc . lab g) funcLocs
+      let handler n =
+            case n of
+              Nothing -> conservativeExternalHandler callInst args Nothing
+              Just v -> case valueContent (unloc v) of
+                FunctionC f -> addDefinedFunctionCallEdges callInst args f
+                ExternalFunctionC ef -> case externalIsIntrinsic ef of
+                  True -> addIntrinsicEdges callInst args ef
+                  False -> addExternalCallEdges callInst args ef
+                _ -> conservativeExternalHandler callInst args Nothing
+          calledFuncVals = map (lab g) funcLocs
       mapM_ handler calledFuncVals
   saturate
 
@@ -295,7 +304,7 @@ addIntrinsicEdges callInst args ef =
     -- The other intrinsics only deal with non-pointer values and can
     -- probably be ignored.
     handlerMap = [ ("llvm.memcpy.", memcpyHandler)
-                 , ("llvm.memset.", undefined)
+--                 , ("llvm.memset.", undefined)
                  ]
 
 -- | In handling memcpy, we only care about the first two arguments
@@ -315,7 +324,7 @@ addExternalCallEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
 addExternalCallEdges callInst args ef = do
   extInfoHndlrs <- access ptExternInfo
   case lookupDescriptor extInfoHndlrs of
-    Nothing -> conservativeExternalHandler callInst args ef
+    Nothing -> conservativeExternalHandler callInst args (Just ef)
     Just h -> do
       let effects = argumentEffects h
       unless (length effects == length args) (error ("Mismatched effect length for " ++ show callInst))
@@ -331,7 +340,7 @@ addExternalCallEdges callInst args ef = do
       Just _ -> descriptor
       Nothing -> hdlr ef
 
-conservativeExternalHandler :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
+conservativeExternalHandler :: Instruction -> [Value] -> Maybe ExternalFunction -> PTMonad ()
 conservativeExternalHandler callInst args ef = return ()
 
 -- | Handle adding edges induced by a @StoreInst@.
@@ -388,56 +397,72 @@ makeNewEdges newSrcs newTargets = do
 -- location being loaded from.  Keep track of the number of
 -- dereferences (loads).  Take that many steps (across all outgoing
 -- edges) from the location in the points-to graph.
-getLocationsReferencedBy :: IsValue a => Instruction -> a -> PTMonad [Node]
+getLocationsReferencedBy :: (Show a, IsValue a) => Instruction -> a -> PTMonad [Node]
 getLocationsReferencedBy = getLocationsReferencedByOffset 0
 
-getLocationsReferencedByOffset :: IsValue a => Int -> Instruction -> a -> PTMonad [Node]
-getLocationsReferencedByOffset offset inst v = getLocs v 0
+getLocationsReferencedByOffset :: (Show a, IsValue a) => Int -> Instruction -> a -> PTMonad [Node]
+getLocationsReferencedByOffset offset inst v = getLocs v 0 S.empty
   where
-    getLocs :: (IsValue a) => a -> Int -> PTMonad [Node]
-    getLocs val derefCount = case valueContent val of
-      -- This also needs to handle GEP instructions later, also
-      -- (maybe) select, extractelement, and extractvalue.  This also
-      -- needs to be careful around bitcasts of non-pointer types
-      -- (integers turned into pointers, for example)
-      InstructionC (LoadInst { loadAddress = addr }) ->
-        getLocs addr (derefCount + 1)
-      InstructionC (BitcastInst { castedValue = cv }) ->
-        getLocs cv derefCount
-      InstructionC (GetElementPtrInst { getElementPtrValue = base
-                                      , getElementPtrIndices = idxs
-                                      }) ->
-        getLocs base derefCount
-      ConstantC (ConstantValue { constantInstruction = GetElementPtrInst { getElementPtrValue = base
-                                                                         , getElementPtrIndices = idxs
-                                                                         }
-                               }) ->
-        getLocs base derefCount
-      ConstantC (ConstantValue { constantInstruction = BitcastInst { castedValue = cv } }) ->
-        getLocs cv derefCount
-      -- These locations are a bit special.  Unlike the others
-      -- (globals, locals, etc), which represent pointers to
-      -- locations, these are abstract locations that do not have
-      -- storage.  They must not be dereferenced the "extra" time.
-      InstructionC (ci@CallInst {}) -> do
-        isalloc <- isAllocator ci
-        case isalloc of
-          False -> collectLocationNodes inst 1 [instructionUniqueId ci]
-          True -> return [instructionUniqueId ci]
-      InstructionC (ci@InvokeInst {}) -> do
-        isalloc <- isAllocator ci
-        case isalloc of
-          False -> collectLocationNodes inst 1 [instructionUniqueId ci]
-          True -> return [instructionUniqueId ci]
-      ArgumentC a ->
-        collectLocationNodes inst 1 [argumentUniqueId a]
+    getLocs :: (Show a, IsValue a) => a -> Int -> Set Value -> PTMonad [Node]
+    getLocs val derefCount visited
+      | (Value val) `S.member` visited = return []
+      | otherwise =
+        let visited' = S.insert (Value val) visited
+        in case valueContent val `debug` printf "id: %d -- %s\n" (valueUniqueId val) (show val) of
+          -- This also needs to handle GEP instructions later, also
+          -- (maybe) select, extractelement, and extractvalue.  This also
+          -- needs to be careful around bitcasts of non-pointer types
+          -- (integers turned into pointers, for example)
+          InstructionC (LoadInst { loadAddress = addr }) ->
+            getLocs addr (derefCount + 1) visited'
+          InstructionC (BitcastInst { castedValue = cv }) ->
+            getLocs cv derefCount visited'
+          InstructionC (GetElementPtrInst { getElementPtrValue = base
+                                          , getElementPtrIndices = idxs
+                                          }) ->
+            getLocs base derefCount visited'
+          InstructionC (PhiNode { phiIncomingValues = vs }) -> do
+            let ivs = map fst vs
+            locs <- mapM (\x -> getLocs x derefCount visited') ivs
+            return $ S.toList $ S.fromList (concat locs)
 
-      -- In this fallback case, @val@ should be a node in the
-      -- Points-to graph.  Collect everything @derefCount@ steps from
-      -- it and return that, along with the updated DepGraph.  The
-      -- depgraph needs to be updated with an entry for each non-leaf
-      -- node.
-      _ -> collectLocationNodes inst (derefCount + offset) [valueUniqueId val]
+          ConstantC (ConstantPointerNull {}) -> return []
+          ConstantC (UndefValue {}) -> return []
+          ConstantC (ConstantValue { constantInstruction =
+                                        GetElementPtrInst { getElementPtrValue = base
+                                                          , getElementPtrIndices = idxs
+                                                          }
+                                   }) ->
+            getLocs base derefCount visited'
+          ConstantC (ConstantValue { constantInstruction =
+                                        BitcastInst { castedValue = cv } }) ->
+            getLocs cv derefCount visited'
+          -- These locations are a bit special.  Unlike the others
+          -- (globals, locals, etc), which represent pointers to
+          -- locations, these are abstract locations that do not have
+          -- storage.  They must not be dereferenced the "extra" time.
+          InstructionC (ci@CallInst {}) -> do
+            isalloc <- isAllocator ci
+            case isalloc of
+              False -> collectLocationNodes inst 1 [instructionUniqueId ci]
+              True -> return [instructionUniqueId ci]
+          InstructionC (ci@InvokeInst {}) -> do
+            isalloc <- isAllocator ci
+            case isalloc of
+              False -> collectLocationNodes inst 1 [instructionUniqueId ci]
+              True -> return [instructionUniqueId ci]
+          ArgumentC a ->
+            collectLocationNodes inst 1 [argumentUniqueId a]
+
+          -- In this fallback case, @val@ should be a node in the
+          -- Points-to graph.  Collect everything @derefCount@ steps from
+          -- it and return that, along with the updated DepGraph.  The
+          -- depgraph needs to be updated with an entry for each non-leaf
+          -- node.
+          _ -> collectLocationNodes inst (derefCount + offset) [valueUniqueId val]
+      -- case (Value val) `S.member` visited of
+      --   True -> return []
+      --   False ->
     isAllocator i = do
       allocTests <- access ptIsAllocator
       return $! foldl' (\acc p -> acc || p i) False allocTests
@@ -527,10 +552,10 @@ hasPointerOrFunctionType t =
 hasPointerOrFunction :: IsValue a => a -> Bool
 hasPointerOrFunction = hasPointerOrFunctionType . valueType
 
-unloc :: Maybe NodeTag -> Value
-unloc (Just (Location l)) = l
-unloc (Just (PtrToLocation l)) = l
-unloc (Just (PtrToFunction f)) = (Value f)
+unloc :: NodeTag -> Value
+unloc (Location l) = l
+unloc (PtrToLocation l) = l
+unloc (PtrToFunction f) = (Value f)
 
 
 -- Debugging visualization stuff
@@ -555,6 +580,12 @@ viewPointsToGraph :: Andersen -> IO ()
 viewPointsToGraph (Andersen g) = do
   let dg = graphToDot pointsToParams g
   _ <- runGraphvizCanvas' dg Gtk
+  return ()
+
+savePointsToGraph :: Andersen -> FilePath -> IO ()
+savePointsToGraph (Andersen g) fp = do
+  let dg = graphToDot pointsToParams g
+  _ <- runGraphvizCommand Dot dg XDot fp
   return ()
 
 debugGraph :: a -> PTG -> a

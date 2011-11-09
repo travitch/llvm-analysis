@@ -13,4 +13,5 @@ main = do
     Right m -> do
       let a = runPointsToAnalysis [standardCProfile] m
       viewPointsToGraph a
+      savePointsToGraph a (fname ++ ".dot")
       return ()
