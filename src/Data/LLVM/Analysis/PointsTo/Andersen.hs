@@ -38,8 +38,6 @@ import Data.List ( find, foldl' )
 import Data.Maybe ( mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
-import Data.Sequence ( Seq, (><), ViewL(..), viewl )
-import qualified Data.Sequence as Seq
 
 import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Internal.PatriciaTree
@@ -63,7 +61,7 @@ data EdgeTag = DirectEdge
 type PTGEdge = (Int, Int, EdgeTag)
 type PTGNode = (Int, NodeTag)
 type PTG = Gr NodeTag EdgeTag
-type Worklist = Seq Instruction
+type Worklist = [Instruction]
 -- | Define a dependency graph.  The keys are the unique IDs of
 -- locations.  The value for each ID is the set of instructions that
 -- need to be re-processed when a new edge is added to the points-to graph
@@ -72,6 +70,7 @@ type DepGraph = IntMap (Set Instruction)
 
 
 data PTState = PTState { _ptWorklist :: Worklist
+                       , _ptNextWorklist :: Set Instruction
                        , _ptDepGraph :: DepGraph
                        , _ptGraph :: PTG
                        , _ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
@@ -117,8 +116,9 @@ runPointsToAnalysis allocTests m = Andersen g -- `debugGraph` g
     -- The initial graph contains all locations in the program, along
     -- with edges induced by global initializers.
     graph0 = mkGraph allLocations initialEdges
-    worklist0 = Seq.fromList edgeInducers
+    worklist0 = edgeInducers
     state0 = PTState { _ptWorklist = worklist0
+                     , _ptNextWorklist = S.empty
                      , _ptDepGraph = IM.empty
                      , _ptGraph = graph0
                      , _ptExternInfo = []
@@ -162,9 +162,20 @@ extractLocations i acc@(ptgNodes, insts) = case i of
 saturate :: PTMonad ()
 saturate = do
   wl <- access ptWorklist
-  case viewl wl of
-    EmptyL -> return ()
-    itm :< rest -> do
+  case wl of
+    [] -> do
+      nextWL <- access ptNextWorklist
+      case S.null nextWL of
+        -- Nothing in the next worklist, so we are done
+        True -> return ()
+        -- Replace the current worklist with the next set of worklist
+        -- items.  TODO: sort this into a better order (e.g., topsort)
+        False -> do
+          _ <- ptWorklist ~= S.toList nextWL `debug`
+                 printf "Flipped worklist with %d new entries" (S.size nextWL)
+          _ <- ptNextWorklist ~= S.empty
+          saturate
+    itm : rest -> do
       _ <- ptWorklist ~= rest
       case itm of
         StoreInst { storeValue = val, storeAddress = dest } ->
@@ -198,7 +209,7 @@ addEdges :: [Context NodeTag EdgeTag] -> PTMonad ()
 addEdges newEdges = do
   newWorklistItems <- affectedInstructions usedSrcs
   -- Append the new items to the worklist
-  _ <- ptWorklist %= (>< Seq.fromList newWorklistItems)
+  _ <- ptNextWorklist %= S.union (S.fromList newWorklistItems)
   ptg <- access ptGraph
   let g' = foldl' (flip (&)) ptg newEdges
   _ <- ptGraph ~= g'
@@ -408,7 +419,7 @@ getLocationsReferencedByOffset offset inst v = getLocs v 0 S.empty
       | (Value val) `S.member` visited = return []
       | otherwise =
         let visited' = S.insert (Value val) visited
-        in case valueContent val `debug` printf "id: %d -- %s\n" (valueUniqueId val) (show val) of
+        in case valueContent val {-`debug` printf "id: %d -- %s\n" (valueUniqueId val) (show val)-} of
           -- This also needs to handle GEP instructions later, also
           -- (maybe) select, extractelement, and extractvalue.  This also
           -- needs to be careful around bitcasts of non-pointer types
