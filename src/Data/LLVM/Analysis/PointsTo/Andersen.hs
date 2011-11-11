@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell, OverloadedStrings, ScopedTypeVariables #-}
 -- | This is a simple implementation of Andersen's points-to analysis.
 --
 -- TODO:
@@ -26,21 +26,26 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   viewPointsToGraph,
   ) where
 
-import Control.Monad.State
+-- import Control.Monad.State
+import Control.Monad ( forM_, forM, unless )
+import Control.Monad.ST
 import Data.ByteString.Char8 ( isPrefixOf )
-import Data.Graph.Inductive hiding ( Gr, (><) )
+import qualified Data.Graph.Inductive as G -- hiding ( Gr, (><) )
 import Data.GraphViz
 import Data.IntMap ( IntMap )
 import qualified Data.IntMap as IM
-import Data.Lens.Lazy
-import Data.Lens.Template
+-- import Data.Lens.Lazy
+-- import Data.Lens.Template
 import Data.List ( find, foldl' )
-import Data.Maybe ( mapMaybe )
+import Data.Maybe ( mapMaybe, catMaybes )
 import Data.Set ( Set )
 import qualified Data.Set as S
+import qualified Data.HashSet as HS
+import Data.STRef
 
 import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Internal.PatriciaTree
+import Data.LLVM.Internal.ImperativeGraph
 import Data.LLVM.Types
 
 import System.IO.Unsafe
@@ -53,14 +58,14 @@ data NodeTag = PtrToLocation Value
              | PtrToFunction Function
              deriving (Ord, Eq, Show)
 
-data EdgeTag = DirectEdge
-             | ArrayEdge
-             | FieldAccessEdge !Int
-             deriving (Ord, Eq, Show)
+-- data EdgeTag = DirectEdge
+--              | ArrayEdge
+--              | FieldAccessEdge !Int
+--              deriving (Ord, Eq, Show)
 
-type PTGEdge = (Int, Int, EdgeTag)
-type PTGNode = (Int, NodeTag)
-type PTG = Gr NodeTag EdgeTag
+type PTGEdge = (Node, Node, ())
+type PTGNode = (Node, NodeTag)
+type PTG = Gr NodeTag () -- EdgeTag
 type Worklist = [Instruction]
 -- | Define a dependency graph.  The keys are the unique IDs of
 -- locations.  The value for each ID is the set of instructions that
@@ -69,16 +74,16 @@ type Worklist = [Instruction]
 type DepGraph = IntMap (Set Instruction)
 
 
-data PTState = PTState { _ptWorklist :: Worklist
-                       , _ptNextWorklist :: Set Instruction
-                       , _ptDepGraph :: DepGraph
-                       , _ptGraph :: PTG
-                       , _ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
-                       , _ptIsAllocator :: [Instruction -> Bool]
-                       }
-$(makeLenses [''PTState])
+-- data PTState = PTState { _ptWorklist :: Worklist
+--                        , _ptNextWorklist :: Set Instruction
+--                        , _ptDepGraph :: DepGraph
+--                        , _ptGraph :: PTG
+--                        , _ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
+--                        , _ptIsAllocator :: [Instruction -> Bool]
+--                        }
+-- $(makeLenses [''PTState])
 
-type PTMonad = State PTState
+-- type PTMonad = ST
 
 -- | A wrapper around the analysis results.  This is opaque to the
 -- user.
@@ -95,15 +100,19 @@ andersenPointsTo :: (IsValue a) => Andersen -> a -> Set PTRel
 andersenPointsTo (Andersen g) v = S.fromList $ map Direct nodeValues
   where
     errMsg = error "No node in graph for andersenPointsTo"
-    pointsToNodes = suc g (valueUniqueId v)
-    nodeValues = map (maybe errMsg unloc . lab g) pointsToNodes
+    pointsToNodes = G.suc g (valueUniqueId v)
+    nodeValues = map (maybe errMsg unloc . G.lab g) pointsToNodes
+
+
 
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
 -- results.
 runPointsToAnalysis :: [Instruction -> Bool] -> Module -> Andersen
-runPointsToAnalysis allocTests m = Andersen g -- `debugGraph` g
-  where
+runPointsToAnalysis allocTests m = runST (runPTA allocTests m)
+--  Andersen g -- `debugGraph` g
+--  where
+    {-
     fs = moduleDefinedFunctions m
     blocks = concatMap functionBody fs
     insts = concatMap basicBlockInstructions blocks
@@ -124,70 +133,88 @@ runPointsToAnalysis allocTests m = Andersen g -- `debugGraph` g
                      , _ptExternInfo = []
                      , _ptIsAllocator = allocTests
                      }
-    g = _ptGraph (execState saturate state0)
+    -}
+--    g = runST (runPTA allocTests m)
+    -- g = _ptGraph (execState saturate state0)
 
--- | return instructions need to create a location (the
--- pseudo-location to communicate return values back to callers).
--- This doesn't have a real location and should be treated similarly
--- to arguments.
-extractLocations :: Instruction
-                    -> ([PTGNode], [Instruction])
-                    -> ([PTGNode], [Instruction])
-extractLocations i acc@(ptgNodes, insts) = case i of
-  AllocaInst { instructionUniqueId = uid } ->
-    ((uid, PtrToLocation (Value i)) : ptgNodes, insts)
-  StoreInst {} -> (ptgNodes, i : insts)
 
-  -- Non-void typed calls (i.e., calls that return values) need to
-  -- have a node in the points-to graph representing the returned
-  -- value, too.
-  CallInst {} ->
-    case isPointerOrFunction i of
-      False -> (ptgNodes, i : insts)
-      True -> ((instructionUniqueId i, Location (Value i)) : ptgNodes, i : insts)
-  InvokeInst {} ->
-    case isPointerOrFunction i of
-      False -> (ptgNodes, i : insts)
-      True -> ((instructionUniqueId i, Location (Value i)) : ptgNodes, i : insts)
+data PTState s = PTState { ptWorklist :: STRef s Worklist
+                         , ptNextWorklist :: STRef s (Set Instruction)
+                         , ptDepGraph :: STRef s DepGraph
+                         , ptGraph :: ImperativeGraph s NodeTag
+                         , ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
+                         , ptIsAllocator :: [Instruction -> Bool]
+                         }
 
-  -- Only handle RetInsts if they return a pointer or function value
-  RetInst { retInstValue = Just rv, instructionUniqueId = uid } ->
-    case isPointerOrFunction rv of
-      True -> ((uid, Location (Value i)) : ptgNodes, i : insts)
-      False -> (ptgNodes, insts)
-  _ -> acc
+
+runPTA :: [Instruction -> Bool] -> Module -> ST s Andersen
+runPTA allocTests m = do
+  -- Set up the initial graph
+  g <- newGraph
+  forM_ allLocations $ \(n, lbl) -> addNode g n lbl
+  forM_ initialEdges $ \(src, tgt) -> addEdges g src [tgt]
+
+  -- Allocate the STRefs that will be modified during the computation
+  worklistRef <- newSTRef edgeInducers
+  nextWorklistRef <- newSTRef S.empty
+  dgRef <- newSTRef IM.empty
+  let state = PTState { ptWorklist = worklistRef
+                      , ptNextWorklist = nextWorklistRef
+                      , ptDepGraph = dgRef
+                      , ptGraph = g
+                      , ptExternInfo = []
+                      , ptIsAllocator = allocTests
+                      }
+  -- Saturate the graph
+  saturate state
+
+  -- Extract a read-only version of the graph
+  ig <- toInductive g
+  return $! Andersen ig
+  where
+    fs = moduleDefinedFunctions m
+    blocks = concatMap functionBody fs
+    insts = concatMap basicBlockInstructions blocks
+    (globalLocations, globalEdges) = getGlobalLocations m
+    argumentLocations = foldr extractArgs [] fs
+    (localLocations, edgeInducers) = foldr extractLocations ([], []) insts
+    allLocations = concat [globalLocations, argumentLocations, localLocations]
+    initialEdges = globalEdges
 
 
 -- | Saturate the points-to graph using a worklist algorithm.
-saturate :: PTMonad ()
-saturate = do
-  wl <- access ptWorklist
+saturate :: PTState s -> ST s ()
+saturate state = do
+  wl <- readSTRef (ptWorklist state)
   case wl of
     [] -> do
-      nextWL <- access ptNextWorklist
+      nextWL <- readSTRef (ptNextWorklist state)
       case S.null nextWL of
         -- Nothing in the next worklist, so we are done
         True -> return ()
         -- Replace the current worklist with the next set of worklist
         -- items.  TODO: sort this into a better order (e.g., topsort)
         False -> do
-          _ <- ptWorklist ~= S.toList nextWL `debug`
-                 printf "Flipped worklist with %d new entries" (S.size nextWL)
-          _ <- ptNextWorklist ~= S.empty
-          saturate
+          writeSTRef (ptWorklist state) (S.toList nextWL) `debug`
+            printf "Flipped worklist with %d new entries" (S.size nextWL)
+          -- _ <- ptWorklist ~= S.toList nextWL
+          -- _ <- ptNextWorklist ~= S.empty
+          writeSTRef (ptNextWorklist state) S.empty
+          saturate state
     itm : rest -> do
-      _ <- ptWorklist ~= rest
+      writeSTRef (ptWorklist state) rest
+      -- _ <- ptWorklist ~= rest
       case itm of
         StoreInst { storeValue = val, storeAddress = dest } ->
           case isPointerOrFunction val of
-            False -> saturate
-            True -> addStoreEdges itm val dest
+            False -> saturate state
+            True -> addStoreEdges state itm val dest
         CallInst { callFunction = cf, callArguments = args } ->
-          addCallEdges itm cf (map fst args)
+          addCallEdges state itm cf (map fst args)
         InvokeInst { invokeFunction = cf, invokeArguments = args } ->
-          addCallEdges itm cf (map fst args)
+          addCallEdges state itm cf (map fst args)
         RetInst { retInstValue = Just rv } ->
-          addReturnEdges itm rv
+          addReturnEdges state itm rv
         _ -> error ("Unexpected instruction type in Andersen saturation: " ++ show itm)
 
 -- | Returns can be handled similarly to arguments.  Neither has
@@ -196,69 +223,59 @@ saturate = do
 -- value out).  The special return node (the node with the id of the
 -- ret inst) gets an edge to every node referenced by the return
 -- value.
-addReturnEdges :: (Show a, IsValue a) => Instruction -> a -> PTMonad ()
-addReturnEdges retInst rv = do
-  retLocs <- getLocationsReferencedBy retInst rv
-  newEdges <- makeNewEdges [retNode] retLocs
-  addEdges newEdges
-  saturate
+addReturnEdges :: (Show a, IsValue a) => PTState s -> Instruction -> a -> ST s ()
+addReturnEdges state retInst rv = do
+  retLocs <- getLocationsReferencedBy state retInst rv
+  makeNewEdges state [retNode] retLocs
+  saturate state
   where
     retNode = instructionUniqueId retInst
 
-addEdges :: [Context NodeTag EdgeTag] -> PTMonad ()
-addEdges newEdges = do
-  newWorklistItems <- affectedInstructions usedSrcs
-  -- Append the new items to the worklist
-  _ <- ptNextWorklist %= S.union (S.fromList newWorklistItems)
-  ptg <- access ptGraph
-  let g' = foldl' (flip (&)) ptg newEdges
-  _ <- ptGraph ~= g'
-  return ()
-  where
-    accumUsedSrcs acc (_, src, _, _) = S.insert src acc
-    usedSrcs = foldl' accumUsedSrcs S.empty newEdges
 
-    affectedInstructions :: Set Int -> PTMonad [Instruction]
-    affectedInstructions used = do
-      depGraph <- access ptDepGraph
-      let instSet = S.fold (findAffected depGraph) S.empty used
-          findAffected dg nodeId acc = S.union acc (IM.findWithDefault S.empty nodeId dg)
-      return $ S.toList instSet
-
-
-addDefinedFunctionCallEdges :: Instruction -- ^ The CallInst
+addDefinedFunctionCallEdges :: PTState s
+                               -> Instruction -- ^ The CallInst
                                -> [Value] -- ^ Actual arguments
                                -> Function -- ^ A possible callee
-                               -> PTMonad ()
-addDefinedFunctionCallEdges callInst args callee = do
-  locMap <- mapM getLocs justPointers
-  g <- access ptGraph
-  let pointedToByRetNodes = concatMap (suc g) retNodes
-      locMap' = ([instructionUniqueId callInst], pointedToByRetNodes) : locMap
-  mapM_ (addDependency callInst) retNodes
-  newEdges <- mapM (uncurry makeNewEdges) locMap'
-  addEdges (concat newEdges)
+                               -> ST s ()
+addDefinedFunctionCallEdges state callInst args callee = do
+  locMap <- mapM (getLocs state) justPointers
+  let g = ptGraph state
+  retSuccs <- mapM (nodeSuccessors g) retNodes
+  let pointedToByRetNodes = concat retSuccs
+--  let pointedToByRetNodes = concatMap (suc g) retNodes
+      locMap' = case retNodes of
+        [] -> locMap
+        _ -> ([instructionUniqueId callInst], pointedToByRetNodes) : locMap
+  mapM_ (addDependency state callInst) retNodes -- `debug` printf "call id: %d" (instructionUniqueId callInst)
+  mapM_ (uncurry (makeNewEdges state)) locMap'
   where
     formals = functionParameters callee
     -- FIXME: This needs to change a bit for vararg functions - split
     -- into two lists and treat the trailing arguments as a single
     -- memory location
-    actualFormalMap = zip args formals
-    keepPointerParams = filter (hasPointerOrFunction . fst)
+    actualFormalMap = zip args formals -- `debug`  (case args of
+                                       --              [] -> show args
+                                       --              _ -> show $ last args)
+    -- isRelevant v = case valueContent v of
+    --   ConstantC _ -> False
+    --   _ -> hasPointerOrFunction v
+    isRelevant = hasPointerOrFunction
+    keepPointerParams = filter (isRelevant . fst)
     justPointers = keepPointerParams actualFormalMap
 
     -- Now find all possible return nodes for this instruction (one
     -- for each possible callee).  Add edges from the call node to all
     -- of the things that could be pointed to by the return node.
+    retInst = functionExitInstruction callee
     retNodes = case isPointerOrFunction callInst of
-      True -> [instructionUniqueId (functionExitInstruction callee)]
+      True -> [instructionUniqueId retInst]
       False -> []
 
-    getLocs :: (Value, Argument) -> PTMonad ([Node], [Node])
-    getLocs (actual, formal) = do
+    getLocs :: PTState s -> (Value, Argument) -> ST s ([Node], [Node])
+    getLocs s (actual, formal) = do
       let formalLoc = argumentUniqueId formal
-      actualLocs <- getLocationsReferencedBy callInst actual
-      addDependency callInst formalLoc
+      actualLocs <- getLocationsReferencedBy s callInst actual
+      addDependency s callInst formalLoc
       return ([formalLoc], actualLocs)
 
 -- | A call is essentially a copy of a pointer in the caller to an
@@ -266,41 +283,42 @@ addDefinedFunctionCallEdges callInst args callee = do
 --
 -- Start by zipping together the actual arguments and formal argument
 -- lists.  Filter out the non-pointer entries.
-addCallEdges :: Instruction -> Value -> [Value] -> PTMonad ()
-addCallEdges callInst calledFunc args = do
+addCallEdges :: PTState s -> Instruction -> Value -> [Value] -> ST s ()
+addCallEdges state callInst calledFunc args = do
   case valueContent calledFunc of
-    FunctionC f -> addDefinedFunctionCallEdges callInst args f
+    FunctionC f -> addDefinedFunctionCallEdges state callInst args f
 
     -- Don't forget case for ExternalFunctionC and then handling both in the fold
     ExternalFunctionC e -> case externalIsIntrinsic e of
-      False -> addExternalCallEdges callInst args e
-      True -> addIntrinsicEdges callInst args e
+      False -> addExternalCallEdges state callInst args e
+      True -> addIntrinsicEdges state callInst args e
 
     _ -> do
-      funcLocs <- getLocationsReferencedBy callInst calledFunc
+      funcLocs <- getLocationsReferencedBy state callInst calledFunc
       -- Add a dependency in the DepGraph on the node representing the
       -- functions that may be pointed to here.  This way, if we learn
       -- about other possible callees, we revisit this call.
-      addDependency callInst (valueUniqueId calledFunc)
-      g <- access ptGraph
-      let handler n =
-            case n of
-              Nothing -> conservativeExternalHandler callInst args Nothing
-              Just v -> case valueContent (unloc v) of
-                FunctionC f -> addDefinedFunctionCallEdges callInst args f
-                ExternalFunctionC ef -> case externalIsIntrinsic ef of
-                  True -> addIntrinsicEdges callInst args ef
-                  False -> addExternalCallEdges callInst args ef
-                _ -> conservativeExternalHandler callInst args Nothing
-          calledFuncVals = map (lab g) funcLocs
+      addDependency state callInst (valueUniqueId calledFunc)
+      let g = ptGraph state
+      calledFuncVals <- mapM (nodeLabels g) funcLocs
+      -- g <- access ptGraph
+      let handler n = case n of
+            Nothing -> conservativeExternalHandler state callInst args Nothing
+            Just v -> case valueContent (unloc v) of
+              FunctionC f -> addDefinedFunctionCallEdges state callInst args f
+              ExternalFunctionC ef -> case externalIsIntrinsic ef of
+                True -> addIntrinsicEdges state callInst args ef
+                False -> addExternalCallEdges state callInst args ef
+              _ -> conservativeExternalHandler state callInst args Nothing
+          -- calledFuncVals = map (lab g) funcLocs
       mapM_ handler calledFuncVals
-  saturate
+  saturate state
 
-addIntrinsicEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
-addIntrinsicEdges callInst args ef =
+addIntrinsicEdges :: PTState s -> Instruction -> [Value] -> ExternalFunction -> ST s ()
+addIntrinsicEdges state callInst args ef =
   case find ((`isPrefixOf` fname) . fst) handlerMap of
     Nothing -> return ()
-    Just (_, handler) -> handler callInst args >> return ()
+    Just (_, handler) -> handler state callInst args >> return ()
   where
     fname = identifierContent (externalFunctionName ef)
     -- | Need to figure out how to handle memmove - it is more
@@ -320,22 +338,22 @@ addIntrinsicEdges callInst args ef =
 
 -- | In handling memcpy, we only care about the first two arguments
 -- (until we tackle field-sensitivity): <dest> and <src>.
-memcpyHandler :: Instruction -> [Value] -> PTMonad ()
-memcpyHandler callInst args = do
+memcpyHandler :: PTState s -> Instruction -> [Value] -> ST s ()
+memcpyHandler state callInst args = do
   let dest : src : _ = args
-  newSources <- getLocationsReferencedByOffset (0) callInst dest
-  newTargets <- getLocationsReferencedByOffset (1) callInst src
-  newEdges <- makeNewEdges newSources newTargets
-  addEdges newEdges
+  newSources <- getLocationsReferencedByOffset (0) state callInst dest
+  newTargets <- getLocationsReferencedByOffset (1) state callInst src
+  makeNewEdges state newSources newTargets
 
 -- | FIXME: Implement by having a default conservative handler and
 -- checking a new field in the PTState that enables analysis users to
 -- provide information about external functions.
-addExternalCallEdges :: Instruction -> [Value] -> ExternalFunction -> PTMonad ()
-addExternalCallEdges callInst args ef = do
-  extInfoHndlrs <- access ptExternInfo
+addExternalCallEdges :: PTState s -> Instruction -> [Value] -> ExternalFunction -> ST s ()
+addExternalCallEdges state callInst args ef = do
+  let extInfoHndlrs = ptExternInfo state
+  -- extInfoHndlrs <- access ptExternInfo
   case lookupDescriptor extInfoHndlrs of
-    Nothing -> conservativeExternalHandler callInst args (Just ef)
+    Nothing -> conservativeExternalHandler state callInst args (Just ef)
     Just h -> do
       let effects = argumentEffects h
       unless (length effects == length args) (error ("Mismatched effect length for " ++ show callInst))
@@ -351,42 +369,93 @@ addExternalCallEdges callInst args ef = do
       Just _ -> descriptor
       Nothing -> hdlr ef
 
-conservativeExternalHandler :: Instruction -> [Value] -> Maybe ExternalFunction -> PTMonad ()
-conservativeExternalHandler callInst args ef = return ()
+conservativeExternalHandler :: PTState s
+                               -> Instruction
+                               -> [Value]
+                               -> Maybe ExternalFunction
+                               -> ST s ()
+conservativeExternalHandler state callInst args ef = return ()
 
 -- | Handle adding edges induced by a @StoreInst@.
-addStoreEdges :: Instruction -> Value -> Value -> PTMonad ()
-addStoreEdges i val dest = do
-  newTargets <- getLocationsReferencedBy i val
-  newSources <- getLocationsReferencedBy i dest
-  newEdges <- makeNewEdges newSources newTargets
-  addEdges newEdges
-  saturate
+addStoreEdges :: PTState s -> Instruction -> Value -> Value -> ST s ()
+addStoreEdges state i val dest = do
+  newTargets <- getLocationsReferencedBy state i val
+  newSources <- getLocationsReferencedBy state i dest
+  makeNewEdges state newSources newTargets
+  saturate state
 
 -- | Determine which edges need to be added to the graph, based on the
 -- set of discovered sources and targets.  Only new edges are
 -- returned.
-makeNewEdges :: [Node] -> [Node] -> PTMonad [Context NodeTag EdgeTag]
-makeNewEdges newSrcs newTargets = do
+makeNewEdges :: PTState s -> [Node] -> [Node] -> ST s ()
+makeNewEdges state srcs targets = do
+  let g = ptGraph state
+      targetSet = HS.fromList targets
+  -- For each source, add edges to the new targets.  Return the src
+  -- if it was used.
+  usedSrcs <- forM srcs $ \src -> do
+    currentTargets <- nodeSuccessors g src
+    let currentTargetSet = HS.fromList currentTargets
+        newTargets = HS.difference targetSet currentTargetSet
+    case HS.toList newTargets of
+      [] -> return Nothing
+      tgts -> do
+        addEdges g src tgts
+        return (Just src)
+
+  -- Now figure out which instructions need to be added to the
+  -- worklist because some of the new edges affected them
+  depGraph <- readSTRef (ptDepGraph state)
+  let newWorklistItems = affectedInstructions depGraph (catMaybes usedSrcs)
+  modifySTRef (ptNextWorklist state) $ S.union newWorklistItems
+  where
+    affectedInstructions :: DepGraph -> [Node] -> Set Instruction
+    affectedInstructions depGraph used =
+      let findAffected acc nodeId =
+            S.union acc (IM.findWithDefault S.empty nodeId depGraph)
+      in foldl' findAffected S.empty used
+
+{-
+addEdges :: PTState -> [Context NodeTag EdgeTag] -> ST s ()
+addEdges state newEdges = do
+  newWorklistItems <- affectedInstructions state usedSrcs
+  -- Append the new items to the worklist
+  modifySTRef (ptNextWorklist state) $ S.union newWorklistItems
+  -- _ <- ptNextWorklist %= S.union (S.fromList newWorklistItems)
+
+  -- FIXME
+  -- ptg <- access ptGraph
+  -- let g' = foldl' (flip (&)) ptg newEdges
+  -- _ <- ptGraph ~= g'
+  return ()
+-}
+
+
+{-
   g <- access ptGraph
-  let notInGraph src tgt = tgt `notElem` suc g src
-      -- | Create a new context for each src in the graph.  A context is
-      -- only created if it adds new targets.  This is to make worklist
-      -- management easier; if there are no new edges, the worklist is
-      -- not updated.
-      --
-      -- Note that all edges for each source are added at once to the
-      -- context.  Using separate contexts for each new edge would
-      -- require changes later, otherwise some contexts could overwrite
-      -- others, losing edges.
-      toContext src =
-        let targets = filter (notInGraph src) newTargets
-            (_, n, lbl, adjOut) = context g src
-        in case targets of
-          [] -> Nothing
-          _ -> let newOut = zip (repeat DirectEdge) targets ++ adjOut
-               in Just ([], n, lbl, newOut)
-  return $ mapMaybe toContext newSrcs
+  return $ mapMaybe (toContext g) newSrcs
+  where
+    possibleTargets = HS.fromList newTargets
+    -- | Create a new context for each src in the graph.  A context is
+    -- only created if it adds new targets.  This is to make worklist
+    -- management easier; if there are no new edges, the worklist is
+    -- not updated.
+    --
+    -- Note that all edges for each source are added at once to the
+    -- context.  Using separate contexts for each new edge would
+    -- require changes later, otherwise some contexts could overwrite
+    -- others, losing edges.
+    toContext g src = {-# SCC "toContext" #-}
+      let ctx@(_, n, lbl, adjOut) = context g src
+          existingTargets = {-# SCC "toContext.toSet" #-} HS.fromList $ suc' ctx
+          targets = {-# SCC "toContext.filter" #-}
+            HS.difference possibleTargets existingTargets
+--            filter (not . (`HS.member` existingTargets)) newTargets
+      in case HS.null targets of
+        True -> Nothing
+        False -> let newOut = {-# SCC "toContext.zip" #-} zip (repeat DirectEdge) (HS.toList targets) ++ adjOut
+                 in Just ([], n, lbl, newOut)
+-}
 
 -- | Given a @Value@ that is an operand of a @StoreInst@, find all of
 -- the locations in the points-to graph that it refers to.  This means
@@ -408,13 +477,22 @@ makeNewEdges newSrcs newTargets = do
 -- location being loaded from.  Keep track of the number of
 -- dereferences (loads).  Take that many steps (across all outgoing
 -- edges) from the location in the points-to graph.
-getLocationsReferencedBy :: (Show a, IsValue a) => Instruction -> a -> PTMonad [Node]
+getLocationsReferencedBy :: (Show a, IsValue a)
+                            => PTState s
+                            -> Instruction
+                            -> a
+                            -> ST s [Node]
 getLocationsReferencedBy = getLocationsReferencedByOffset 0
 
-getLocationsReferencedByOffset :: (Show a, IsValue a) => Int -> Instruction -> a -> PTMonad [Node]
-getLocationsReferencedByOffset offset inst v = getLocs v 0 S.empty
+getLocationsReferencedByOffset :: forall s a . (Show a, IsValue a)
+                                  => Int
+                                  -> PTState s
+                                  -> Instruction
+                                  -> a
+                                  -> ST s [Node]
+getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
   where
-    getLocs :: (Show a, IsValue a) => a -> Int -> Set Value -> PTMonad [Node]
+    getLocs :: (Show b, IsValue b) => b -> Int -> Set Value -> ST s [Node]
     getLocs val derefCount visited
       | (Value val) `S.member` visited = return []
       | otherwise =
@@ -428,6 +506,11 @@ getLocationsReferencedByOffset offset inst v = getLocs v 0 S.empty
             getLocs addr (derefCount + 1) visited'
           InstructionC (BitcastInst { castedValue = cv }) ->
             getLocs cv derefCount visited'
+          InstructionC (IntToPtrInst {}) -> return [] -- FIXME: Taint
+                                                     -- everything
+                                                     -- transitively
+                                                     -- touching this
+                                                     -- monster
           InstructionC (GetElementPtrInst { getElementPtrValue = base
                                           , getElementPtrIndices = idxs
                                           }) ->
@@ -436,6 +519,11 @@ getLocationsReferencedByOffset offset inst v = getLocs v 0 S.empty
             let ivs = map fst vs
             locs <- mapM (\x -> getLocs x derefCount visited') ivs
             return $ S.toList $ S.fromList (concat locs)
+          InstructionC (SelectInst { selectTrueValue = tv, selectFalseValue = fv }) -> do
+            tlocs <- getLocs tv derefCount visited'
+            flocs <- getLocs fv derefCount visited'
+            return $ S.toList $ S.fromList $ tlocs ++ flocs
+
 
           ConstantC (ConstantPointerNull {}) -> return []
           ConstantC (UndefValue {}) -> return []
@@ -452,51 +540,88 @@ getLocationsReferencedByOffset offset inst v = getLocs v 0 S.empty
           -- (globals, locals, etc), which represent pointers to
           -- locations, these are abstract locations that do not have
           -- storage.  They must not be dereferenced the "extra" time.
-          InstructionC (ci@CallInst {}) -> do
-            isalloc <- isAllocator ci
-            case isalloc of
-              False -> collectLocationNodes inst 1 [instructionUniqueId ci]
-              True -> return [instructionUniqueId ci]
-          InstructionC (ci@InvokeInst {}) -> do
-            isalloc <- isAllocator ci
-            case isalloc of
-              False -> collectLocationNodes inst 1 [instructionUniqueId ci]
-              True -> return [instructionUniqueId ci]
+          InstructionC (ci@CallInst {}) -> case isAllocator ci of
+            False -> collectLocationNodes state inst 1 [instructionUniqueId ci]
+            True -> return [instructionUniqueId ci]
+          InstructionC (ci@InvokeInst {}) -> case isAllocator ci of
+            False -> collectLocationNodes state inst 1 [instructionUniqueId ci]
+            True -> return [instructionUniqueId ci]
           ArgumentC a ->
-            collectLocationNodes inst 1 [argumentUniqueId a]
+            collectLocationNodes state inst 1 [argumentUniqueId a]
 
           -- In this fallback case, @val@ should be a node in the
           -- Points-to graph.  Collect everything @derefCount@ steps from
           -- it and return that, along with the updated DepGraph.  The
           -- depgraph needs to be updated with an entry for each non-leaf
           -- node.
-          _ -> collectLocationNodes inst (derefCount + offset) [valueUniqueId val]
+          _ -> collectLocationNodes state inst (derefCount + offset) [valueUniqueId val] -- `debug` show val
       -- case (Value val) `S.member` visited of
       --   True -> return []
       --   False ->
-    isAllocator i = do
-      allocTests <- access ptIsAllocator
-      return $! foldl' (\acc p -> acc || p i) False allocTests
+    isAllocator i = let allocTests = ptIsAllocator state
+                    in foldl' (\acc p -> acc || p i) False allocTests
+--      allocTests <- access ptIsAllocator
+--      return $!
 
 
-addDependency :: Instruction -> Node -> PTMonad ()
-addDependency inst n = do
-  _ <- ptDepGraph %= (IM.insertWith S.union n (S.singleton inst))
-  return ()
+addDependency :: PTState s -> Instruction -> Node -> ST s ()
+addDependency state inst n = -- do
+  modifySTRef (ptDepGraph state) $ IM.insertWith S.union n (S.singleton inst)
+--  _ <- ptDepGraph %= (IM.insertWith S.union n (S.singleton inst))
+--  return ()
 
-collectLocationNodes :: Instruction
+collectLocationNodes :: PTState s
+                        -> Instruction
                         -> Int
                         -> [Node]
-                        -> PTMonad [Node]
-collectLocationNodes inst steps seedNodes = collect steps seedNodes
+                        -> ST s [Node]
+collectLocationNodes state inst steps seedNodes = collect steps seedNodes
   where
     collect remainingHops currentNodes
       | remainingHops <= 0 = return currentNodes
       | otherwise = do
-        g <- access ptGraph
-        let nextNodes = concatMap (suc g) currentNodes
-        mapM_ (addDependency inst) currentNodes
-        collect (remainingHops - 1) nextNodes
+        let g = ptGraph state
+--        g <- access ptGraph
+        nextNodes <- mapM (nodeSuccessors g) currentNodes
+        let nextNodes' = concat nextNodes
+--        let nextNodes = concatMap (suc g) currentNodes
+        mapM_ (addDependency state inst) currentNodes
+        collect (remainingHops - 1) nextNodes'
+
+
+
+
+-- | return instructions need to create a location (the
+-- pseudo-location to communicate return values back to callers).
+-- This doesn't have a real location and should be treated similarly
+-- to arguments.
+extractLocations :: Instruction
+                    -> ([PTGNode], [Instruction])
+                    -> ([PTGNode], [Instruction])
+extractLocations i acc@(ptgNodes, insts) = case i of
+  AllocaInst { instructionUniqueId = uid } ->
+    ((uid, PtrToLocation (Value i)) : ptgNodes, insts)
+  StoreInst {} -> (ptgNodes, i : insts)
+
+  -- Non-void typed calls (i.e., calls that return values) need to
+  -- have a node in the points-to graph representing the returned
+  -- value, too.
+  CallInst {} ->
+    case isPointerOrFunction i of
+      False -> (ptgNodes, i : insts) -- `debug` printf "Skipping call: %d -- %s" (valueUniqueId i) (show i)
+      True -> ((instructionUniqueId i, Location (Value i)) : ptgNodes, i : insts)
+  InvokeInst {} ->
+    case isPointerOrFunction i of
+      False -> (ptgNodes, i : insts)
+      True -> ((instructionUniqueId i, Location (Value i)) : ptgNodes, i : insts)
+
+  -- Only handle RetInsts if they return a pointer or function value
+  RetInst { retInstValue = Just rv, instructionUniqueId = uid } ->
+    case isPointerOrFunction rv of
+      True -> ((uid, Location (Value i)) : ptgNodes, i : insts)
+      False -> (ptgNodes, insts)
+  _ -> acc
+
 
 -- | This only re-allocates the small part of the list each iteration,
 -- so should remain efficient.
@@ -507,7 +632,7 @@ extractArgs f nacc = map argToNode (functionParameters f) ++ nacc
 
 -- | Collect all of the global entities representing locations in the
 -- Module
-getGlobalLocations :: Module -> ([PTGNode], [PTGEdge])
+getGlobalLocations :: Module -> ([PTGNode], [(Node, Node)])
 getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
   where
     -- Only add edges for globals that have initializers that are the
@@ -517,7 +642,7 @@ getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
       Nothing -> Nothing
       Just i -> case valueContent i of
         ConstantC _ -> Nothing
-        _ -> Just (globalVariableUniqueId gv, valueUniqueId i, DirectEdge)
+        _ -> Just (globalVariableUniqueId gv, valueUniqueId i)
     makeGlobalLocation idExtractor val = (idExtractor val, PtrToLocation (Value val))
     makeFunction val = (functionUniqueId val, PtrToFunction val)
     externVals = moduleExternalValues m
@@ -576,14 +701,14 @@ instance Labellable NodeTag where
   toLabelValue (PtrToLocation v) = toLabelValue v
   toLabelValue (PtrToFunction f) = toLabelValue (Value f)
 
-instance Labellable EdgeTag where
-  toLabelValue DirectEdge = toLabelValue ("" :: String)
-  toLabelValue ArrayEdge = toLabelValue ("[*]" :: String)
-  toLabelValue (FieldAccessEdge ix) = toLabelValue $ concat [".<", show ix, ">"]
+-- instance Labellable EdgeTag where
+--   toLabelValue DirectEdge = toLabelValue ("" :: String)
+--   toLabelValue ArrayEdge = toLabelValue ("[*]" :: String)
+--   toLabelValue (FieldAccessEdge ix) = toLabelValue $ concat [".<", show ix, ">"]
 
-pointsToParams :: GraphvizParams n NodeTag EdgeTag () NodeTag
+pointsToParams :: GraphvizParams n NodeTag () () NodeTag
 pointsToParams = nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
-                                    , fmtEdge = \(_,_,l) -> [toLabel l]
+                                    , fmtEdge = \(_,_,l) -> [toLabel ("" :: String)]
                                     }
 
 
@@ -603,7 +728,7 @@ debugGraph :: a -> PTG -> a
 debugGraph v g = unsafePerformIO $ do
   viewPointsToGraph (Andersen g)
   return v
-
+{-
 showContextList :: String -> PTG -> [Context NodeTag ()] -> String
 showContextList tag g = (tag'++) . unlines . concatMap toS
   where
@@ -616,3 +741,4 @@ showNodeLabels tag g = (tag'++) . unlines . map toS
     tag' = tag ++ "\n"
     toS n = let Just lbl = lab g n
             in "  " ++ show lbl
+-}

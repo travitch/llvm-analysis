@@ -12,6 +12,6 @@ main = do
     Left err -> putStrLn err
     Right m -> do
       let a = runPointsToAnalysis [standardCProfile] m
-      viewPointsToGraph a
+      -- viewPointsToGraph a
       savePointsToGraph a (fname ++ ".dot")
       return ()
