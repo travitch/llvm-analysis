@@ -107,7 +107,7 @@ nodeSuccessors (IG ht) n = do
     Just (EmptyContext _) -> return []
     Just (Context _ usedEntries v) -> do
       immv <- IV.unsafeFreeze v
-      return $ IV.foldl' (flip (:)) [] (IV.take usedEntries immv)
+      return $! IV.foldl' (flip (:)) [] (IV.take usedEntries immv)
 
       -- forM [0..(usedEntries-1)] $ \x -> V.read v x
 
@@ -125,7 +125,7 @@ nodeLabels (IG ht) n = do
 toInductive :: ImperativeGraph s lbl -> ST s (Gr lbl ())
 toInductive (IG ht) = do
   (lnodes, ledges) <- HT.foldM extractNodesAndEdges ([], []) ht
-  return $ mkGraph lnodes (concat ledges)
+  return $! mkGraph lnodes (concat ledges)
 
 -- | Fold helper to build the inductive graph
 extractNodesAndEdges :: ([LNode lbl], [[LEdge ()]])

@@ -27,6 +27,7 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   ) where
 
 -- import Control.Monad.State
+import Control.DeepSeq
 import Control.Monad ( forM_, forM, unless )
 import Control.Monad.ST
 import Data.ByteString.Char8 ( isPrefixOf )
@@ -57,6 +58,11 @@ data NodeTag = PtrToLocation Value
              | Location Value
              | PtrToFunction Function
              deriving (Ord, Eq, Show)
+
+instance NFData NodeTag where
+  rnf a@(PtrToLocation v) = v `seq` a `seq` ()
+  rnf a@(Location v) = v `seq` a `seq` ()
+  rnf a@(PtrToFunction v) = v `seq` a `seq` ()
 
 -- data EdgeTag = DirectEdge
 --              | ArrayEdge
@@ -238,9 +244,9 @@ addDefinedFunctionCallEdges :: PTState s
                                -> Function -- ^ A possible callee
                                -> ST s ()
 addDefinedFunctionCallEdges state callInst args callee = do
-  locMap <- mapM (getLocs state) justPointers
+  locMap <- mapM' (getLocs state) justPointers
   let g = ptGraph state
-  retSuccs <- mapM (nodeSuccessors g) retNodes
+  retSuccs <- mapM' (nodeSuccessors g) retNodes
   let pointedToByRetNodes = concat retSuccs
 --  let pointedToByRetNodes = concatMap (suc g) retNodes
       locMap' = case retNodes of
@@ -300,7 +306,7 @@ addCallEdges state callInst calledFunc args = do
       -- about other possible callees, we revisit this call.
       addDependency state callInst (valueUniqueId calledFunc)
       let g = ptGraph state
-      calledFuncVals <- mapM (nodeLabels g) funcLocs
+      calledFuncVals <- mapM' (nodeLabels g) funcLocs
       -- g <- access ptGraph
       let handler n = case n of
             Nothing -> conservativeExternalHandler state callInst args Nothing
@@ -384,6 +390,8 @@ addStoreEdges state i val dest = do
   makeNewEdges state newSources newTargets
   saturate state
 
+forM' ls f = mapM' f ls
+
 -- | Determine which edges need to be added to the graph, based on the
 -- set of discovered sources and targets.  Only new edges are
 -- returned.
@@ -393,7 +401,7 @@ makeNewEdges state srcs targets = do
       targetSet = HS.fromList targets
   -- For each source, add edges to the new targets.  Return the src
   -- if it was used.
-  usedSrcs <- forM srcs $ \src -> do
+  usedSrcs <- forM' srcs $ \src -> do
     currentTargets <- nodeSuccessors g src
     let currentTargetSet = HS.fromList currentTargets
         newTargets = HS.difference targetSet currentTargetSet
@@ -410,7 +418,7 @@ makeNewEdges state srcs targets = do
   modifySTRef (ptNextWorklist state) $ S.union newWorklistItems
   where
     affectedInstructions :: DepGraph -> [Node] -> Set Instruction
-    affectedInstructions depGraph used =
+    affectedInstructions depGraph used = {-# SCC "affectedInstructions" #-}
       let findAffected acc nodeId =
             S.union acc (IM.findWithDefault S.empty nodeId depGraph)
       in foldl' findAffected S.empty used
@@ -517,12 +525,12 @@ getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
             getLocs base derefCount visited'
           InstructionC (PhiNode { phiIncomingValues = vs }) -> do
             let ivs = map fst vs
-            locs <- mapM (\x -> getLocs x derefCount visited') ivs
-            return $ S.toList $ S.fromList (concat locs)
+            locs <- mapM' (\x -> getLocs x derefCount visited') ivs
+            return $! S.toList $ S.fromList (concat locs)
           InstructionC (SelectInst { selectTrueValue = tv, selectFalseValue = fv }) -> do
             tlocs <- getLocs tv derefCount visited'
             flocs <- getLocs fv derefCount visited'
-            return $ S.toList $ S.fromList $ tlocs ++ flocs
+            return $! S.toList $ S.fromList $ tlocs ++ flocs
 
 
           ConstantC (ConstantPointerNull {}) -> return []
@@ -582,13 +590,19 @@ collectLocationNodes state inst steps seedNodes = collect steps seedNodes
       | otherwise = do
         let g = ptGraph state
 --        g <- access ptGraph
-        nextNodes <- mapM (nodeSuccessors g) currentNodes
+        nextNodes <- mapM' (nodeSuccessors g) currentNodes
         let nextNodes' = concat nextNodes
 --        let nextNodes = concatMap (suc g) currentNodes
         mapM_ (addDependency state inst) currentNodes
         collect (remainingHops - 1) nextNodes'
 
-
+mapM' f = go []
+  where
+    go acc [] = return $! (reverse acc)
+    go acc (a:as) = do
+      x <- f a
+      x `deepseq` return ()
+      go (x:acc) as
 
 
 -- | return instructions need to create a location (the
