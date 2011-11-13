@@ -1,7 +1,9 @@
-{-# LANGUAGE TemplateHaskell, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell, OverloadedStrings, ScopedTypeVariables, BangPatterns #-}
 -- | This is a simple implementation of Andersen's points-to analysis.
 --
 -- TODO:
+--
+-- * Add initial edges for struct/array constant initializers
 --
 -- * Add a PHI node test and a NULL pointer test
 --
@@ -214,13 +216,13 @@ saturate state = do
         StoreInst { storeValue = val, storeAddress = dest } ->
           case isPointerOrFunction val of
             False -> saturate state
-            True -> addStoreEdges state itm val dest
+            True -> addStoreEdges state itm val dest >> saturate state
         CallInst { callFunction = cf, callArguments = args } ->
-          addCallEdges state itm cf (map fst args)
+          addCallEdges state itm cf (map fst args) >> saturate state
         InvokeInst { invokeFunction = cf, invokeArguments = args } ->
-          addCallEdges state itm cf (map fst args)
+          addCallEdges state itm cf (map fst args) >> saturate state
         RetInst { retInstValue = Just rv } ->
-          addReturnEdges state itm rv
+          addReturnEdges state itm rv >> saturate state
         _ -> error ("Unexpected instruction type in Andersen saturation: " ++ show itm)
 
 -- | Returns can be handled similarly to arguments.  Neither has
@@ -233,7 +235,6 @@ addReturnEdges :: (Show a, IsValue a) => PTState s -> Instruction -> a -> ST s (
 addReturnEdges state retInst rv = do
   retLocs <- getLocationsReferencedBy state retInst rv
   makeNewEdges state [retNode] retLocs
-  saturate state
   where
     retNode = instructionUniqueId retInst
 
@@ -278,7 +279,7 @@ addDefinedFunctionCallEdges state callInst args callee = do
       False -> []
 
     getLocs :: PTState s -> (Value, Argument) -> ST s ([Node], [Node])
-    getLocs s (actual, formal) = do
+    getLocs s (actual, formal) = {-# SCC "addDefinedFunctionCallEdges/getLocs" #-}do
       let formalLoc = argumentUniqueId formal
       actualLocs <- getLocationsReferencedBy s callInst actual
       addDependency s callInst formalLoc
@@ -290,8 +291,7 @@ addDefinedFunctionCallEdges state callInst args callee = do
 -- Start by zipping together the actual arguments and formal argument
 -- lists.  Filter out the non-pointer entries.
 addCallEdges :: PTState s -> Instruction -> Value -> [Value] -> ST s ()
-addCallEdges state callInst calledFunc args = do
-  case valueContent calledFunc of
+addCallEdges state callInst calledFunc args = case valueContent calledFunc of
     FunctionC f -> addDefinedFunctionCallEdges state callInst args f
 
     -- Don't forget case for ExternalFunctionC and then handling both in the fold
@@ -318,7 +318,6 @@ addCallEdges state callInst calledFunc args = do
               _ -> conservativeExternalHandler state callInst args Nothing
           -- calledFuncVals = map (lab g) funcLocs
       mapM_ handler calledFuncVals
-  saturate state
 
 addIntrinsicEdges :: PTState s -> Instruction -> [Value] -> ExternalFunction -> ST s ()
 addIntrinsicEdges state callInst args ef =
@@ -388,7 +387,6 @@ addStoreEdges state i val dest = do
   newTargets <- getLocationsReferencedBy state i val
   newSources <- getLocationsReferencedBy state i dest
   makeNewEdges state newSources newTargets
-  saturate state
 
 forM' ls f = mapM' f ls
 
@@ -401,15 +399,7 @@ makeNewEdges state srcs targets = do
       targetSet = HS.fromList targets
   -- For each source, add edges to the new targets.  Return the src
   -- if it was used.
-  usedSrcs <- forM' srcs $ \src -> do
-    currentTargets <- nodeSuccessors g src
-    let currentTargetSet = HS.fromList currentTargets
-        newTargets = HS.difference targetSet currentTargetSet
-    case HS.toList newTargets of
-      [] -> return Nothing
-      tgts -> do
-        addEdges g src tgts
-        return (Just src)
+  usedSrcs <- mapM' (addEdgesForSrc g targetSet) srcs
 
   -- Now figure out which instructions need to be added to the
   -- worklist because some of the new edges affected them
@@ -422,6 +412,16 @@ makeNewEdges state srcs targets = do
       let findAffected acc nodeId =
             S.union acc (IM.findWithDefault S.empty nodeId depGraph)
       in foldl' findAffected S.empty used
+
+    addEdgesForSrc g targetSet src = {-# SCC "addEdgesForSrc" #-} do
+      currentTargets <- nodeSuccessors g src
+      let currentTargetSet = HS.fromList currentTargets
+          newTargets = HS.difference targetSet currentTargetSet
+      case HS.toList newTargets of
+        [] -> return Nothing
+        tgts -> do
+          addEdges g src tgts
+          return (Just src)
 
 {-
 addEdges :: PTState -> [Context NodeTag EdgeTag] -> ST s ()
@@ -501,11 +501,12 @@ getLocationsReferencedByOffset :: forall s a . (Show a, IsValue a)
 getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
   where
     getLocs :: (Show b, IsValue b) => b -> Int -> Set Value -> ST s [Node]
-    getLocs val derefCount visited
+    getLocs val !derefCount visited
       | (Value val) `S.member` visited = return []
-      | otherwise =
+      | otherwise = {-# SCC "getLocs" #-}
         let visited' = S.insert (Value val) visited
-        in case valueContent val {-`debug` printf "id: %d -- %s\n" (valueUniqueId val) (show val)-} of
+        in case valueContent val
+                {-`debug` printf "id: %d -- %s\n" (valueUniqueId val) (show val)-} of
           -- This also needs to handle GEP instructions later, also
           -- (maybe) select, extractelement, and extractvalue.  This also
           -- needs to be careful around bitcasts of non-pointer types
@@ -525,14 +526,18 @@ getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
             getLocs base derefCount visited'
           InstructionC (PhiNode { phiIncomingValues = vs }) -> do
             let ivs = map fst vs
-            locs <- mapM' (\x -> getLocs x derefCount visited') ivs
+                getLocsForIncomingVal iv =
+                  {-# SCC "getLocsForIncomingVal" #-} getLocs iv derefCount visited'
+            locs <- mapM' getLocsForIncomingVal ivs
             return $! S.toList $ S.fromList (concat locs)
           InstructionC (SelectInst { selectTrueValue = tv, selectFalseValue = fv }) -> do
             tlocs <- getLocs tv derefCount visited'
             flocs <- getLocs fv derefCount visited'
             return $! S.toList $ S.fromList $ tlocs ++ flocs
 
-
+          ConstantC (ConstantValue { constantInstruction =
+                                        IntToPtrInst {}
+                                   }) -> return [] -- FIXME: This also needs to taint everything
           ConstantC (ConstantPointerNull {}) -> return []
           ConstantC (UndefValue {}) -> return []
           ConstantC (ConstantValue { constantInstruction =
@@ -562,7 +567,7 @@ getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
           -- it and return that, along with the updated DepGraph.  The
           -- depgraph needs to be updated with an entry for each non-leaf
           -- node.
-          _ -> collectLocationNodes state inst (derefCount + offset) [valueUniqueId val] -- `debug` show val
+          _ -> collectLocationNodes state inst (derefCount + offset) [valueUniqueId val] `debug` show val
       -- case (Value val) `S.member` visited of
       --   True -> return []
       --   False ->
@@ -574,9 +579,11 @@ getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
 
 addDependency :: PTState s -> Instruction -> Node -> ST s ()
 addDependency state inst n = -- do
-  modifySTRef (ptDepGraph state) $ IM.insertWith S.union n (S.singleton inst)
+  modifySTRef (ptDepGraph state) $ IM.insertWith' S.union n (S.singleton inst)
 --  _ <- ptDepGraph %= (IM.insertWith S.union n (S.singleton inst))
 --  return ()
+
+-- &lt;llvm-analysis-0.1.0:Data.LLVM.Analysis.PointsTo.Andersen.sat_sEBf&gt
 
 collectLocationNodes :: PTState s
                         -> Instruction
@@ -588,20 +595,24 @@ collectLocationNodes state inst steps seedNodes = collect steps seedNodes
     collect remainingHops currentNodes
       | remainingHops <= 0 = return currentNodes
       | otherwise = do
+        mapM_ (addDependency state inst) currentNodes `debug` show currentNodes
         let g = ptGraph state
 --        g <- access ptGraph
         nextNodes <- mapM' (nodeSuccessors g) currentNodes
         let nextNodes' = concat nextNodes
 --        let nextNodes = concatMap (suc g) currentNodes
-        mapM_ (addDependency state inst) currentNodes
         collect (remainingHops - 1) nextNodes'
+
+-- Possible solution: If this is the last step (remainingHops == 1),
+-- add a predicate to nodeSuccessors to restrict the results to the
+-- required type.
 
 mapM' f = go []
   where
     go acc [] = return $! (reverse acc)
     go acc (a:as) = do
       x <- f a
-      x `deepseq` return ()
+      x `seq` return ()
       go (x:acc) as
 
 

@@ -15,7 +15,7 @@ library
   default-language: Haskell2010
   build-depends: base > 3 && < 5, array, bytestring, fgl, mtl > 2, filemanip >= 0.3.5.2,
                  graphviz >= 2999.12.0.3, deepseq, process, filepath, directory,
-                 hashable >= 1.1.2.0, unordered-containers, containers >= 0.3,
+                 hashable >= 1.1.2.0, unordered-containers, containers >= 0.4.1.0,
                  lattices, llvm-base-types, failure >= 0.1, hashtables, vector >= 0.9,
                  data-lens == 2.0.*, data-lens-template == 2.1.*, data-default >= 0.3,
                  HUnit, test-framework, test-framework-hunit
