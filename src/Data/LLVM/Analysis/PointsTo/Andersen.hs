@@ -43,6 +43,7 @@ import Data.List ( find, foldl' )
 import Data.Maybe ( mapMaybe, catMaybes )
 import Data.Set ( Set )
 import qualified Data.Set as S
+import Data.HashSet ( HashSet )
 import qualified Data.HashSet as HS
 import Data.STRef
 
@@ -79,7 +80,7 @@ type Worklist = [Instruction]
 -- locations.  The value for each ID is the set of instructions that
 -- need to be re-processed when a new edge is added to the points-to graph
 -- with that node ID as its source.
-type DepGraph = IntMap (Set Instruction)
+type DepGraph = IntMap (HashSet Instruction)
 
 
 -- data PTState = PTState { _ptWorklist :: Worklist
@@ -147,7 +148,7 @@ runPointsToAnalysis allocTests m = runST (runPTA allocTests m)
 
 
 data PTState s = PTState { ptWorklist :: STRef s Worklist
-                         , ptNextWorklist :: STRef s (Set Instruction)
+                         , ptNextWorklist :: STRef s (HashSet Instruction)
                          , ptDepGraph :: STRef s DepGraph
                          , ptGraph :: ImperativeGraph s NodeTag
                          , ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
@@ -164,7 +165,7 @@ runPTA allocTests m = do
 
   -- Allocate the STRefs that will be modified during the computation
   worklistRef <- newSTRef edgeInducers
-  nextWorklistRef <- newSTRef S.empty
+  nextWorklistRef <- newSTRef HS.empty
   dgRef <- newSTRef IM.empty
   let state = PTState { ptWorklist = worklistRef
                       , ptNextWorklist = nextWorklistRef
@@ -197,17 +198,17 @@ saturate state = do
   case wl of
     [] -> do
       nextWL <- readSTRef (ptNextWorklist state)
-      case S.null nextWL of
+      case HS.null nextWL of
         -- Nothing in the next worklist, so we are done
         True -> return ()
         -- Replace the current worklist with the next set of worklist
         -- items.  TODO: sort this into a better order (e.g., topsort)
         False -> do
-          writeSTRef (ptWorklist state) (S.toList nextWL) `debug`
-            printf "Flipped worklist with %d new entries" (S.size nextWL)
+          writeSTRef (ptWorklist state) $! HS.toList nextWL `debug`
+            printf "Flipped worklist with %d new entries" (HS.size nextWL)
           -- _ <- ptWorklist ~= S.toList nextWL
           -- _ <- ptNextWorklist ~= S.empty
-          writeSTRef (ptNextWorklist state) S.empty
+          writeSTRef (ptNextWorklist state) HS.empty
           saturate state
     itm : rest -> do
       writeSTRef (ptWorklist state) rest
@@ -249,7 +250,6 @@ addDefinedFunctionCallEdges state callInst args callee = do
   let g = ptGraph state
   retSuccs <- mapM' (nodeSuccessors g) retNodes
   let pointedToByRetNodes = concat retSuccs
---  let pointedToByRetNodes = concatMap (suc g) retNodes
       locMap' = case retNodes of
         [] -> locMap
         _ -> ([instructionUniqueId callInst], pointedToByRetNodes) : locMap
@@ -283,7 +283,7 @@ addDefinedFunctionCallEdges state callInst args callee = do
       let formalLoc = argumentUniqueId formal
       actualLocs <- getLocationsReferencedBy s callInst actual
       addDependency s callInst formalLoc
-      return ([formalLoc], actualLocs)
+      return $! ([formalLoc], actualLocs)
 
 -- | A call is essentially a copy of a pointer in the caller to an
 -- argument node (which will later be copied in the callee).
@@ -304,7 +304,7 @@ addCallEdges state callInst calledFunc args = case valueContent calledFunc of
       -- Add a dependency in the DepGraph on the node representing the
       -- functions that may be pointed to here.  This way, if we learn
       -- about other possible callees, we revisit this call.
-      addDependency state callInst (valueUniqueId calledFunc)
+      addDependency state callInst $! valueUniqueId calledFunc
       let g = ptGraph state
       calledFuncVals <- mapM' (nodeLabels g) funcLocs
       -- g <- access ptGraph
@@ -404,14 +404,14 @@ makeNewEdges state srcs targets = do
   -- Now figure out which instructions need to be added to the
   -- worklist because some of the new edges affected them
   depGraph <- readSTRef (ptDepGraph state)
-  let newWorklistItems = affectedInstructions depGraph (catMaybes usedSrcs)
-  modifySTRef (ptNextWorklist state) $ S.union newWorklistItems
+  let newWorklistItems = affectedInstructions depGraph $! catMaybes usedSrcs
+  modifySTRef (ptNextWorklist state) $! HS.union newWorklistItems
   where
-    affectedInstructions :: DepGraph -> [Node] -> Set Instruction
+    affectedInstructions :: DepGraph -> [Node] -> HashSet Instruction
     affectedInstructions depGraph used = {-# SCC "affectedInstructions" #-}
       let findAffected acc nodeId =
-            S.union acc (IM.findWithDefault S.empty nodeId depGraph)
-      in foldl' findAffected S.empty used
+            HS.union acc $! IM.findWithDefault HS.empty nodeId depGraph
+      in foldl' findAffected HS.empty used
 
     addEdgesForSrc g targetSet src = {-# SCC "addEdgesForSrc" #-} do
       currentTargets <- nodeSuccessors g src
@@ -578,8 +578,13 @@ getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
 
 
 addDependency :: PTState s -> Instruction -> Node -> ST s ()
-addDependency state inst n = -- do
-  modifySTRef (ptDepGraph state) $ IM.insertWith' S.union n (S.singleton inst)
+addDependency state inst n = do
+  s <- readSTRef (ptDepGraph state)
+  let v = IM.lookup n s
+  case v of
+    Nothing -> writeSTRef (ptDepGraph state) $! IM.insert n (HS.singleton inst) s
+    Just v' -> writeSTRef (ptDepGraph state) $! IM.insert n (HS.insert inst v') s -- `debug` printf "Dep entry size: %d" (HS.size v')
+--  modifySTRef (ptDepGraph state) $ IM.insertWith' HS.union n sing -- (HS.singleton inst)
 --  _ <- ptDepGraph %= (IM.insertWith S.union n (S.singleton inst))
 --  return ()
 
