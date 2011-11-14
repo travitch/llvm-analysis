@@ -73,6 +73,34 @@ type Worklist = [Instruction]
 -- with that node ID as its source.
 type DepGraph = IntMap (HashSet Instruction)
 
+-- | State threaded through the ST monad.  Anything not indexed by the
+-- s type variable is constant throughout.
+--
+-- * @ptWorklist@ is the current worklist
+--
+-- * @ptNextWorklist@ is actually a set of the Instructions that will
+--   be flipped into the @ptWorklist@ once it is emptied.  When both
+--   are empty, the algorithm is done
+--
+-- * @ptDepGraph@ tracks the dependencies between Instructions and
+--   Nodes in the points-to graph.  When a new edge is added to a
+--   node, all of the instructions that depend on it are re-processed
+--
+-- * @ptGraph@ is the mutable points-to graph that is being built
+--
+-- * @ptExternInfo@ is the list of functions that provide information
+--   about external functions
+--
+-- * @ptIsAllocator@ is a list of predicates that recognize
+--   call/invoke instructions as allocating unique memory locations
+data PTState s = PTState { ptWorklist :: STRef s Worklist
+                         , ptNextWorklist :: STRef s (HashSet Instruction)
+                         , ptDepGraph :: STRef s DepGraph
+                         , ptGraph :: ImperativeGraph s NodeTag
+                         , ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
+                         , ptIsAllocator :: [Instruction -> Bool]
+                         }
+
 -- | A wrapper around the analysis results.  This is opaque to the
 -- user.
 data Andersen = Andersen PTG
@@ -91,21 +119,11 @@ andersenPointsTo (Andersen g) v = S.fromList $ map Direct nodeValues
     pointsToNodes = G.suc g (valueUniqueId v)
     nodeValues = map (maybe errMsg unloc . G.lab g) pointsToNodes
 
-
-
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
 -- results.
 runPointsToAnalysis :: [Instruction -> Bool] -> Module -> Andersen
 runPointsToAnalysis allocTests m = runST (runPTA allocTests m)
-
-data PTState s = PTState { ptWorklist :: STRef s Worklist
-                         , ptNextWorklist :: STRef s (HashSet Instruction)
-                         , ptDepGraph :: STRef s DepGraph
-                         , ptGraph :: ImperativeGraph s NodeTag
-                         , ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
-                         , ptIsAllocator :: [Instruction -> Bool]
-                         }
 
 -- | The actual Andersen's algorithm in the ST monad (for efficiency).
 -- This implementation uses mutable hash tables to represent the
@@ -152,7 +170,6 @@ runPTA allocTests m = do
     (localLocations, edgeInducers) = foldr extractLocations ([], []) insts
     allLocations = concat [globalLocations, argumentLocations, localLocations]
     initialEdges = globalEdges
-
 
 -- | Saturate the points-to graph using a worklist algorithm.  This is
 -- the only function in the Module that should have unbounded
