@@ -28,7 +28,7 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   viewPointsToGraph,
   ) where
 
-import Control.Monad ( forM_, forM, unless )
+import Control.Monad ( forM_, unless )
 import Control.Monad.ST
 import Data.ByteString.Char8 ( isPrefixOf )
 import qualified Data.Graph.Inductive as G
@@ -107,7 +107,16 @@ data PTState s = PTState { ptWorklist :: STRef s Worklist
                          , ptIsAllocator :: [Instruction -> Bool]
                          }
 
-
+-- | The actual Andersen's algorithm in the ST monad (for efficiency).
+-- This implementation uses mutable hash tables to represent the
+-- graph.  FGL spends too much time re-allocating data because it is
+-- inductive and because it tracks both outgoing and incoming edges.
+-- This algorithm only requires outgoing edges for the construction of
+-- the graph, so most of this effort is wasted.
+--
+-- The returned graph is a read-only version of the mutable graph that
+-- is constructed; this version uses FGL and has incoming edges
+-- explicitly recorded.
 runPTA :: [Instruction -> Bool] -> Module -> ST s Andersen
 runPTA allocTests m = do
   -- Set up the initial graph
@@ -126,10 +135,12 @@ runPTA allocTests m = do
                       , ptExternInfo = []
                       , ptIsAllocator = allocTests
                       }
+
   -- Saturate the graph
   saturate state
 
-  -- Extract a read-only version of the graph
+  -- Extract a read-only version of the graph that can be used outside
+  -- of the ST monad.
   ig <- toInductive g
   return $! Andersen ig
   where
@@ -143,7 +154,9 @@ runPTA allocTests m = do
     initialEdges = globalEdges
 
 
--- | Saturate the points-to graph using a worklist algorithm.
+-- | Saturate the points-to graph using a worklist algorithm.  This is
+-- the only function in the Module that should have unbounded
+-- recursive calls.
 saturate :: PTState s -> ST s ()
 saturate state = do
   wl <- readSTRef (ptWorklist state)
@@ -188,7 +201,7 @@ addReturnEdges state retInst rv = do
   where
     retNode = instructionUniqueId retInst
 
-
+-- | Add edges for calls to functions defined in the Module.
 addDefinedFunctionCallEdges :: PTState s
                                -> Instruction -- ^ The CallInst
                                -> [Value] -- ^ Actual arguments
@@ -223,7 +236,7 @@ addDefinedFunctionCallEdges state callInst args callee = do
       False -> []
 
     getLocs :: PTState s -> (Value, Argument) -> ST s ([Node], [Node])
-    getLocs s (actual, formal) = {-# SCC "addDefinedFunctionCallEdges/getLocs" #-}do
+    getLocs s (actual, formal) = do
       let formalLoc = argumentUniqueId formal
       actualLocs <- getLocationsReferencedBy s callInst actual
       addDependency s callInst formalLoc
@@ -261,6 +274,11 @@ addCallEdges state callInst calledFunc args = case valueContent calledFunc of
               _ -> conservativeExternalHandler state callInst args Nothing
       mapM_ handler calledFuncVals
 
+-- | Add edges for LLVM intrinsics.  Intrinsics that touch memory
+-- through pointers are handled.  Intrinsics operating only on
+-- primitive non-pointer types are no-ops.
+--
+-- FIXME: Does not currently handle @memset@
 addIntrinsicEdges :: PTState s -> Instruction -> [Value] -> ExternalFunction -> ST s ()
 addIntrinsicEdges state callInst args ef =
   case find ((`isPrefixOf` fname) . fst) handlerMap of
@@ -315,6 +333,10 @@ addExternalCallEdges state callInst args ef = do
       Just _ -> descriptor
       Nothing -> hdlr ef
 
+-- | Conservatively handle external functions (or pointers to unknown
+-- functions) that may be called, and for which extra information is
+-- not provided.  This isn't currently as pessimistic as possible,
+-- since that would always just return top for everything global.
 conservativeExternalHandler :: PTState s
                                -> Instruction
                                -> [Value]
@@ -330,8 +352,10 @@ addStoreEdges state i val dest = do
   makeNewEdges state newSources newTargets
 
 -- | Determine which edges need to be added to the graph, based on the
--- set of discovered sources and targets.  Only new edges are
--- returned.
+-- set of discovered sources and targets.  The edges not already in
+-- the points-to graph are added.  Instructions that are affected by
+-- the new edges (as determined by the Node/Instruction dependency
+-- graph) are added to the next worklist.
 makeNewEdges :: PTState s -> [Node] -> [Node] -> ST s ()
 makeNewEdges state srcs targets = do
   let g = ptGraph state
@@ -365,10 +389,9 @@ makeNewEdges state srcs targets = do
           addEdges g src tgts
           return (Just src)
 
--- | Given a @Value@ that is an operand of a @StoreInst@, find all of
--- the locations in the points-to graph that it refers to.  This means
--- that the function starts at the given value @v@ and _dereferences_
--- each @LoadInst@ in the @Value@.
+-- | Given a @Value@, find all of the locations in the points-to graph
+-- that it refers to.  This means that the function starts at the
+-- given value @v@ and _dereferences_ each @LoadInst@ in the @Value@.
 --
 -- As it progresses, the function also updates the DepGraph that
 -- allows for reverse lookups (which instructions depend on the edges
@@ -466,12 +489,19 @@ getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
           -- it and return that, along with the updated DepGraph.  The
           -- depgraph needs to be updated with an entry for each non-leaf
           -- node.
-          _ -> collectLocationNodes state inst (derefCount + offset) [valueUniqueId val] `debug` show val
+          _ -> collectLocationNodes state inst (derefCount + offset) [valueUniqueId val]
 
     isAllocator i = let allocTests = ptIsAllocator state
                     in foldl' (\acc p -> acc || p i) False allocTests
 
 
+-- | The call
+--
+-- > addDependency state inst n
+--
+-- Adds a dependency on @n@ for @inst@.  This means that, if any new
+-- edges are added from @n@, @inst@ will be added to the worklist.
+-- This way it will be re-processed and pick up the new edges.
 addDependency :: PTState s -> Instruction -> Node -> ST s ()
 addDependency state inst n = do
   s <- readSTRef (ptDepGraph state)
@@ -483,6 +513,14 @@ addDependency state inst n = do
       v'' `seq` return ()
       writeSTRef (ptDepGraph state) $! IM.insert n v'' s
 
+-- | Given a starting set of nodes, walk along all points-to edges for
+-- the specified number of @steps@.  When there are no more steps to
+-- take in the points-to graph, return the set of reached nodes.
+--
+-- > collectLocationNodes state inst steps seedNodes
+--
+-- The Instruction @inst@ is the instruction for which the query was
+-- initiated.  It is used to track dependencies on nodes.
 collectLocationNodes :: PTState s
                         -> Instruction
                         -> Int
@@ -501,7 +539,8 @@ collectLocationNodes state inst steps seedNodes = collect steps seedNodes
 
 -- Possible solution: If this is the last step (remainingHops == 1),
 -- add a predicate to nodeSuccessors to restrict the results to the
--- required type.
+-- required type.  The set of possible nodes here can become quite
+-- large due to the lack of field-sensitivity.
 
 -- | This is a version of @mapM@ that accumulates its results on the
 -- heap instead of the stack.  This is necessary for dealing with
@@ -516,10 +555,13 @@ mapM' f = go []
       go (x:acc) as
 
 
--- | return instructions need to create a location (the
--- pseudo-location to communicate return values back to callers).
--- This doesn't have a real location and should be treated similarly
--- to arguments.
+-- | Create location nodes for Instructions and accumulate a list of
+-- Instructions that induce new points-to edges (calls, stores,
+-- returns).  This function is meant to be used via a foldr.
+--
+-- Return instructions need to create a location (the pseudo-location
+-- to communicate return values back to callers).  This doesn't have a
+-- real location and should be treated similarly to arguments.
 extractLocations :: Instruction
                     -> ([PTGNode], [Instruction])
                     -> ([PTGNode], [Instruction])
@@ -556,7 +598,12 @@ extractArgs f nacc = map argToNode (functionParameters f) ++ nacc
     argToNode a = (argumentUniqueId a, Location (Value a))
 
 -- | Collect all of the global entities representing locations in the
--- Module
+-- Module.  This includes global variables, functions, and their
+-- extern variants.  It also includes initial edges induced by
+-- initializers for global variables.
+--
+-- FIXME: Handle pointers contained in array and struct literal
+-- intializers.
 getGlobalLocations :: Module -> ([PTGNode], [(Node, Node)])
 getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
   where
