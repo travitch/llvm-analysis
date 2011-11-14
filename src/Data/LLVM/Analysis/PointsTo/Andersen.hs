@@ -56,6 +56,7 @@ debug = flip trace
 data NodeTag = PtrToLocation Value
              | Location Value
              | PtrToFunction Function
+             | UnknownLocation
              deriving (Ord, Eq, Show)
 
 -- data EdgeTag = DirectEdge
@@ -109,15 +110,24 @@ instance PointsToAnalysis Andersen where
   mayAlias (Andersen _) _ _ = True
   pointsTo = andersenPointsTo
 
+-- | The points-to graph node representing the "unknown" memory
+-- location.
+unknownNode :: Node
+unknownNode = -1
 
 -- | The main entry point to see what a given value can point to by
 -- just inspecting the points-to graph.
-andersenPointsTo :: (IsValue a) => Andersen -> a -> Set PTRel
-andersenPointsTo (Andersen g) v = S.fromList $ map Direct nodeValues
+andersenPointsTo :: (IsValue a) => Andersen -> a -> PTResult PTRel
+andersenPointsTo (Andersen g) v =
+  case S.member unknownNode pointsToNodes of
+    False -> PTSet $! toPTResult pointsToNodes
+    True -> UniversalSet $! toPTResult $ S.delete unknownNode pointsToNodes
   where
     errMsg = error "No node in graph for andersenPointsTo"
-    pointsToNodes = G.suc g (valueUniqueId v)
-    nodeValues = map (maybe errMsg unloc . G.lab g) pointsToNodes
+    pointsToNodes = S.fromList $! G.suc g (valueUniqueId v)
+--    nodeValues = map (maybe errMsg unloc . G.lab g) pointsToNodes
+    toPTResult = S.map (Direct . maybe errMsg unloc . G.lab g)
+
 
 -- | Run the points-to analysis and return an object that is an
 -- instance of PointsToAnalysis, which can be used to query the
@@ -167,8 +177,9 @@ runPTA allocTests m = do
     insts = concatMap basicBlockInstructions blocks
     (globalLocations, globalEdges) = getGlobalLocations m
     argumentLocations = foldr extractArgs [] fs
+    unknownLoc = (unknownNode, UnknownLocation)
     (localLocations, edgeInducers) = foldr extractLocations ([], []) insts
-    allLocations = concat [globalLocations, argumentLocations, localLocations]
+    allLocations = unknownLoc : concat [globalLocations, argumentLocations, localLocations]
     initialEdges = globalEdges
 
 -- | Saturate the points-to graph using a worklist algorithm.  This is
@@ -354,12 +365,22 @@ addExternalCallEdges state callInst args ef = do
 -- functions) that may be called, and for which extra information is
 -- not provided.  This isn't currently as pessimistic as possible,
 -- since that would always just return top for everything global.
+--
+-- * Any pointer parameter can point to anything.
+--
+-- * The return value can point to anything.
+--
+-- Technically any global can point to anything after the call, but
+-- that isn't a very useful deduction...
 conservativeExternalHandler :: PTState s
                                -> Instruction
                                -> [Value]
                                -> Maybe ExternalFunction
                                -> ST s ()
-conservativeExternalHandler state callInst args ef = return ()
+conservativeExternalHandler state callInst args ef = do
+  let ptrArgs = filter isPointerOrFunction args
+  newSources <- mapM' (getLocationsReferencedBy state callInst) ptrArgs
+  makeNewEdges state (concat newSources) [unknownNode]
 
 -- | Handle adding edges induced by a @StoreInst@.
 addStoreEdges :: PTState s -> Instruction -> Value -> Value -> ST s ()
@@ -689,6 +710,7 @@ instance Labellable NodeTag where
   toLabelValue (Location v) = toLabelValue v
   toLabelValue (PtrToLocation v) = toLabelValue v
   toLabelValue (PtrToFunction f) = toLabelValue (Value f)
+  toLabelValue UnknownLocation = toLabelValue ("Unknown" :: String)
 
 -- instance Labellable EdgeTag where
 --   toLabelValue DirectEdge = toLabelValue ("" :: String)

@@ -26,7 +26,9 @@ extractSummary m = foldr addInfo M.empty ptrs
       True -> r
       False -> M.insert (show $ fromJust $ valueName v) vals r
       where
-        vals = S.map show (pointsTo pta v)
+        vals = case pointsTo pta v of
+          PTSet s -> S.map show s
+          UniversalSet s -> "unknown" `S.insert` S.map show s
 
 isPointerType t = case t of
   TypePointer _ _ -> True

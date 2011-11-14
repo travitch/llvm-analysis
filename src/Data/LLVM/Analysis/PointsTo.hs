@@ -14,6 +14,7 @@
 module Data.LLVM.Analysis.PointsTo (
   -- * Classes
   PointsToAnalysis(..),
+  PTResult(..),
   PTRel(..),
   ExternPointerDescriptor(..),
   ExternFunctionDescriptor(..)
@@ -56,12 +57,13 @@ showRel (FieldAccess ix p) = concat [show p, ".<", show ix, ">"]
 class PointsToAnalysis a where
   mayAlias :: a -> Value -> Value -> Bool
   -- ^ Check whether or not two values may alias
-  pointsTo :: a -> Value -> Set PTRel
+  pointsTo :: a -> Value -> PTResult PTRel
   -- ^ Retrieve the set of locations that a value may point to
   pointsToValues :: a -> Value -> Set Value
   pointsToValues pta v =
-    let rels = pointsTo pta v
-    in S.fold justDirect S.empty rels
+    case pointsTo pta v of
+      PTSet s -> S.fold justDirect S.empty s
+      UniversalSet s -> S.fold justDirect S.empty s
 
 justDirect :: PTRel -> Set Value -> Set Value
 justDirect (Direct v) acc = S.insert v acc
