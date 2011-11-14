@@ -28,17 +28,13 @@ module Data.LLVM.Analysis.PointsTo.Andersen (
   viewPointsToGraph,
   ) where
 
--- import Control.Monad.State
-import Control.DeepSeq
 import Control.Monad ( forM_, forM, unless )
 import Control.Monad.ST
 import Data.ByteString.Char8 ( isPrefixOf )
-import qualified Data.Graph.Inductive as G -- hiding ( Gr, (><) )
+import qualified Data.Graph.Inductive as G
 import Data.GraphViz
 import Data.IntMap ( IntMap )
 import qualified Data.IntMap as IM
--- import Data.Lens.Lazy
--- import Data.Lens.Template
 import Data.List ( find, foldl' )
 import Data.Maybe ( mapMaybe, catMaybes )
 import Data.Set ( Set )
@@ -62,11 +58,6 @@ data NodeTag = PtrToLocation Value
              | PtrToFunction Function
              deriving (Ord, Eq, Show)
 
-instance NFData NodeTag where
-  rnf a@(PtrToLocation v) = v `seq` a `seq` ()
-  rnf a@(Location v) = v `seq` a `seq` ()
-  rnf a@(PtrToFunction v) = v `seq` a `seq` ()
-
 -- data EdgeTag = DirectEdge
 --              | ArrayEdge
 --              | FieldAccessEdge !Int
@@ -81,18 +72,6 @@ type Worklist = [Instruction]
 -- need to be re-processed when a new edge is added to the points-to graph
 -- with that node ID as its source.
 type DepGraph = IntMap (HashSet Instruction)
-
-
--- data PTState = PTState { _ptWorklist :: Worklist
---                        , _ptNextWorklist :: Set Instruction
---                        , _ptDepGraph :: DepGraph
---                        , _ptGraph :: PTG
---                        , _ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
---                        , _ptIsAllocator :: [Instruction -> Bool]
---                        }
--- $(makeLenses [''PTState])
-
--- type PTMonad = ST
 
 -- | A wrapper around the analysis results.  This is opaque to the
 -- user.
@@ -119,33 +98,6 @@ andersenPointsTo (Andersen g) v = S.fromList $ map Direct nodeValues
 -- results.
 runPointsToAnalysis :: [Instruction -> Bool] -> Module -> Andersen
 runPointsToAnalysis allocTests m = runST (runPTA allocTests m)
---  Andersen g -- `debugGraph` g
---  where
-    {-
-    fs = moduleDefinedFunctions m
-    blocks = concatMap functionBody fs
-    insts = concatMap basicBlockInstructions blocks
-    (globalLocations, globalEdges) = getGlobalLocations m
-    argumentLocations = foldr extractArgs [] fs
-    (localLocations, edgeInducers) = foldr extractLocations ([], []) insts
-    allLocations = concat [globalLocations, argumentLocations, localLocations]
-    initialEdges = globalEdges
-
-    -- The initial graph contains all locations in the program, along
-    -- with edges induced by global initializers.
-    graph0 = mkGraph allLocations initialEdges
-    worklist0 = edgeInducers
-    state0 = PTState { _ptWorklist = worklist0
-                     , _ptNextWorklist = S.empty
-                     , _ptDepGraph = IM.empty
-                     , _ptGraph = graph0
-                     , _ptExternInfo = []
-                     , _ptIsAllocator = allocTests
-                     }
-    -}
---    g = runST (runPTA allocTests m)
-    -- g = _ptGraph (execState saturate state0)
-
 
 data PTState s = PTState { ptWorklist :: STRef s Worklist
                          , ptNextWorklist :: STRef s (HashSet Instruction)
@@ -206,13 +158,10 @@ saturate state = do
         False -> do
           writeSTRef (ptWorklist state) $! HS.toList nextWL `debug`
             printf "Flipped worklist with %d new entries" (HS.size nextWL)
-          -- _ <- ptWorklist ~= S.toList nextWL
-          -- _ <- ptNextWorklist ~= S.empty
           writeSTRef (ptNextWorklist state) HS.empty
           saturate state
     itm : rest -> do
       writeSTRef (ptWorklist state) rest
-      -- _ <- ptWorklist ~= rest
       case itm of
         StoreInst { storeValue = val, storeAddress = dest } ->
           case isPointerOrFunction val of
@@ -253,19 +202,14 @@ addDefinedFunctionCallEdges state callInst args callee = do
       locMap' = case retNodes of
         [] -> locMap
         _ -> ([instructionUniqueId callInst], pointedToByRetNodes) : locMap
-  mapM_ (addDependency state callInst) retNodes -- `debug` printf "call id: %d" (instructionUniqueId callInst)
+  mapM_ (addDependency state callInst) retNodes
   mapM_ (uncurry (makeNewEdges state)) locMap'
   where
     formals = functionParameters callee
     -- FIXME: This needs to change a bit for vararg functions - split
     -- into two lists and treat the trailing arguments as a single
     -- memory location
-    actualFormalMap = zip args formals -- `debug`  (case args of
-                                       --              [] -> show args
-                                       --              _ -> show $ last args)
-    -- isRelevant v = case valueContent v of
-    --   ConstantC _ -> False
-    --   _ -> hasPointerOrFunction v
+    actualFormalMap = zip args formals
     isRelevant = hasPointerOrFunction
     keepPointerParams = filter (isRelevant . fst)
     justPointers = keepPointerParams actualFormalMap
@@ -307,7 +251,6 @@ addCallEdges state callInst calledFunc args = case valueContent calledFunc of
       addDependency state callInst $! valueUniqueId calledFunc
       let g = ptGraph state
       calledFuncVals <- mapM' (nodeLabels g) funcLocs
-      -- g <- access ptGraph
       let handler n = case n of
             Nothing -> conservativeExternalHandler state callInst args Nothing
             Just v -> case valueContent (unloc v) of
@@ -316,7 +259,6 @@ addCallEdges state callInst calledFunc args = case valueContent calledFunc of
                 True -> addIntrinsicEdges state callInst args ef
                 False -> addExternalCallEdges state callInst args ef
               _ -> conservativeExternalHandler state callInst args Nothing
-          -- calledFuncVals = map (lab g) funcLocs
       mapM_ handler calledFuncVals
 
 addIntrinsicEdges :: PTState s -> Instruction -> [Value] -> ExternalFunction -> ST s ()
@@ -356,7 +298,6 @@ memcpyHandler state callInst args = do
 addExternalCallEdges :: PTState s -> Instruction -> [Value] -> ExternalFunction -> ST s ()
 addExternalCallEdges state callInst args ef = do
   let extInfoHndlrs = ptExternInfo state
-  -- extInfoHndlrs <- access ptExternInfo
   case lookupDescriptor extInfoHndlrs of
     Nothing -> conservativeExternalHandler state callInst args (Just ef)
     Just h -> do
@@ -388,8 +329,6 @@ addStoreEdges state i val dest = do
   newSources <- getLocationsReferencedBy state i dest
   makeNewEdges state newSources newTargets
 
-forM' ls f = mapM' f ls
-
 -- | Determine which edges need to be added to the graph, based on the
 -- set of discovered sources and targets.  Only new edges are
 -- returned.
@@ -405,7 +344,10 @@ makeNewEdges state srcs targets = do
   -- worklist because some of the new edges affected them
   depGraph <- readSTRef (ptDepGraph state)
   let newWorklistItems = affectedInstructions depGraph $! catMaybes usedSrcs
-  modifySTRef (ptNextWorklist state) $! HS.union newWorklistItems
+  nwl <- readSTRef (ptNextWorklist state)
+  let nwl' = HS.union newWorklistItems nwl
+  nwl' `seq` return ()
+  writeSTRef (ptNextWorklist state) nwl'
   where
     affectedInstructions :: DepGraph -> [Node] -> HashSet Instruction
     affectedInstructions depGraph used = {-# SCC "affectedInstructions" #-}
@@ -422,48 +364,6 @@ makeNewEdges state srcs targets = do
         tgts -> do
           addEdges g src tgts
           return (Just src)
-
-{-
-addEdges :: PTState -> [Context NodeTag EdgeTag] -> ST s ()
-addEdges state newEdges = do
-  newWorklistItems <- affectedInstructions state usedSrcs
-  -- Append the new items to the worklist
-  modifySTRef (ptNextWorklist state) $ S.union newWorklistItems
-  -- _ <- ptNextWorklist %= S.union (S.fromList newWorklistItems)
-
-  -- FIXME
-  -- ptg <- access ptGraph
-  -- let g' = foldl' (flip (&)) ptg newEdges
-  -- _ <- ptGraph ~= g'
-  return ()
--}
-
-
-{-
-  g <- access ptGraph
-  return $ mapMaybe (toContext g) newSrcs
-  where
-    possibleTargets = HS.fromList newTargets
-    -- | Create a new context for each src in the graph.  A context is
-    -- only created if it adds new targets.  This is to make worklist
-    -- management easier; if there are no new edges, the worklist is
-    -- not updated.
-    --
-    -- Note that all edges for each source are added at once to the
-    -- context.  Using separate contexts for each new edge would
-    -- require changes later, otherwise some contexts could overwrite
-    -- others, losing edges.
-    toContext g src = {-# SCC "toContext" #-}
-      let ctx@(_, n, lbl, adjOut) = context g src
-          existingTargets = {-# SCC "toContext.toSet" #-} HS.fromList $ suc' ctx
-          targets = {-# SCC "toContext.filter" #-}
-            HS.difference possibleTargets existingTargets
---            filter (not . (`HS.member` existingTargets)) newTargets
-      in case HS.null targets of
-        True -> Nothing
-        False -> let newOut = {-# SCC "toContext.zip" #-} zip (repeat DirectEdge) (HS.toList targets) ++ adjOut
-                 in Just ([], n, lbl, newOut)
--}
 
 -- | Given a @Value@ that is an operand of a @StoreInst@, find all of
 -- the locations in the points-to graph that it refers to.  This means
@@ -505,8 +405,7 @@ getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
       | (Value val) `S.member` visited = return []
       | otherwise = {-# SCC "getLocs" #-}
         let visited' = S.insert (Value val) visited
-        in case valueContent val
-                {-`debug` printf "id: %d -- %s\n" (valueUniqueId val) (show val)-} of
+        in case valueContent val of
           -- This also needs to handle GEP instructions later, also
           -- (maybe) select, extractelement, and extractvalue.  This also
           -- needs to be careful around bitcasts of non-pointer types
@@ -568,13 +467,9 @@ getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
           -- depgraph needs to be updated with an entry for each non-leaf
           -- node.
           _ -> collectLocationNodes state inst (derefCount + offset) [valueUniqueId val] `debug` show val
-      -- case (Value val) `S.member` visited of
-      --   True -> return []
-      --   False ->
+
     isAllocator i = let allocTests = ptIsAllocator state
                     in foldl' (\acc p -> acc || p i) False allocTests
---      allocTests <- access ptIsAllocator
---      return $!
 
 
 addDependency :: PTState s -> Instruction -> Node -> ST s ()
@@ -583,12 +478,10 @@ addDependency state inst n = do
   let v = IM.lookup n s
   case v of
     Nothing -> writeSTRef (ptDepGraph state) $! IM.insert n (HS.singleton inst) s
-    Just v' -> writeSTRef (ptDepGraph state) $! IM.insert n (HS.insert inst v') s -- `debug` printf "Dep entry size: %d" (HS.size v')
---  modifySTRef (ptDepGraph state) $ IM.insertWith' HS.union n sing -- (HS.singleton inst)
---  _ <- ptDepGraph %= (IM.insertWith S.union n (S.singleton inst))
---  return ()
-
--- &lt;llvm-analysis-0.1.0:Data.LLVM.Analysis.PointsTo.Andersen.sat_sEBf&gt
+    Just v' -> do
+      let v'' = HS.insert inst v'
+      v'' `seq` return ()
+      writeSTRef (ptDepGraph state) $! IM.insert n v'' s
 
 collectLocationNodes :: PTState s
                         -> Instruction
@@ -600,18 +493,20 @@ collectLocationNodes state inst steps seedNodes = collect steps seedNodes
     collect remainingHops currentNodes
       | remainingHops <= 0 = return currentNodes
       | otherwise = do
-        mapM_ (addDependency state inst) currentNodes `debug` show currentNodes
+        mapM_ (addDependency state inst) currentNodes
         let g = ptGraph state
---        g <- access ptGraph
         nextNodes <- mapM' (nodeSuccessors g) currentNodes
         let nextNodes' = concat nextNodes
---        let nextNodes = concatMap (suc g) currentNodes
         collect (remainingHops - 1) nextNodes'
 
 -- Possible solution: If this is the last step (remainingHops == 1),
 -- add a predicate to nodeSuccessors to restrict the results to the
 -- required type.
 
+-- | This is a version of @mapM@ that accumulates its results on the
+-- heap instead of the stack.  This is necessary for dealing with
+-- monadic actions over large lists.
+mapM' :: Monad m => (a -> m b) -> [a] -> m [b]
 mapM' f = go []
   where
     go acc [] = return $! (reverse acc)
@@ -638,7 +533,7 @@ extractLocations i acc@(ptgNodes, insts) = case i of
   -- value, too.
   CallInst {} ->
     case isPointerOrFunction i of
-      False -> (ptgNodes, i : insts) -- `debug` printf "Skipping call: %d -- %s" (valueUniqueId i) (show i)
+      False -> (ptgNodes, i : insts)
       True -> ((instructionUniqueId i, Location (Value i)) : ptgNodes, i : insts)
   InvokeInst {} ->
     case isPointerOrFunction i of
