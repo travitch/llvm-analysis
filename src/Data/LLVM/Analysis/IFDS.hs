@@ -52,18 +52,15 @@ module Data.LLVM.Analysis.IFDS (
 import Control.Monad.State
 import Data.Graph.Inductive hiding ( (><) )
 import Data.Map ( Map )
-import Data.Sequence ( Seq, ViewL(..), (|>), viewl )
 import Data.Set ( Set )
 import qualified Data.Map as M
-import qualified Data.Sequence as Seq
 import qualified Data.Set as S
 import Text.Printf
 
 import Data.LLVM
 import Data.LLVM.CFG
 import Data.LLVM.ICFG
-
-type Worklist a = Seq (PathEdge a)
+import Data.LLVM.Internal.Worklist
 
 -- | The interface to define an IFDS analysis.  There are variants of
 -- the interprocedural flow functions to handle /external/ functions.
@@ -143,7 +140,7 @@ data IFDS a domType = IFDS { pathEdges :: Set (PathEdge domType)
                            -- target of a summary edge.  This lets us
                            -- implement the second query at line 17
                            -- efficiently
-                           , ifdsWorklist :: Worklist domType
+                           , ifdsWorklist :: Worklist (PathEdge domType)
                            -- ^ A simple worklist
                            , icfg :: ICFG
                            -- ^ The ICFG that this analysis is operating on
@@ -190,7 +187,7 @@ ifds analysis g = extractSolution finalState
     initialEdges = concatMap (mkInitialEdges analysis (icfgModule g)) (icfgEntryPoints g)
     initialState = IFDS { pathEdges = S.fromList initialEdges
                         , summaryEdges = S.empty
-                        , ifdsWorklist = Seq.fromList initialEdges
+                        , ifdsWorklist = worklistFromList initialEdges
                         , incomingNodes = M.empty
                         , endSummary = M.empty
                         , entryValues = M.empty
@@ -239,8 +236,8 @@ getICFG = do
 tabulate :: (IFDSAnalysis a domType, Ord domType, Show domType) => IFDSM a domType ()
 tabulate = do
   worklist <- gets ifdsWorklist
-  case viewl worklist of
-    EmptyL -> return () -- Done
+  case takeWorkItem worklist of
+    EmptyWorklist -> return () -- Done
     e@(PathEdge _{-d1-} n _{-d2-}) :< rest -> do
       modify (\s -> s { ifdsWorklist = rest })
       g <- getICFG
@@ -577,7 +574,7 @@ propagate newEdge = do
   case newEdge `S.member` pathEdges s of
     True -> return ()
     False -> put s { pathEdges = newEdge `S.insert` (pathEdges s)
-                   , ifdsWorklist = (ifdsWorklist s) |> newEdge
+                   , ifdsWorklist = addWorkItem newEdge (ifdsWorklist s)
                    }
 {-# INLINE addSummaryEdge #-}
 
