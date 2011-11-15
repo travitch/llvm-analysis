@@ -130,8 +130,6 @@ inullExternReturnVal _ _ _ _ = []
 -- We need to use T** here because all LLVM globals are pointers to
 -- locations, so a global of type T* is a value that points to storage
 -- that is a value of type T, which can never be NULL.
---
--- FIXME: Globals with initializers are not null
 inullEntrySetup :: INullPtr -> Module -> Function -> [Maybe Value]
 inullEntrySetup _ m entry = Nothing : map Just (gvs ++ evs)
   where
@@ -144,9 +142,6 @@ inullEntrySetup _ m entry = Nothing : map Just (gvs ++ evs)
         ConstantC (UndefValue {}) -> True
         ConstantC (ConstantPointerNull {}) -> True
         _ -> False
-    hasNoInitializer gv = case globalVariableInitializer gv of
-      Nothing -> True
-      Just _ -> False
     isPtrToPtr v = case valueType v of
       TypePointer (TypePointer _ _) _ -> True
       _ -> False
