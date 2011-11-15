@@ -97,6 +97,10 @@ inullCallFlow _ v@(Just v') _ _ =
 --
 -- Also, just pass through information about globals.
 inullPassArgs :: INullPtr -> Maybe Value -> Instruction -> Function -> [Maybe Value]
+inullPassArgs _ Nothing ci@(CallInst {}) f =
+  let argMap = zip (callArguments ci) (functionParameters f)
+      nullArgs = filter isNullArg
+  [Nothing]
 inullPassArgs _ Nothing _ _ = [Nothing]
 inullPassArgs _ v@(Just v') ci@(CallInst {}) f =
   case (isPointerType v', isGlobal v', argumentIndex v' (callArguments ci)) of
