@@ -44,7 +44,6 @@ inullFlow _ Nothing i@AllocaInst {} _
   -- stack-allocated pointer.
   | isPointerPointerType (Value i) = [Nothing, Just $ Value i]
   | otherwise = [Nothing]
-inullFlow _ Nothing _ _ = [Nothing]
 -- FIXME: Need to handle edges here to see when we are on a non-null
 -- branch
 {-
@@ -60,11 +59,25 @@ inullFlow _ v@(Just v') i@LoadInst { loadAddress = la } edges =
         False -> [v]
     _ -> [v] `debug` printf "Load (%s) pass through %s" (show i) (show v')
 -}
+-- In this case, nothing is NULL here but we might be NULLing out the
+-- address being stored to.
+inullFlow _ Nothing i@StoreInst { storeAddress = sa, storeValue = sv } edges =
+  case valueContent sv of
+    ConstantC (ConstantPointerNull {}) -> [Just sa]
+    _ -> [Nothing]
 inullFlow _ v@(Just v') StoreInst { storeAddress = sa, storeValue = sv } edges
-  | sa == v' = []
+  | sa == v' = case valueContent sv of
+    ConstantC (ConstantPointerNull {}) -> [Just sa]
+    _ -> [] -- assigning something that isn't NULL, so the value is no
+           -- longer null.  The case where the assigned value may be
+           -- null is handled in the sv == v' alternative.
   | sv == v' = [Just sa]
-  | otherwise = [v]
+  | otherwise = case valueContent sv of
+    ConstantC (ConstantPointerNull {}) -> [Just sa]
+    _ -> [v]
+--    [v]
 inullFlow _ v@(Just _) _ _ = [v]
+inullFlow _ Nothing _ _ = [Nothing]
 
 -- | Only propagate information about locals across call->return edges
 inullCallFlow :: INullPtr -> Maybe Value -> Instruction -> [CFGEdge] -> [Maybe Value]
@@ -87,9 +100,21 @@ inullPassArgs :: INullPtr -> Maybe Value -> Instruction -> Function -> [Maybe Va
 inullPassArgs _ Nothing _ _ = [Nothing]
 inullPassArgs _ v@(Just v') ci@(CallInst {}) f =
   case (isPointerType v', isGlobal v', argumentIndex v' (callArguments ci)) of
-    (True, False, Just ix) -> [(Just . Value) (functionParameters f !! ix)]
-    (_, True, _) -> [v] `debug` printf "Passing through a global %s" (show v')
+    -- If v' is an argument to the call, its corresponding formal
+    -- parameter is reachable
+    (True, True, Just ix) ->
+      let formalForActual = functionParameters f !! ix
+      in [v, (Just . Value) formalForActual]
+    (True, False, Just ix) ->
+      let formalForActual = functionParameters f !! ix
+      in [(Just . Value) formalForActual]
+    (_, True, _) -> [v]
     _ -> []
+  where
+    argumentIndex :: Value -> [(Value, [ParamAttribute])] -> Maybe Int
+    argumentIndex v args = elemIndex v (map fst args)
+
+
 
 -- | Just pass information about globals.  In some other cases we
 -- could look up a summary of the external function, but that isn't
@@ -188,9 +213,6 @@ isGlobal v = case valueContent v of
   GlobalVariableC _ -> True
   ExternalValueC _ -> True
   _ -> False
-
-argumentIndex :: Value -> [(Value, [ParamAttribute])] -> Maybe Int
-argumentIndex v args = elemIndex v (map fst args)
 
 isPointerType :: Value -> Bool
 isPointerType v = case valueType v of
