@@ -29,12 +29,11 @@ module Data.LLVM.Analysis.Dataflow (
 import Algebra.Lattice
 import Data.Graph.Inductive hiding ( (><) )
 import qualified Data.HashMap.Strict as M
-import Data.Sequence ( ViewL(..), (><), viewl )
-import qualified Data.Sequence as S
 import Text.Printf
 
 import Data.LLVM.CFG
 import Data.LLVM.Types
+import Data.LLVM.Internal.Worklist
 
 -- | A class defining the interface to a dataflow analysis.  The
 -- analysis object itself that is passed to one of the dataflow
@@ -76,15 +75,15 @@ dataflowAnalysis predFunc succFunc finalNodeFunc analysis f target =
     cfg = getCFG f
     -- ^ The control flow graph for this function
 
-    initialWorklist = S.fromList (nodes (cfgGraph cfg))
+    initialWorklist = worklistFromList (nodes (cfgGraph cfg))
     -- ^ Put all nodes on the worklist
     initialStates = M.fromList $ zip (nodes (cfgGraph cfg)) (repeat analysis)
     -- ^ Start all nodes with the initial state provided by the user
 
     -- | If there is nothing left in the worklist, return the facts
     -- associated with the exit node.
-    dataflow work facts = case viewl work of
-      EmptyL -> facts
+    dataflow work facts = case takeWorkItem work of
+      EmptyWorklist -> facts
       nod :< rest -> processNode nod rest facts
 
     lookupFact facts n = case M.lookup n facts of
@@ -104,7 +103,7 @@ dataflowAnalysis predFunc succFunc finalNodeFunc analysis f target =
         lastOutputFact = lookupFact outputFacts nod
 
         -- Updated worklist and facts
-        work' = work >< S.fromList (fst $ unzip $ succFunc (cfgGraph cfg) nod)
+        work' = addWorkItems (fst $ unzip $ succFunc (cfgGraph cfg) nod) work
         outputFacts' = M.insert nod outputFact outputFacts
 
         (preds, incomingEdges) = unzip $ predFunc (cfgGraph cfg) nod
@@ -119,4 +118,3 @@ dataflowAnalysis predFunc succFunc finalNodeFunc analysis f target =
         value = case lab (cfgGraph cfg) nod of
           Just v -> v
           Nothing -> error $ printf "No value for CFG node %d" nod
-
