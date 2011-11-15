@@ -19,6 +19,11 @@
 -- gives the dataflow value for the return instruction in function
 -- @f@.  Any instruction in @f@ can be used as an argument to the
 -- @result@ function.
+--
+-- FIXME: Change the algorithm to provide all conditions that *must*
+-- hold at the current node, as well as the incoming conditions that
+-- *may* hold.  This will give limited but very useful path
+-- sensitivity.
 module Data.LLVM.Analysis.Dataflow (
   DataflowAnalysis(..),
   HasCFG(..),
