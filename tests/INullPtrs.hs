@@ -16,6 +16,7 @@ import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.ParseBitcode
 import Data.LLVM.Testing
 
+import Text.Printf
 import Debug.Trace
 
 debug = flip trace
@@ -46,6 +47,7 @@ inullFlow _ Nothing i@AllocaInst {} _
 inullFlow _ Nothing _ _ = [Nothing]
 -- FIXME: Need to handle edges here to see when we are on a non-null
 -- branch
+{-
 inullFlow _ v@(Just v') i@LoadInst { loadAddress = la } edges =
   -- Everything in LLVM is a pointer; the first "level" of load
   -- doesn't tell us anything since that is just LLVM loading the
@@ -54,9 +56,10 @@ inullFlow _ v@(Just v') i@LoadInst { loadAddress = la } edges =
   case valueContent la of
     InstructionC LoadInst { loadAddress = la2 } ->
       case (Value la2) == v' of
-        True -> []
+        True -> [] `debug` printf "Dropping %s" (show v')
         False -> [v]
-    _ -> [v]
+    _ -> [v] `debug` printf "Load (%s) pass through %s" (show i) (show v')
+-}
 inullFlow _ v@(Just v') StoreInst { storeAddress = sa, storeValue = sv } edges
   | sa == v' = []
   | sv == v' = [Just sa]
@@ -85,27 +88,8 @@ inullPassArgs _ Nothing _ _ = [Nothing]
 inullPassArgs _ v@(Just v') ci@(CallInst {}) f =
   case (isPointerType v', isGlobal v', argumentIndex v' (callArguments ci)) of
     (True, False, Just ix) -> [(Just . Value) (functionParameters f !! ix)]
-    (_, True, _) -> [v]
+    (_, True, _) -> [v] `debug` printf "Passing through a global %s" (show v')
     _ -> []
-
-isGlobal :: Value -> Bool
-isGlobal v = case valueContent v of
-  GlobalVariableC _ -> True
-  ExternalValueC _ -> True
-  _ -> False
-
-argumentIndex :: Value -> [(Value, [ParamAttribute])] -> Maybe Int
-argumentIndex v args = elemIndex v (map fst args)
-
-isPointerType :: Value -> Bool
-isPointerType v = case valueType v of
-  TypePointer _ _ -> True
-  _ -> False
-
-isPointerPointerType :: Value -> Bool
-isPointerPointerType v = case valueType v of
-  TypePointer (TypePointer _ _) _ -> True
-  _ -> False
 
 -- | Just pass information about globals.  In some other cases we
 -- could look up a summary of the external function, but that isn't
@@ -146,11 +130,23 @@ inullExternReturnVal _ _ _ _ = []
 -- We need to use T** here because all LLVM globals are pointers to
 -- locations, so a global of type T* is a value that points to storage
 -- that is a value of type T, which can never be NULL.
+--
+-- FIXME: Globals with initializers are not null
 inullEntrySetup :: INullPtr -> Module -> Function -> [Maybe Value]
 inullEntrySetup _ m entry = Nothing : map Just (gvs ++ evs)
   where
-    gvs = filter isPtrToPtr $ map Value (moduleGlobalVariables m)
+    globalsWithoutInits = filter isNullInitialized (moduleGlobalVariables m)
+    gvs = filter isPtrToPtr $ map Value globalsWithoutInits
     evs = filter isPtrToPtr $ map Value (moduleExternalValues m)
+    isNullInitialized gv = case globalVariableInitializer gv of
+      Nothing -> True -- We'll treat uninintialized as null
+      Just i -> case valueContent i of
+        ConstantC (UndefValue {}) -> True
+        ConstantC (ConstantPointerNull {}) -> True
+        _ -> False
+    hasNoInitializer gv = case globalVariableInitializer gv of
+      Nothing -> True
+      Just _ -> False
     isPtrToPtr v = case valueType v of
       TypePointer (TypePointer _ _) _ -> True
       _ -> False
@@ -192,5 +188,21 @@ main = do
       res = ifds analysis icfg
   print res
 -}
+isGlobal :: Value -> Bool
+isGlobal v = case valueContent v of
+  GlobalVariableC _ -> True
+  ExternalValueC _ -> True
+  _ -> False
 
+argumentIndex :: Value -> [(Value, [ParamAttribute])] -> Maybe Int
+argumentIndex v args = elemIndex v (map fst args)
 
+isPointerType :: Value -> Bool
+isPointerType v = case valueType v of
+  TypePointer _ _ -> True
+  _ -> False
+
+isPointerPointerType :: Value -> Bool
+isPointerPointerType v = case valueType v of
+  TypePointer (TypePointer _ _) _ -> True
+  _ -> False
