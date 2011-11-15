@@ -6,6 +6,7 @@ import System.FilePath
 
 import Data.LLVM
 import Data.LLVM.ICFG
+import Data.LLVM.ParseBitcode
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.Visualization
 
