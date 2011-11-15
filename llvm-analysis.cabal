@@ -34,6 +34,7 @@ library
                    Data.LLVM.Visualization
   other-modules: Data.LLVM.Internal.ImperativeGraph,
                  Data.LLVM.Internal.PatriciaTree,
+                 Data.LLVM.Internal.Worklist,
                  -- This module does not work yet.
                  Data.LLVM.Rewrite
 
@@ -52,19 +53,18 @@ test-suite AndersenTests
                  process, directory, filepath, containers,
                  HUnit, llvm-data-interop
 
-
--- test-suite IFDSTests
---   default-language: Haskell2010
---   type: exitcode-stdio-1.0
---   build-depends: llvm-analysis,
---                  base > 3 && < 5, containers,
---                  graphviz, filepath,
---                  HUnit, test-framework, test-framework-hunit,
---                  llvm-data-interop
---   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
---   ghc-prof-options: -auto-all
---   main-is: INullPtrs.hs
---   hs-source-dirs: tests
+test-suite IFDSTests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  build-depends: llvm-analysis,
+                 base > 3 && < 5, containers,
+                 graphviz, filepath,
+                 HUnit, test-framework, test-framework-hunit,
+                 llvm-data-interop
+  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+  ghc-prof-options: -auto-all
+  main-is: INullPtrs.hs
+  hs-source-dirs: tests
 
 
 -- executable ParserDriver

@@ -46,6 +46,7 @@ import Data.STRef
 import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Internal.PatriciaTree
 import Data.LLVM.Internal.ImperativeGraph
+import Data.LLVM.Internal.Worklist
 import Data.LLVM.Types
 
 import System.IO.Unsafe
@@ -67,7 +68,7 @@ data NodeTag = PtrToLocation Value
 type PTGEdge = (Node, Node, ())
 type PTGNode = (Node, NodeTag)
 type PTG = Gr NodeTag () -- EdgeTag
-type Worklist = [Instruction]
+
 -- | Define a dependency graph.  The keys are the unique IDs of
 -- locations.  The value for each ID is the set of instructions that
 -- need to be re-processed when a new edge is added to the points-to graph
@@ -94,8 +95,7 @@ type DepGraph = IntMap (HashSet Instruction)
 --
 -- * @ptIsAllocator@ is a list of predicates that recognize
 --   call/invoke instructions as allocating unique memory locations
-data PTState s = PTState { ptWorklist :: STRef s Worklist
-                         , ptNextWorklist :: STRef s (HashSet Instruction)
+data PTState s = PTState { ptWorklist :: STRef s (Worklist Instruction)
                          , ptDepGraph :: STRef s DepGraph
                          , ptGraph :: ImperativeGraph s NodeTag
                          , ptExternInfo :: [ExternalFunction -> Maybe ExternFunctionDescriptor]
@@ -125,7 +125,6 @@ andersenPointsTo (Andersen g) v =
   where
     errMsg = error "No node in graph for andersenPointsTo"
     pointsToNodes = S.fromList $! G.suc g (valueUniqueId v)
---    nodeValues = map (maybe errMsg unloc . G.lab g) pointsToNodes
     toPTResult = S.map (Direct . maybe errMsg unloc . G.lab g)
 
 
@@ -153,11 +152,9 @@ runPTA allocTests m = do
   forM_ initialEdges $ \(src, tgt) -> addEdges g src [tgt]
 
   -- Allocate the STRefs that will be modified during the computation
-  worklistRef <- newSTRef edgeInducers
-  nextWorklistRef <- newSTRef HS.empty
+  worklistRef <- newSTRef (worklistFromList edgeInducers)
   dgRef <- newSTRef IM.empty
   let state = PTState { ptWorklist = worklistRef
-                      , ptNextWorklist = nextWorklistRef
                       , ptDepGraph = dgRef
                       , ptGraph = g
                       , ptExternInfo = []
@@ -188,20 +185,9 @@ runPTA allocTests m = do
 saturate :: PTState s -> ST s ()
 saturate state = do
   wl <- readSTRef (ptWorklist state)
-  case wl of
-    [] -> do
-      nextWL <- readSTRef (ptNextWorklist state)
-      case HS.null nextWL of
-        -- Nothing in the next worklist, so we are done
-        True -> return ()
-        -- Replace the current worklist with the next set of worklist
-        -- items.  TODO: sort this into a better order (e.g., topsort)
-        False -> do
-          writeSTRef (ptWorklist state) $! HS.toList nextWL `debug`
-            printf "Flipped worklist with %d new entries" (HS.size nextWL)
-          writeSTRef (ptNextWorklist state) HS.empty
-          saturate state
-    itm : rest -> do
+  case takeWorkItem wl of
+    EmptyWorklist -> return ()
+    itm :< rest -> do
       writeSTRef (ptWorklist state) rest
       case itm of
         StoreInst { storeValue = val, storeAddress = dest } ->
@@ -294,6 +280,7 @@ addCallEdges state callInst calledFunc args = case valueContent calledFunc of
       calledFuncVals <- mapM' (nodeLabels g) funcLocs
       let handler n = case n of
             Nothing -> conservativeExternalHandler state callInst args Nothing
+            Just UnknownLocation -> conservativeExternalHandler state callInst args Nothing
             Just v -> case valueContent (unloc v) of
               FunctionC f -> addDefinedFunctionCallEdges state callInst args f
               ExternalFunctionC ef -> case externalIsIntrinsic ef of
@@ -406,16 +393,15 @@ makeNewEdges state srcs targets = do
   -- worklist because some of the new edges affected them
   depGraph <- readSTRef (ptDepGraph state)
   let newWorklistItems = affectedInstructions depGraph $! catMaybes usedSrcs
-  nwl <- readSTRef (ptNextWorklist state)
-  let nwl' = HS.union newWorklistItems nwl
-  nwl' `seq` return ()
-  writeSTRef (ptNextWorklist state) nwl'
+  nwl <- readSTRef (ptWorklist state)
+  let nwl' = addWorkItems newWorklistItems nwl
+  writeSTRef (ptWorklist state) nwl'
   where
-    affectedInstructions :: DepGraph -> [Node] -> HashSet Instruction
+    affectedInstructions :: DepGraph -> [Node] -> [Instruction]
     affectedInstructions depGraph used = {-# SCC "affectedInstructions" #-}
       let findAffected acc nodeId =
             HS.union acc $! IM.findWithDefault HS.empty nodeId depGraph
-      in foldl' findAffected HS.empty used
+      in HS.toList $! foldl' findAffected HS.empty used
 
     addEdgesForSrc g targetSet src = {-# SCC "addEdgesForSrc" #-} do
       currentTargets <- nodeSuccessors g src
