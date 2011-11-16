@@ -114,7 +114,7 @@ inullPassArgs _ Nothing ci@(CallInst {}) f =
         ConstantC (ConstantPointerNull {}) -> True
         _ -> False
       nullArgs = filter isNullArg argMap
-  in Nothing : map (Just . Value . snd) nullArgs `debug` printf "Nulls: %s" (show nullArgs)
+  in Nothing : map (Just . Value . snd) nullArgs
 -- Standard case to propagate Λ.
 inullPassArgs _ Nothing _ _ = [Nothing]
 -- This case handles propagating globals and non-constant pointer
