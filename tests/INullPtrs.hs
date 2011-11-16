@@ -93,21 +93,22 @@ inullCallFlow _ v@(Just v') _ _ =
   case isGlobal v' of
     True -> []
     _ -> [v]
-  -- case valueContent v' of
-  --   InstructionC (AllocaInst {}) -> [v]
-  --   _ -> []
 
-{- Important note: Only arguments, constantpointernull, and loads can
-be NULL -}
-
+-- | This is a filter predicate for @inullPassArgs@, and only for the
+-- case where the current domain value being considered is Λ
+-- (Nothing).  This rule defines the function arguments that introduce
+-- *new* NULL edges.
 isNullArg :: IsValue a => (a, b) -> Bool
 isNullArg (actual,_) = case valueContent actual of
+  -- Loading an address from a field - conservatively assume it could be NULL
   InstructionC (LoadInst {
                    loadAddress =
                       (valueContent -> InstructionC (GetElementPtrInst {})) }) -> True
+  -- Likewise for double indirections
   InstructionC (LoadInst {
                    loadAddress =
                       (valueContent -> InstructionC (LoadInst {}))}) -> True
+  -- Of course, NULL is NULL
   ConstantC (ConstantPointerNull {}) -> True
   _ -> False
 
