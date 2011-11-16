@@ -168,9 +168,17 @@ inullExternPassArgs _ v@(Just v') _ _ = case isGlobal v' of
 -- Just v here), put the _call_ instruction that we are about to
 -- return to into the set.
 inullReturnVal :: INullPtr -> Maybe Value -> Instruction -> Instruction -> [Maybe Value]
+-- FIXME: This case needs to handle generating a callinst as the
+-- return value (as well as Nothing) if this is a "new" null pointer
+-- (constnat, load from something crazy)
 inullReturnVal _ Nothing _ _ = [Nothing]
+-- FIXME: If a global is being returned, this function needs to return
+-- *two* values (the global and the call inst)
+--
+-- Also, various other things can be returned here
 inullReturnVal _ v@(Just v') (RetInst { retInstValue = Just rv }) ci
   | isGlobal v' = [v]
+  | v' == rv = [Just (Value ci)]
   | otherwise = case v' == rv of
     True -> [Just (Value ci)]
     False -> []
