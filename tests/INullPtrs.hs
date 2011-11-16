@@ -2,7 +2,7 @@
 -- | An interprocedural may-be-null pointer analysis.
 module Main ( main ) where
 
-import Data.List ( elemIndex, foldl' )
+import Data.List ( foldl' )
 import Data.Maybe ( fromJust )
 import qualified Data.Set as S
 
@@ -75,9 +75,13 @@ inullFlow _ v@(Just v') StoreInst { storeAddress = sa, storeValue = sv } edges
   | otherwise = case valueContent sv of
     ConstantC (ConstantPointerNull {}) -> [Just sa]
     InstructionC (LoadInst { loadAddress = la }) ->
-      case la == v' of
-        False -> [v]
-        True -> [v, Just sa]
+      case valueContent la of
+        -- Storing some address loaded from a field or array - it
+        -- could be NULL
+        InstructionC (GetElementPtrInst {}) -> [v, Just sa]
+        _ -> case la == v' of
+          False -> [v]
+          True -> [v, Just sa]
     _ -> [v]
 inullFlow _ v@(Just _) _ _ = [v]
 inullFlow _ Nothing _ _ = [Nothing]
