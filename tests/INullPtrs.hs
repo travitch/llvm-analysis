@@ -2,7 +2,7 @@
 -- | An interprocedural may-be-null pointer analysis.
 module Main ( main ) where
 
-import Data.List ( elemIndex )
+import Data.List ( elemIndex, foldl' )
 import Data.Maybe ( fromJust )
 import qualified Data.Set as S
 
@@ -74,8 +74,11 @@ inullFlow _ v@(Just v') StoreInst { storeAddress = sa, storeValue = sv } edges
   | sv == v' = [Just sa]
   | otherwise = case valueContent sv of
     ConstantC (ConstantPointerNull {}) -> [Just sa]
+    InstructionC (LoadInst { loadAddress = la }) ->
+      case la == v' of
+        False -> [v]
+        True -> [v, Just sa]
     _ -> [v]
---    [v]
 inullFlow _ v@(Just _) _ _ = [v]
 inullFlow _ Nothing _ _ = [Nothing]
 
@@ -90,6 +93,9 @@ inullCallFlow _ v@(Just v') _ _ =
   --   InstructionC (AllocaInst {}) -> [v]
   --   _ -> []
 
+{- Important note: Only arguments, constantpointernull, and loads can
+be NULL -}
+
 -- | If the Value is an argument to the Call (or Invoke) instruction
 -- _AND_ it is a pointer type (just one level of pointer, T*), put the
 -- corresponding formal parameter of the Function into the set instead
@@ -97,27 +103,38 @@ inullCallFlow _ v@(Just v') _ _ =
 --
 -- Also, just pass through information about globals.
 inullPassArgs :: INullPtr -> Maybe Value -> Instruction -> Function -> [Maybe Value]
+-- Handle the case where NULL is passed as an argument to a function.
+-- Figure out which formal parameters correspond to the NULLs and
+-- propagate those edges.  Also always propagate Λ.
+--
+-- FIXME: Extend to handle InvokeInst
 inullPassArgs _ Nothing ci@(CallInst {}) f =
-  let argMap = zip (callArguments ci) (functionParameters f)
-      nullArgs = filter isNullArg
-  [Nothing]
+  let argMap = zip (map fst (callArguments ci)) (functionParameters f)
+      isNullArg (actual,_) = case valueContent actual of
+        ConstantC (ConstantPointerNull {}) -> True
+        _ -> False
+      nullArgs = filter isNullArg argMap
+  in Nothing : map (Just . Value . snd) nullArgs `debug` printf "Nulls: %s" (show nullArgs)
+-- Standard case to propagate Λ.
 inullPassArgs _ Nothing _ _ = [Nothing]
+-- This case handles propagating globals and non-constant pointer
+-- information across function calls.  FIXME: Extend to handle InvokeInst.
 inullPassArgs _ v@(Just v') ci@(CallInst {}) f =
-  case (isPointerType v', isGlobal v', argumentIndex v' (callArguments ci)) of
-    -- If v' is an argument to the call, its corresponding formal
-    -- parameter is reachable
-    (True, True, Just ix) ->
-      let formalForActual = functionParameters f !! ix
-      in [v, (Just . Value) formalForActual]
-    (True, False, Just ix) ->
-      let formalForActual = functionParameters f !! ix
-      in [(Just . Value) formalForActual]
-    (_, True, _) -> [v]
-    _ -> []
+  let nullFrmls = nullFormals v'
+  in case isGlobal v' of
+    True -> v : map (Just . Value) nullFrmls
+    False -> map (Just . Value) nullFrmls
   where
-    argumentIndex :: Value -> [(Value, [ParamAttribute])] -> Maybe Int
-    argumentIndex v args = elemIndex v (map fst args)
-
+    argMap = zip (map fst (callArguments ci)) (functionParameters f)
+    nullFormals targetVal = foldl' (matchFormal targetVal) [] argMap
+    matchFormal targetVal acc (arg, frml)
+      | arg == targetVal = frml : acc
+      | otherwise = case valueContent arg of
+        InstructionC (LoadInst { loadAddress = la }) ->
+          case la == targetVal of
+            True -> frml : acc
+            False -> acc
+        _ -> acc
 
 
 -- | Just pass information about globals.  In some other cases we
@@ -202,16 +219,7 @@ main = do
                                          }
                         ]
   testAgainstExpected (parseLLVMBitcodeFile defaultParserOptions) testDescriptors
-  {-
-  [fname] <- getArgs
-  Right m <- parseLLVMBitcodeFile defaultParserOptions fname
-  let pta = runPointsToAnalysis m
-      icfg = mkICFG m pta (maybe [] (:[]) (findMain m))
-      analysis = INullPtr
-      res :: IFDSResult Value
-      res = ifds analysis icfg
-  print res
--}
+
 isGlobal :: Value -> Bool
 isGlobal v = case valueContent v of
   GlobalVariableC _ -> True
