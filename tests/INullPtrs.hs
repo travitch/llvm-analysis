@@ -63,25 +63,24 @@ inullFlow _ v@(Just v') i@LoadInst { loadAddress = la } edges =
 -- address being stored to.
 inullFlow _ Nothing i@StoreInst { storeAddress = sa, storeValue = sv } edges =
   case valueContent sv of
-    ConstantC (ConstantPointerNull {}) -> [Just sa]
+    ConstantC ConstantPointerNull {} -> [Just sa]
     _ -> [Nothing]
 inullFlow _ v@(Just v') StoreInst { storeAddress = sa, storeValue = sv } edges
   | sa == v' = case valueContent sv of
-    ConstantC (ConstantPointerNull {}) -> [Just sa]
+    ConstantC ConstantPointerNull {} -> [Just sa]
     _ -> [] -- assigning something that isn't NULL, so the value is no
            -- longer null.  The case where the assigned value may be
            -- null is handled in the sv == v' alternative.
   | sv == v' = [Just sa]
   | otherwise = case valueContent sv of
-    ConstantC (ConstantPointerNull {}) -> [Just sa]
-    InstructionC (LoadInst { loadAddress = la }) ->
-      case valueContent la of
-        -- Storing some address loaded from a field or array - it
-        -- could be NULL
-        InstructionC (GetElementPtrInst {}) -> [v, Just sa]
-        _ -> case la == v' of
-          False -> [v]
-          True -> [v, Just sa]
+    ConstantC ConstantPointerNull {} -> [Just sa]
+    -- Storing an address loaded from some aggregate; it could be NULL since
+    -- we aren't tracking to that precision
+    InstructionC LoadInst { loadAddress =
+      (valueContent -> InstructionC GetElementPtrInst {})} -> [v, Just sa]
+    InstructionC LoadInst { loadAddress = la } -> case la == v' of
+      False -> [v]
+      True -> [v, Just sa]
     _ -> [v]
 inullFlow _ v@(Just _) _ _ = [v]
 inullFlow _ Nothing _ _ = [Nothing]
@@ -98,18 +97,20 @@ inullCallFlow _ v@(Just v') _ _ =
 -- case where the current domain value being considered is Λ
 -- (Nothing).  This rule defines the function arguments that introduce
 -- *new* NULL edges.
+--
+-- * Values loaded from fields of aggregates (structs, arrays) could be NULL
+--
+-- * Nested indirections are not tracked here (that is the job of
+--   points-to analysis) so be conservative
+--
+-- * The NULL pointer
 isNullArg :: IsValue a => (a, b) -> Bool
 isNullArg (actual,_) = case valueContent actual of
-  -- Loading an address from a field - conservatively assume it could be NULL
-  InstructionC (LoadInst {
-                   loadAddress =
-                      (valueContent -> InstructionC (GetElementPtrInst {})) }) -> True
-  -- Likewise for double indirections
-  InstructionC (LoadInst {
-                   loadAddress =
-                      (valueContent -> InstructionC (LoadInst {}))}) -> True
-  -- Of course, NULL is NULL
-  ConstantC (ConstantPointerNull {}) -> True
+  InstructionC LoadInst { loadAddress =
+    (valueContent -> InstructionC GetElementPtrInst {})} -> True
+  InstructionC LoadInst { loadAddress =
+    (valueContent -> InstructionC LoadInst {})} -> True
+  ConstantC ConstantPointerNull {} -> True
   _ -> False
 
 -- | If the Value is an argument to the Call (or Invoke) instruction
@@ -124,8 +125,8 @@ inullPassArgs :: INullPtr -> Maybe Value -> Instruction -> Function -> [Maybe Va
 -- propagate those edges.  Also always propagate Λ.
 --
 -- FIXME: Extend to handle InvokeInst
-inullPassArgs _ Nothing ci@(CallInst {}) f =
-  let argMap = zip (map fst (callArguments ci)) (functionParameters f)
+inullPassArgs _ Nothing (CallInst { callArguments = cargs }) f =
+  let argMap = zip (map fst cargs) (functionParameters f)
 
       nullArgs = filter isNullArg argMap
   in Nothing : map (Just . Value . snd) nullArgs
@@ -133,29 +134,25 @@ inullPassArgs _ Nothing ci@(CallInst {}) f =
 inullPassArgs _ Nothing _ _ = [Nothing]
 -- This case handles propagating globals and non-constant pointer
 -- information across function calls.  FIXME: Extend to handle InvokeInst.
-inullPassArgs _ v@(Just v') ci@(CallInst {}) f =
+inullPassArgs _ v@(Just v') (CallInst { callArguments = cargs}) f =
   let nullFrmls = nullFormals v'
   in case isGlobal v' of
     True -> v : map (Just . Value) nullFrmls
     False -> map (Just . Value) nullFrmls
   where
-    argMap = zip (map fst (callArguments ci)) (functionParameters f)
+    argMap = zip (map fst cargs) (functionParameters f)
     nullFormals targetVal = foldl' (matchFormal targetVal) [] argMap
     matchFormal targetVal acc (arg, frml)
       | arg == targetVal = frml : acc
       | otherwise = case valueContent arg of
-        InstructionC (LoadInst { loadAddress = la }) ->
-          case valueContent la of
-            -- This argument is loaded from a field and could be anything
-            InstructionC (GetElementPtrInst {}) -> frml : acc
-            _ -> case la == targetVal of
-              -- We know it is NULL
-              True -> frml : acc
-              -- Isn't null... lots of other cases in the outer case,
-              -- though
-              False -> acc
+        InstructionC LoadInst { loadAddress =
+          (valueContent -> InstructionC GetElementPtrInst {})} -> frml : acc
+        InstructionC LoadInst { loadAddress = la } -> case la == targetVal of
+          -- The thing being loaded is known to be NULL
+          True -> frml : acc
+          -- Might not be NULL... there are some more cases to handle, I'd say
+          False -> acc
         _ -> acc
-
 
 -- | Just pass information about globals.  In some other cases we
 -- could look up a summary of the external function, but that isn't
