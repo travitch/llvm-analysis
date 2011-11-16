@@ -254,6 +254,7 @@ tabulate = do
         -- Case 3: intraprocedural control flow
         InstNode i -> addIntraEdges i e
         ReturnNode i -> addReturnNodeEdges i e
+      tabulate
 
 
 -- | Get the list of domain values reachable from 'Node' @n@.  This
@@ -283,8 +284,6 @@ addCallEdges ci e@(PathEdge d1 n _) = do
   updateCallReachingValues n d1
   let possibleCalleeEntryNodes = getICFGCallEntries g n
   mapM_ (addInfoForPotentialCallee ci e) possibleCalleeEntryNodes
-
-  tabulate
 {-# INLINE addCallEdges #-}
 
 -- | Add call edges and intraprocedural call->return edges for a
@@ -438,7 +437,6 @@ addExitEdges (Left ef) (PathEdge d1 n d2) = do
 
   addEndSummary funcEntry funcExit
   mapM_ (summarizeCallEdge retEdgeF) (S.toList callEdges)
-  tabulate
 addExitEdges (Right ri) (PathEdge d1 n d2) = do
   analysis <- gets ifdsAnalysis
   incNodes <- gets incomingNodes
@@ -451,7 +449,6 @@ addExitEdges (Right ri) (PathEdge d1 n d2) = do
 
   addEndSummary funcEntry funcExit
   mapM_ (summarizeCallEdge retEdgeF) (S.toList callEdges)
-  tabulate
 {-# INLINE addExitEdges #-}
 
 summarizeCallEdge :: (Ord domType, Show domType)
@@ -538,8 +535,6 @@ addIntraEdges i (PathEdge d1 n d2) = do
       inducedEdges = concatMap (mkIntraEdge dests) intraSuccessors
 
   mapM_ propagate inducedEdges
-
-  tabulate
 {-# INLINE addIntraEdges #-}
 
 
@@ -564,8 +559,6 @@ addReturnNodeEdges i (PathEdge d1 n d2) = do
         map (\d3 -> PathEdge d1 successor d3) ipes
 
   mapM_ propagate inducedEdges
-
-  tabulate
 {-# INLINE addReturnNodeEdges #-}
 
 propagate :: (Ord domType) => PathEdge domType -> IFDSM a domType ()
