@@ -3,7 +3,7 @@
 int y;
 int *g = &y;
 
-int* arr[100];
+int arr[100];
 
 void f(int *p) {
   g = p;
