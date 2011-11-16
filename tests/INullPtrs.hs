@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiParamTypeClasses, ViewPatterns #-}
 -- | An interprocedural may-be-null pointer analysis.
 module Main ( main ) where
 
@@ -100,6 +100,17 @@ inullCallFlow _ v@(Just v') _ _ =
 {- Important note: Only arguments, constantpointernull, and loads can
 be NULL -}
 
+isNullArg :: IsValue a => (a, b) -> Bool
+isNullArg (actual,_) = case valueContent actual of
+  InstructionC (LoadInst {
+                   loadAddress =
+                      (valueContent -> InstructionC (GetElementPtrInst {})) }) -> True
+  InstructionC (LoadInst {
+                   loadAddress =
+                      (valueContent -> InstructionC (LoadInst {}))}) -> True
+  ConstantC (ConstantPointerNull {}) -> True
+  _ -> False
+
 -- | If the Value is an argument to the Call (or Invoke) instruction
 -- _AND_ it is a pointer type (just one level of pointer, T*), put the
 -- corresponding formal parameter of the Function into the set instead
@@ -114,9 +125,7 @@ inullPassArgs :: INullPtr -> Maybe Value -> Instruction -> Function -> [Maybe Va
 -- FIXME: Extend to handle InvokeInst
 inullPassArgs _ Nothing ci@(CallInst {}) f =
   let argMap = zip (map fst (callArguments ci)) (functionParameters f)
-      isNullArg (actual,_) = case valueContent actual of
-        ConstantC (ConstantPointerNull {}) -> True
-        _ -> False
+
       nullArgs = filter isNullArg argMap
   in Nothing : map (Just . Value . snd) nullArgs
 -- Standard case to propagate Λ.
@@ -135,9 +144,15 @@ inullPassArgs _ v@(Just v') ci@(CallInst {}) f =
       | arg == targetVal = frml : acc
       | otherwise = case valueContent arg of
         InstructionC (LoadInst { loadAddress = la }) ->
-          case la == targetVal of
-            True -> frml : acc
-            False -> acc
+          case valueContent la of
+            -- This argument is loaded from a field and could be anything
+            InstructionC (GetElementPtrInst {}) -> frml : acc
+            _ -> case la == targetVal of
+              -- We know it is NULL
+              True -> frml : acc
+              -- Isn't null... lots of other cases in the outer case,
+              -- though
+              False -> acc
         _ -> acc
 
 
