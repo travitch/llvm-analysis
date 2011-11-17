@@ -4,6 +4,7 @@ module Main ( main ) where
 
 import Data.List ( foldl' )
 import Data.Maybe ( fromJust )
+import Data.Set ( Set )
 import qualified Data.Set as S
 
 import Test.HUnit
@@ -221,8 +222,8 @@ expectedMapper :: FilePath -> FilePath
 expectedMapper = (++ ".expected")
 
 -- | Test values reachable at the return statement of a function
-reachReturnTest :: Module -> [String]
-reachReturnTest m = map (show . fromJust . valueName) endVals
+reachReturnTest :: Module -> Set String
+reachReturnTest m = S.map (show . fromJust . valueName) endVals
   where
     pta = runPointsToAnalysis m
     Just progMain = findMain m
@@ -231,7 +232,7 @@ reachReturnTest m = map (show . fromJust . valueName) endVals
     res :: IFDSResult Value
     res = ifds analysis icfg
     retInst = functionExitInstruction progMain
-    endVals = maybe [] S.toList (ifdsInstructionResult res retInst)
+    endVals = maybe S.empty id (ifdsInstructionResult res retInst)
 
 
 main :: IO ()
