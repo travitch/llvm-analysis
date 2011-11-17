@@ -209,10 +209,12 @@ inullReturnVal _ _ _ _ = []
 -- | Just be conservative for now and return globals and the call
 -- instruction.  Normally, look up summaries for the function
 inullExternReturnVal :: INullPtr -> Maybe Value -> Maybe ExternalFunction -> Instruction -> [Maybe Value]
-inullExternReturnVal _ Nothing _ _ = [Nothing]
+inullExternReturnVal _ Nothing _ ci =
+  case isPointerType (Value ci) of
+    False -> [Nothing]
+    True -> [Just (Value ci), Nothing]
 inullExternReturnVal _ v@(Just v') _ ci
   | isGlobal v' = [v]
-  | isPointerType (Value ci) = [v]
   | otherwise = []
 inullExternReturnVal _ _ _ _ = []
 
