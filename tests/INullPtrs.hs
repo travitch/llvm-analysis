@@ -6,6 +6,7 @@ import Data.List ( foldl' )
 import Data.Maybe ( fromJust )
 import Data.Set ( Set )
 import qualified Data.Set as S
+import Text.Regex.TDFA
 
 import Test.HUnit
 
@@ -45,43 +46,32 @@ inullFlow _ Nothing i@AllocaInst {} _
   -- stack-allocated pointer.
   | isPointerPointerType (Value i) = [Nothing, Just $ Value i]
   | otherwise = [Nothing]
--- FIXME: Need to handle edges here to see when we are on a non-null
--- branch
-{-
-inullFlow _ v@(Just v') i@LoadInst { loadAddress = la } edges =
-  -- Everything in LLVM is a pointer; the first "level" of load
-  -- doesn't tell us anything since that is just LLVM loading the
-  -- address in the pointer.  Subsequent loads (nested) represent
-  -- actual pointer dereferences.
-  case valueContent la of
-    InstructionC LoadInst { loadAddress = la2 } ->
-      case (Value la2) == v' of
-        True -> [] `debug` printf "Dropping %s" (show v')
-        False -> [v]
-    _ -> [v] `debug` printf "Load (%s) pass through %s" (show i) (show v')
--}
 -- In this case, nothing is NULL here but we might be NULLing out the
 -- address being stored to.
 inullFlow _ Nothing i@StoreInst { storeAddress = sa, storeValue = sv } edges =
   case valueContent sv of
-    ConstantC ConstantPointerNull {} -> [Just sa]
+    ConstantC ConstantPointerNull {} -> [Nothing, Just sa]
+    InstructionC LoadInst { loadAddress =
+      (valueContent -> InstructionC GetElementPtrInst {}) } -> [Nothing, Just sa]
+    InstructionC LoadInst { loadAddress =
+      (valueContent -> InstructionC LoadInst {})} -> [Nothing, Just sa]
+    -- It should be the case that any other NULLs should be propagated
+    -- from existing NULLs.
     _ -> [Nothing]
 inullFlow _ v@(Just v') StoreInst { storeAddress = sa, storeValue = sv } edges
-  | sa == v' = case valueContent sv of
-    ConstantC ConstantPointerNull {} -> [Just sa]
-    _ -> [] -- assigning something that isn't NULL, so the value is no
-           -- longer null.  The case where the assigned value may be
-           -- null is handled in the sv == v' alternative.
-  | sv == v' = [Just sa]
+  -- Storing a pointer value that may be NULL; the possibly-null
+  -- pointer is still possibly null, and the address stored to is also
+  -- possibly null now.
+  | sv == v' = [Just sa, v]
+  -- If the address being stored to contained NULL before, assume it
+  -- doesn't know (if the value being stored *could* be NULL,
+  -- subsequent rules will handle it).
+  | sa == v' = []
   | otherwise = case valueContent sv of
-    ConstantC ConstantPointerNull {} -> [Just sa]
-    -- Storing an address loaded from some aggregate; it could be NULL since
-    -- we aren't tracking to that precision
-    InstructionC LoadInst { loadAddress =
-      (valueContent -> InstructionC GetElementPtrInst {})} -> [v, Just sa]
-    InstructionC LoadInst { loadAddress = la } -> case la == v' of
-      False -> [v]
-      True -> [v, Just sa]
+    InstructionC LoadInst { loadAddress = la } ->
+      case la == v' of
+        True -> [Just sa, v]
+        False -> [v]
     _ -> [v]
 inullFlow _ v@(Just _) _ _ = [v]
 inullFlow _ Nothing _ _ = [Nothing]
@@ -243,7 +233,7 @@ expectedMapper = (++ ".expected")
 
 -- | Test values reachable at the return statement of a function
 reachReturnTest :: Module -> Set String
-reachReturnTest m = S.map (show . fromJust . valueName) endVals
+reachReturnTest m = S.filter isNotNumericName $ S.map (show . fromJust . valueName) endVals
   where
     pta = runPointsToAnalysis m
     Just progMain = findMain m
@@ -253,7 +243,7 @@ reachReturnTest m = S.map (show . fromJust . valueName) endVals
     res = ifds analysis icfg
     retInst = functionExitInstruction progMain
     endVals = maybe S.empty id (ifdsInstructionResult res retInst)
-
+    isNotNumericName = not . (=~"%[[:digit:]]+")
 
 main :: IO ()
 main = do
