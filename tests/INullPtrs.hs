@@ -154,6 +154,24 @@ inullExternPassArgs _ v@(Just v') _ _ = case isGlobal v' of
   True -> [v]
   False -> []
 
+valueInjectsNull :: Value -> Bool
+valueInjectsNull v = isPointerType v && case valueContent v of
+  InstructionC LoadInst { loadAddress =
+    (valueContent -> InstructionC GetElementPtrInst {}) } -> True
+  InstructionC LoadInst { loadAddress =
+    (valueContent -> InstructionC LoadInst {}) } -> True
+  ConstantC ConstantPointerNull {} -> True
+  InstructionC PhiNode { phiIncomingValues = ivs } -> any valueInjectsNull (map fst ivs)
+  -- FIXME: What about a load of a PHI?
+  _ -> False
+
+valueMatchesNull :: Value -> Value -> Bool
+valueMatchesNull v target = case valueContent v of
+  ArgumentC _ -> v == target
+  InstructionC LoadInst { loadAddress = la } -> target == la
+  InstructionC PhiNode { phiIncomingValues = ivs } -> any (==target) (map fst ivs)
+  _ -> False
+
 -- | Pass through information about globals.  If the return
 -- instruction is returning a pointer value (and the value is equal to
 -- Just v here), put the _call_ instruction that we are about to
@@ -162,31 +180,13 @@ inullReturnVal :: INullPtr -> Maybe Value -> Instruction -> Instruction -> [Mayb
 -- This case lets us introduce new NULLs from things like constants
 -- and untracked loads.
 inullReturnVal _ Nothing (RetInst { retInstValue = Just rv }) ci =
-  case valueContent rv of
-    -- return arr[n];
-    InstructionC LoadInst { loadAddress =
-      (valueContent -> InstructionC GetElementPtrInst {})} -> [Nothing, Just (Value ci)]
-    -- return **g;
-    InstructionC LoadInst { loadAddress =
-      (valueContent -> InstructionC LoadInst {})} -> [Nothing, Just (Value ci)]
-    -- return NULL;
-    ConstantC ConstantPointerNull {} -> [Nothing, Just (Value ci)]
-    _ -> [Nothing]
--- Handle propagating globals that are NULL, along with returned
--- locals.  Note that, in this case, if a NULL global is returned, two
--- edges need to be generated: one to propagate that the global is
--- still NULL and one to indicate that the return value is NULL.
-inullReturnVal _ v@(Just v') (RetInst { retInstValue = Just
-  (valueContent -> InstructionC LoadInst { loadAddress = la })}) ci
-  | la == v' = Just (Value ci) : globalProp
-  | otherwise = globalProp
-  where
-    globalProp = case isGlobal v' of
-      False -> []
-      True -> [v]
-inullReturnVal _ v@(Just v') (RetInst { retInstValue = Just rv }) ci
-  | v' == rv = Just (Value ci) : globalProp
-  | otherwise = globalProp
+  case valueInjectsNull rv of
+    True -> [Nothing, Just (Value ci)]
+    False -> [Nothing]
+inullReturnVal _ v@(Just v') (RetInst { retInstValue = Just rv }) ci =
+  case valueMatchesNull rv v' of
+    True -> Just (Value ci) : globalProp
+    False -> globalProp
   where
     globalProp = case isGlobal v' of
       False -> []
@@ -255,6 +255,11 @@ main = do
                                          }
                         ]
   testAgainstExpected (parseLLVMBitcodeFile defaultParserOptions) testDescriptors
+
+isArgument :: Value -> Bool
+isArgument v = case valueContent v of
+  ArgumentC _ -> True
+  _ -> False
 
 isGlobal :: Value -> Bool
 isGlobal v = case valueContent v of
