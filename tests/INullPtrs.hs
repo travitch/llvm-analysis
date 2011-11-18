@@ -49,15 +49,9 @@ inullFlow _ Nothing i@AllocaInst {} _
 -- In this case, nothing is NULL here but we might be NULLing out the
 -- address being stored to.
 inullFlow _ Nothing i@StoreInst { storeAddress = sa, storeValue = sv } edges =
-  case valueContent sv of
-    ConstantC ConstantPointerNull {} -> [Nothing, Just sa]
-    InstructionC LoadInst { loadAddress =
-      (valueContent -> InstructionC GetElementPtrInst {}) } -> [Nothing, Just sa]
-    InstructionC LoadInst { loadAddress =
-      (valueContent -> InstructionC LoadInst {})} -> [Nothing, Just sa]
-    -- It should be the case that any other NULLs should be propagated
-    -- from existing NULLs.
-    _ -> [Nothing]
+  case valueInjectsNull sv of
+    True -> [Nothing, Just sa]
+    False -> [Nothing]
 inullFlow _ v@(Just v') StoreInst { storeAddress = sa, storeValue = sv } edges
   -- Storing a pointer value that may be NULL; the possibly-null
   -- pointer is still possibly null, and the address stored to is also
@@ -84,26 +78,6 @@ inullCallFlow _ v@(Just v') _ _ =
     True -> []
     _ -> [v]
 
--- | This is a filter predicate for @inullPassArgs@, and only for the
--- case where the current domain value being considered is Λ
--- (Nothing).  This rule defines the function arguments that introduce
--- *new* NULL edges.
---
--- * Values loaded from fields of aggregates (structs, arrays) could be NULL
---
--- * Nested indirections are not tracked here (that is the job of
---   points-to analysis) so be conservative
---
--- * The NULL pointer
-isNullArg :: IsValue a => (a, b) -> Bool
-isNullArg (actual,_) = case valueContent actual of
-  InstructionC LoadInst { loadAddress =
-    (valueContent -> InstructionC GetElementPtrInst {})} -> True
-  InstructionC LoadInst { loadAddress =
-    (valueContent -> InstructionC LoadInst {})} -> True
-  ConstantC ConstantPointerNull {} -> True
-  _ -> False
-
 -- | If the Value is an argument to the Call (or Invoke) instruction
 -- _AND_ it is a pointer type (just one level of pointer, T*), put the
 -- corresponding formal parameter of the Function into the set instead
@@ -119,7 +93,7 @@ inullPassArgs :: INullPtr -> Maybe Value -> Instruction -> Function -> [Maybe Va
 inullPassArgs _ Nothing (CallInst { callArguments = cargs }) f =
   let argMap = zip (map fst cargs) (functionParameters f)
 
-      nullArgs = filter isNullArg argMap
+      nullArgs = filter (valueInjectsNull . fst) argMap
   in Nothing : map (Just . Value . snd) nullArgs
 -- Standard case to propagate Λ.
 inullPassArgs _ Nothing _ _ = [Nothing]
@@ -154,6 +128,17 @@ inullExternPassArgs _ v@(Just v') _ _ = case isGlobal v' of
   True -> [v]
   False -> []
 
+-- | This is a filter predicate for @inullPassArgs@, and only for the
+-- case where the current domain value being considered is Λ
+-- (Nothing).  This rule defines the function arguments that introduce
+-- *new* NULL edges.
+--
+-- * Values loaded from fields of aggregates (structs, arrays) could be NULL
+--
+-- * Nested indirections are not tracked here (that is the job of
+--   points-to analysis) so be conservative
+--
+-- * The NULL pointer
 valueInjectsNull :: Value -> Bool
 valueInjectsNull v = isPointerType v && case valueContent v of
   InstructionC LoadInst { loadAddress =
@@ -161,6 +146,7 @@ valueInjectsNull v = isPointerType v && case valueContent v of
   InstructionC LoadInst { loadAddress =
     (valueContent -> InstructionC LoadInst {}) } -> True
   ConstantC ConstantPointerNull {} -> True
+  InstructionC BitcastInst { castedValue = cv } -> valueInjectsNull cv
   InstructionC PhiNode { phiIncomingValues = ivs } -> any valueInjectsNull (map fst ivs)
   -- FIXME: What about a load of a PHI?
   _ -> False
