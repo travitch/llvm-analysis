@@ -1,5 +1,6 @@
 module Data.LLVM.Analysis.CallGraphSCCTraversal (
-  callGraphSCCTraversal
+  callGraphSCCTraversal,
+  basicCallGraphSCCTraversal
   ) where
 
 import Data.Graph.Inductive
@@ -8,6 +9,27 @@ import Data.LLVM.CallGraph
 import Data.LLVM.Types
 
 import Data.LLVM.Internal.Condense
+
+-- | This is the high-level interface to the CallGraphSCCTraversal.
+-- It encapsualtes the logic to find a fixed-point for each SCC for
+-- any analysis.
+callGraphSCCTraversal :: (Eq summary)
+                         => CallGraph -- ^ The callgraph
+                         -> (Function -> summary -> summary) -- ^ A function to analyze a single Function and merge its results into a summary value
+                         -> summary -- ^ An initial summary value
+                         -> summary
+callGraphSCCTraversal cg analyzeFunction initialSummary =
+  basicCallGraphSCCTraversal cg f initialSummary
+  where
+    -- If there is just a single component, we only need to analyze it once.
+    f [singleComponent] summ = analyzeFunction singleComponent summ
+    -- Otherwise, we need to find a fixed-point of the summary over
+    -- all of the functions in this SCC.
+    f sccComponents summ =
+      let newSummary = foldr analyzeFunction summ sccComponents
+      in case newSummary == summ of
+        True -> summ
+        False -> f sccComponents newSummary
 
 -- | Traverse the callgraph bottom-up with an accumulator function.
 --
@@ -23,8 +45,11 @@ import Data.LLVM.Internal.Condense
 --
 -- FIXME: Add a flag that says whether or not to include indirect
 -- function calls
-callGraphSCCTraversal :: CallGraph -> ([Function] -> a -> a) -> a -> a
-callGraphSCCTraversal callgraph f seed =
+basicCallGraphSCCTraversal :: CallGraph -- ^ The callgraph
+                              -> ([Function] -> summary -> summary) -- ^ A function to process a strongly-connected component
+                              -> summary -- ^ An initial summary value
+                              -> summary
+basicCallGraphSCCTraversal callgraph f seed =
   foldr applyAnalysis seed sccList
   where
     g = projectDefinedFunctions $ callGraphRepr callgraph

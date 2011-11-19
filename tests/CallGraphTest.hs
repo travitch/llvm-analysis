@@ -29,7 +29,7 @@ cgPattern = "tests/callgraph/order/*.c"
 expectedMapper = (<.> "expected")
 
 extractTraversalOrder m =
-  callGraphSCCTraversal cg buildSummary []
+  basicCallGraphSCCTraversal cg buildSummary []
   where
     Just main = findMain m
     pta = runPointsToAnalysis m
