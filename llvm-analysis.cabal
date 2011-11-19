@@ -21,6 +21,7 @@ library
                  HUnit, test-framework, test-framework-hunit
   hs-source-dirs: src
   exposed-modules: Data.LLVM,
+                   Data.LLVM.Analysis.CallGraphSCCTraversal,
                    Data.LLVM.Analysis.Dataflow,
                    Data.LLVM.Analysis.IFDS,
                    Data.LLVM.Analysis.PointsTo,
@@ -32,7 +33,8 @@ library
                    Data.LLVM.ICFG,
                    Data.LLVM.Testing,
                    Data.LLVM.Visualization
-  other-modules: Data.LLVM.Internal.ImperativeGraph,
+  other-modules: Data.LLVM.Internal.Condense,
+                 Data.LLVM.Internal.ImperativeGraph,
                  Data.LLVM.Internal.PatriciaTree,
                  Data.LLVM.Internal.Worklist,
                  -- This module does not work yet.
@@ -42,6 +44,13 @@ library
   ghc-options: -Wall -funbox-strict-fields
   ghc-prof-options: -auto-all
 
+test-suite CallGraphTests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: CallGraphTest.hs
+  hs-source-dirs: tests
+  build-depends: llvm-analysis, llvm-data-interop,
+                 base > 3 && < 5, filepath, containers, HUnit
 
 test-suite AndersenTests
   default-language: Haskell2010

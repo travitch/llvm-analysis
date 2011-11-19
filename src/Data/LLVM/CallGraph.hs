@@ -24,6 +24,7 @@
 module Data.LLVM.CallGraph (
   -- * Types
   CallGraph,
+  CG,
   CallEdge(..),
   CallNode(..),
   -- * Constructor
@@ -41,7 +42,7 @@ import Data.LLVM.Types
 import Data.LLVM.Analysis.PointsTo
 
 -- | A type synonym for the underlying graph
-type CGType = Gr CallNode CallEdge
+type CG = Gr CallNode CallEdge
 
 -- | The nodes are actually a wrapper type:
 data CallNode = DefinedFunction Function
@@ -82,11 +83,11 @@ instance Labellable CallEdge where
 
 -- | An opaque wrapper for the callgraph.  The nodes are functions and
 -- the edges are calls between them.
-data CallGraph = CallGraph CGType
+data CallGraph = CallGraph CG
 
 -- | Convert the CallGraph to an FGL graph that can be traversed,
 -- manipulated, or easily displayed with graphviz.
-callGraphRepr :: CallGraph -> CGType
+callGraphRepr :: CallGraph -> CG
 callGraphRepr (CallGraph g) = g
 
 -- | Build a call graph for the given 'Module' using a pre-computed
@@ -98,8 +99,8 @@ callGraphRepr (CallGraph g) = g
 -- FIXME: Function pointers can be bitcasted - be sure to respect
 -- those when adding indirect edges.
 mkCallGraph :: (PointsToAnalysis a) => Module
-               -> a         -- ^ A points-to analysis (to resolve function pointers)
-               -> [Value]   -- ^ The entry points to the 'Module'
+               -> a            -- ^ A points-to analysis (to resolve function pointers)
+               -> [Function]   -- ^ The entry points to the 'Module'
                -> CallGraph
 mkCallGraph m pta entryPoints =
   CallGraph $ mkGraph allNodes (unique allEdges)
