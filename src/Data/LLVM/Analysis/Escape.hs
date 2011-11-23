@@ -55,21 +55,18 @@ instance Eq EscapeGraph where
                (escapeGraph eg1 `equal` escapeGraph eg2)
 
 instance MeetSemiLattice EscapeGraph where
-  meet = egMeet
-
-egMeet :: EscapeGraph -> EscapeGraph -> EscapeGraph
-egMeet eg1 eg2 = EG { escapeGraph = g'
+  meet eg1 eg2 = EG { escapeGraph = g'
                     , escapeCalleeMap = ecm
                     , escapeReturns = er
                     }
-  where
-    ecm = M.unionWith S.union (escapeCalleeMap eg1) (escapeCalleeMap eg2)
-    er = escapeReturns eg1 `S.union` escapeReturns eg2
-    e1 = S.fromList $ labEdges (escapeGraph eg1)
-    e2 = S.fromList $ labEdges (escapeGraph eg2)
-    newEs = S.toList $ e2 \\ e1
-    -- Insert new edges from eg2 into eg1
-    g' = insEdges newEs (escapeGraph eg1)
+    where
+      ecm = M.unionWith S.union (escapeCalleeMap eg1) (escapeCalleeMap eg2)
+      er = escapeReturns eg1 `S.union` escapeReturns eg2
+      e1 = S.fromList $ labEdges (escapeGraph eg1)
+      e2 = S.fromList $ labEdges (escapeGraph eg2)
+      newEs = S.toList $ e2 \\ e1
+      -- Insert new edges from eg2 into eg1
+      g' = insEdges newEs (escapeGraph eg1)
 
 instance BoundedMeetSemiLattice EscapeGraph where
   top = EG { escapeGraph = mkGraph [] []
