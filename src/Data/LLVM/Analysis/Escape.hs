@@ -2,6 +2,14 @@
 -- described by Whaley and Rinard (http://doi.acm.org/10.1145/320384.320400).
 --
 -- This version is adapted to the LLVM IR (originally for Java).
+--
+-- Each program variable has a VariableNode to enable lookups easily
+-- during the analysis (the ID in the graph is the ID of the LLVM IR
+-- object).  Each VariableNode has a corresponding location that it
+-- represents (either an internal node or an external node).  The
+-- types of each node correspond to those in the bitcode.  The
+-- location node for a VariableNode has an ID that is the negated ID
+-- of the corresponding name.
 module Data.LLVM.Analysis.Escape (
   -- * Types
   EscapeResult,
@@ -27,7 +35,8 @@ import Data.LLVM.Analysis.Dataflow
 import Data.LLVM.Internal.PatriciaTree
 
 -- | The types of nodes in the graph
-data EscapeNode = OParameterNode Value
+data EscapeNode = VariableNode Value
+                | OParameterNode Value
                 | OGlobalNode Value
                 | OReturnNode Value
                 | INode Value -- Allocas and allocators
@@ -35,8 +44,8 @@ data EscapeNode = OParameterNode Value
 
 -- | Edges labels for the points-to escape graph.  These differentiate
 -- between internal and external edges.
-data EscapeEdge = IEdge (Maybe String)
-                | OEdge (Maybe String)
+data EscapeEdge = IEdge (Maybe Int)
+                | OEdge (Maybe Int)
                 deriving (Eq, Ord)
 
 -- | A type synonym for the underlying points-to escape graph
@@ -128,7 +137,10 @@ runEscapeAnalysis m = ER $! M.fromList mapping
 -- about this library - only dependencies.  The escape analysis will
 -- essentially identify allocators for us.
 --
--- FIXME: Add field nodes
+-- FIXME: Add field nodes - when showing/comparing field nodes, use
+-- the dotted field access notation.  Field nodes should be
+-- represented by the first GetElementPtrInst node for each field (of
+-- each object).
 
 -- | Build the initial EscapeGraph <O_0, I_0, e_0, r_0> for the given
 -- Function.
@@ -138,11 +150,12 @@ mkInitialGraph globalGraph f =
   where
     g = insNodes nods globalGraph
     mkCtxt ctor v = (valueUniqueId v, ctor v)
+    mkVarCtxt ctor v = [(valueUniqueId v, VariableNode v), (-(valueUniqueId v), ctor v)]
     nods = concat [ paramNodes, returnNodes, insideNodes {-, fieldNodes -} ]
     insts = concatMap basicBlockInstructions (functionBody f)
-    paramNodes = map (mkCtxt OParameterNode . Value) (functionParameters f)
+    paramNodes = concatMap (mkVarCtxt OParameterNode . Value) (functionParameters f)
+    insideNodes = concatMap (mkVarCtxt INode . Value) $ filter isInternal insts
     returnNodes = map (mkCtxt OReturnNode . Value) $ filter isNonVoidCall insts
-    insideNodes = map (mkCtxt INode . Value) $ filter isInternal insts
 
 isNonVoidCall :: Instruction -> Bool
 isNonVoidCall inst = case inst of
@@ -165,5 +178,5 @@ buildBaseGlobalGraph m = mkGraph nodes0 []
   where
     globals = map Value $ moduleGlobalVariables m
     externs = map Value $ moduleExternalValues m
-    nodes0 = map mkNod $ globals ++ externs
-    mkNod v = (valueUniqueId v, OGlobalNode v)
+    nodes0 = concatMap mkNod $ globals ++ externs
+    mkNod v = [(-(valueUniqueId v), OGlobalNode v), (valueUniqueId v, VariableNode v)]
