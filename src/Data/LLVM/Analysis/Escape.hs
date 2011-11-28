@@ -80,7 +80,22 @@ instance DataflowAnalysis EscapeGraph where
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
 escapeTransfer :: EscapeGraph -> Instruction -> [CFGEdge] -> EscapeGraph
-escapeTransfer = undefined
+escapeTransfer eg StoreInst { storeValue = sv, storeAddress = sa } _  =
+  updatePTEGraph sv sa eg
+escapeTransfer eg RetInst { retInstValue = Just rv } _ = eg -- FIXME
+escapeTransfer eg _ _ = eg
+
+-- | Add/Remove edges from the PTE graph due to a store instruction
+updatePTEGraph :: Value -> Value -> EscapeGraph -> EscapeGraph
+updatePTEGraph sv sa eg = undefined
+
+targetNodes v eg = case v of
+  ArgumentC a -> S.fromList [argumentUniqueId a]
+  GlobalVariableC g -> S.fromList [globalVariableUniqueId g]
+  ExternalValueC e -> S.fromList [externalValueUniqueId e]
+  ConstantC ConstantPointerNull {} -> S.empty
+  FunctionC f -> S.fromList [functionUniqueId f]
+  ExternalFunctionC e -> S.fromList [externalFunctionUniqueId e]
 
 -- | An opaque result type for the analysis.  Use
 -- @escapeGraphAtLocation@ to access it.

@@ -505,8 +505,7 @@ getLocationsReferencedByOffset offset state inst v = getLocs v 0 S.empty
           InstructionC (ci@InvokeInst {}) -> case isAllocator ci of
             False -> collectLocationNodes state inst 1 [instructionUniqueId ci]
             True -> return [instructionUniqueId ci]
-          ArgumentC a ->
-            collectLocationNodes state inst 1 [argumentUniqueId a]
+          ArgumentC a -> collectLocationNodes state inst 1 [argumentUniqueId a]
 
           -- In this fallback case, @val@ should be a node in the
           -- Points-to graph.  Collect everything @derefCount@ steps from
