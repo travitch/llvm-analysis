@@ -10,6 +10,9 @@
 -- types of each node correspond to those in the bitcode.  The
 -- location node for a VariableNode has an ID that is the negated ID
 -- of the corresponding name.
+--
+-- Memoize the representative field GEP for each operation by caching
+-- the deduced value in the EscapeGraph structure.
 module Data.LLVM.Analysis.Escape (
   -- * Types
   EscapeResult,
@@ -95,16 +98,45 @@ escapeTransfer eg RetInst { retInstValue = Just rv } _ = eg -- FIXME
 escapeTransfer eg _ _ = eg
 
 -- | Add/Remove edges from the PTE graph due to a store instruction
+--
+-- FIXME: Determine the "type" of the assigment
 updatePTEGraph :: Value -> Value -> EscapeGraph -> EscapeGraph
 updatePTEGraph sv sa eg = undefined
+  where
+    valueNodes = targetNodes sv
+    addrNodes = targetNodes sa
 
-targetNodes v eg = case v of
-  ArgumentC a -> S.fromList [argumentUniqueId a]
-  GlobalVariableC g -> S.fromList [globalVariableUniqueId g]
-  ExternalValueC e -> S.fromList [externalValueUniqueId e]
-  ConstantC ConstantPointerNull {} -> S.empty
-  FunctionC f -> S.fromList [functionUniqueId f]
-  ExternalFunctionC e -> S.fromList [externalFunctionUniqueId e]
+-- | Find the nodes that are pointed to by a Value (following pointer
+-- dereferences).
+targetNodes :: EscapeGraph -> Value -> [Node]
+targetNodes eg = S.toList . targetNodes'
+  where
+    g = escapeGraph eg
+    targetNodes' v = case v of
+      -- Return the actual *locations* denoted by variable references.
+      ArgumentC a -> S.singleton -(argumentUniqueId a)
+      GlobalVariableC gv -> S.singleton -(globalVariableUniqueId gv)
+      ExternalValueC e -> S.singleton -(externalValueUniqueId e)
+      FunctionC f -> S.singleton -(functionUniqueId f)
+      ExternalFunctionC e -> S.singleton -(externalFunctionUniqueId e)
+      -- The NULL pointer doesn't point to anything
+      ConstantC ConstantPointerNull {} -> S.empty
+      -- Now deal with the instructions we might see in a memory
+      -- reference.  There are many extras here (beyond just field
+      -- sensitivity): select, phi, etc.
+      InstructionC AllocaInst {} -> S.singleton -(valueUniqueId v)
+      InstructionC LoadInst { loadAddress = la } ->
+        unionMap (sug g) (targetNodes' la)
+      InstructionC BitcastInst { castedValue = cv } ->
+        -- It isn't clear that this is really safe if we want field
+        -- sensitivity...  this would probably have to add edges for
+        -- all possible types.
+        targetNodes' cv
+
+
+-- | An analogue to concatMap for sets
+unionMap :: (a -> b) -> [Set a] -> Set b
+unionMap f = S.unions . map (S.map f)
 
 -- | An opaque result type for the analysis.  Use
 -- @escapeGraphAtLocation@ to access it.
@@ -178,5 +210,7 @@ buildBaseGlobalGraph m = mkGraph nodes0 []
   where
     globals = map Value $ moduleGlobalVariables m
     externs = map Value $ moduleExternalValues m
-    nodes0 = concatMap mkNod $ globals ++ externs
+    efuncs = map Value $ moduleExternalFunctions m
+    dfuncs = map Value $ moduleDefinedFunctions m
+    nodes0 = concatMap mkNod $ concat [ globals, externs, efuncs, dfuncs ]
     mkNod v = [(-(valueUniqueId v), OGlobalNode v), (valueUniqueId v, VariableNode v)]
