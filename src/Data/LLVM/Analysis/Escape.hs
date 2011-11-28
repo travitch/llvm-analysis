@@ -103,8 +103,8 @@ escapeTransfer eg _ _ = eg
 updatePTEGraph :: Value -> Value -> EscapeGraph -> EscapeGraph
 updatePTEGraph sv sa eg = undefined
   where
-    valueNodes = targetNodes sv
-    addrNodes = targetNodes sa
+    valueNodes = targetNodes eg sv
+    addrNodes = targetNodes eg sa
 
 -- | Find the nodes that are pointed to by a Value (following pointer
 -- dereferences).
@@ -112,21 +112,21 @@ targetNodes :: EscapeGraph -> Value -> [Node]
 targetNodes eg = S.toList . targetNodes'
   where
     g = escapeGraph eg
-    targetNodes' v = case v of
+    targetNodes' v = case valueContent v of
       -- Return the actual *locations* denoted by variable references.
-      ArgumentC a -> S.singleton -(argumentUniqueId a)
-      GlobalVariableC gv -> S.singleton -(globalVariableUniqueId gv)
-      ExternalValueC e -> S.singleton -(externalValueUniqueId e)
-      FunctionC f -> S.singleton -(functionUniqueId f)
-      ExternalFunctionC e -> S.singleton -(externalFunctionUniqueId e)
+      ArgumentC a -> S.singleton $ (-argumentUniqueId a)
+      GlobalVariableC gv -> S.singleton (-globalVariableUniqueId gv)
+      ExternalValueC e -> S.singleton (-externalValueUniqueId e)
+      FunctionC f -> S.singleton (-functionUniqueId f)
+      ExternalFunctionC e -> S.singleton (-externalFunctionUniqueId e)
       -- The NULL pointer doesn't point to anything
       ConstantC ConstantPointerNull {} -> S.empty
       -- Now deal with the instructions we might see in a memory
       -- reference.  There are many extras here (beyond just field
       -- sensitivity): select, phi, etc.
-      InstructionC AllocaInst {} -> S.singleton -(valueUniqueId v)
+      InstructionC AllocaInst {} -> S.singleton (-valueUniqueId v)
       InstructionC LoadInst { loadAddress = la } ->
-        unionMap (sug g) (targetNodes' la)
+        unionMap (S.fromList . suc g) (targetNodes' la)
       InstructionC BitcastInst { castedValue = cv } ->
         -- It isn't clear that this is really safe if we want field
         -- sensitivity...  this would probably have to add edges for
@@ -135,8 +135,8 @@ targetNodes eg = S.toList . targetNodes'
 
 
 -- | An analogue to concatMap for sets
-unionMap :: (a -> b) -> [Set a] -> Set b
-unionMap f = S.unions . map (S.map f)
+unionMap :: (Ord a, Ord b) => (a -> Set b) -> Set a -> Set b
+unionMap f = S.unions . S.toList . (S.map f)
 
 -- | An opaque result type for the analysis.  Use
 -- @escapeGraphAtLocation@ to access it.
