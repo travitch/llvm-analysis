@@ -13,6 +13,10 @@
 --
 -- Memoize the representative field GEP for each operation by caching
 -- the deduced value in the EscapeGraph structure.
+--
+-- Add a sequence number to the EscapeGraph and increment it whenever
+-- edges are added or removed.  This should make graph equality tests
+-- much faster.
 module Data.LLVM.Analysis.Escape (
   -- * Types
   EscapeResult,
@@ -22,11 +26,15 @@ module Data.LLVM.Analysis.Escape (
   PTEGraph,
   -- * Functions
   runEscapeAnalysis,
-  escapeGraphAtLocation
+  escapeGraphAtLocation,
+  -- * Debugging
+  viewEscapeGraph
   ) where
 
 import Algebra.Lattice
 import Data.Graph.Inductive hiding ( Gr )
+import Data.GraphViz
+import Data.List ( foldl' )
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Set ( Set, (\\) )
@@ -94,17 +102,64 @@ instance DataflowAnalysis EscapeGraph where
 escapeTransfer :: EscapeGraph -> Instruction -> [CFGEdge] -> EscapeGraph
 escapeTransfer eg StoreInst { storeValue = sv, storeAddress = sa } _  =
   updatePTEGraph sv sa eg
-escapeTransfer eg RetInst { retInstValue = Just rv } _ = eg -- FIXME
+escapeTransfer eg RetInst { retInstValue = Just rv } _ =
+  eg { escapeReturns = S.fromList (targetNodes eg rv) }
 escapeTransfer eg _ _ = eg
 
 -- | Add/Remove edges from the PTE graph due to a store instruction
 --
 -- FIXME: Determine the "type" of the assigment
 updatePTEGraph :: Value -> Value -> EscapeGraph -> EscapeGraph
-updatePTEGraph sv sa eg = undefined
+updatePTEGraph sv sa eg = eg { escapeGraph = g' }
   where
+    g = killModifiedLocalEdges eg addrNodes
+    g' = foldl' genEdges g addrNodes
     valueNodes = targetNodes eg sv
     addrNodes = targetNodes eg sa
+    -- | Add edges from addrNode to all of the valueNodes.  If
+    -- addrNode is global, do NOT kill its current edges.  If it is
+    -- local, kill the current edges.
+    genEdges escGr addrNode =
+      foldl' (addEdge addrNode) escGr valueNodes
+
+addEdge :: Node -> PTEGraph -> Node -> PTEGraph
+addEdge addrNode g valueNode = insEdge (addrNode, valueNode, IEdge Nothing) g
+
+-- | Given an EscapeGraph @eg@ and a list of location nodes, kill all
+-- of the edges from the *local* locations.  Note that this returns a
+-- bare PTE graph instead of the wrapped dataflow fact.
+killModifiedLocalEdges :: EscapeGraph -> [Node] -> PTEGraph
+killModifiedLocalEdges eg addrNodes =
+  foldl' killLocalEdges (escapeGraph eg) addrNodes
+
+killLocalEdges :: PTEGraph -> Node -> PTEGraph
+killLocalEdges escGr n =
+  case isGlobalNode escGr n of
+    True -> escGr
+    False -> delEdges es escGr
+  where
+    es = map unLabel $ out escGr n
+    unLabel (s, d, _) = (s, d)
+
+-- If storing to a global node, do NOT kill the edges from it.  Edges
+-- should be killed for stores to locals.  Other than that, add edges
+-- from the storeAddress to all of the storeValues.  Apparently loads
+-- from local fields that may escape induce an extra Outside edge.
+
+isEscapedNode :: EscapeGraph -> Node -> Bool
+isEscapedNode eg n =
+  isGlobalNode g n || any (isGlobalNode g) nodesReachableFrom
+  where
+    g = escapeGraph eg
+    nodesReachableFrom = rdfs [n] g
+
+isGlobalNode :: PTEGraph -> Node -> Bool
+isGlobalNode g n = case lbl of
+  OParameterNode _ -> True
+  OGlobalNode _ -> True
+  _ -> False
+  where
+    Just lbl = lab g n
 
 -- | Find the nodes that are pointed to by a Value (following pointer
 -- dereferences).
@@ -214,3 +269,34 @@ buildBaseGlobalGraph m = mkGraph nodes0 []
     dfuncs = map Value $ moduleDefinedFunctions m
     nodes0 = concatMap mkNod $ concat [ globals, externs, efuncs, dfuncs ]
     mkNod v = [(-(valueUniqueId v), OGlobalNode v), (valueUniqueId v, VariableNode v)]
+
+
+-- Debugging and visualization stuff
+
+escapeParams :: Labellable a => a -> GraphvizParams n EscapeNode EscapeEdge () EscapeNode
+escapeParams funcName =
+  nonClusteredParams { fmtNode = formatEscapeNode
+                     , fmtEdge = formatEscapeEdge
+                     , globalAttributes = graphTitle
+                     }
+  where
+    graphTitle = [GraphAttrs [toLabel funcName]]
+    formatEscapeNode (_,l) = case l of
+      VariableNode v -> [toLabel (show (valueName v)), shape PlainText]
+      OParameterNode _ -> [toLabel "p", shape Circle]
+      OGlobalNode _ -> [toLabel "g", shape Circle]
+      OReturnNode _ -> [toLabel "ret", shape Triangle]
+      INode _ -> [shape BoxShape]
+    formatEscapeEdge (_,_,l) = case l of
+      IEdge Nothing -> []
+      OEdge Nothing -> [style dotted, color Crimson]
+
+viewEscapeGraph :: EscapeResult -> Function -> IO ()
+viewEscapeGraph e f = do
+  let dg = graphToDot (escapeParams fname) exitGraph
+  _ <- runGraphvizCanvas' dg Gtk
+  return ()
+  where
+    fname = show (functionName f)
+    exitFact = escapeGraphAtLocation e (functionExitInstruction f)
+    exitGraph = escapeGraph exitFact

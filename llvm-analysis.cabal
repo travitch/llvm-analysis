@@ -13,12 +13,15 @@ tested-with: GHC == 7.0.3
 
 library
   default-language: Haskell2010
-  build-depends: base > 3 && < 5, array, bytestring, fgl, mtl > 2, filemanip >= 0.3.5.2,
-                 graphviz >= 2999.12.0.3, deepseq, process, filepath, directory,
-                 hashable >= 1.1.2.0, unordered-containers, containers >= 0.4.1.0,
-                 lattices, llvm-base-types, failure >= 0.1, hashtables, vector >= 0.9,
-                 data-lens == 2.0.*, data-lens-template == 2.1.*, data-default >= 0.3,
-                 HUnit, test-framework, test-framework-hunit
+  build-depends: base > 3 && < 5, array, bytestring, containers >= 0.4.1.0,
+                 deepseq, process, filepath, directory, vector >= 0.9,
+                 fgl, mtl > 2, filemanip >= 0.3.5.2,
+                 graphviz >= 2999.12.0.3, data-default >= 0.3,
+                 hashable >= 1.1.2.0, unordered-containers,
+                 lattices, failure >= 0.1, hashtables,
+                 data-lens == 2.0.*, data-lens-template == 2.1.*,
+                 HUnit, test-framework, test-framework-hunit,
+                 llvm-base-types
   hs-source-dirs: src
   exposed-modules: Data.LLVM,
                    Data.LLVM.Analysis.CallGraphSCCTraversal,
@@ -120,6 +123,15 @@ executable PTAnalysis
   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
   ghc-prof-options: -auto-all
   main-is: PointsTo.hs
+  hs-source-dirs: tests
+
+executable EscapeDriver
+  default-language: Haskell2010
+  build-depends: llvm-analysis, llvm-data-interop,
+                 base > 3 && < 5, containers
+  ghc-options: -Wall -rtsopts
+  ghc-prof-options: -auto-all
+  main-is: EscapeDriver.hs
   hs-source-dirs: tests
 
 -- executable ViewCallGraph
