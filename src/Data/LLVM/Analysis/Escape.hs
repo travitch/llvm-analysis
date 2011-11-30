@@ -230,18 +230,24 @@ runEscapeAnalysis m = ER $! M.fromList mapping
 -- each object).
 
 -- | Build the initial EscapeGraph <O_0, I_0, e_0, r_0> for the given
--- Function.
+-- Function.  This adds local edges to the base global graph
+-- (hopefully sharing some structure).
 mkInitialGraph :: PTEGraph -> Function -> EscapeGraph
 mkInitialGraph globalGraph f =
   EG { escapeGraph = g, escapeCalleeMap = M.empty, escapeReturns = S.empty }
   where
-    g = insNodes nods globalGraph
+    g = insEdges (insideEdges ++ paramEdges) $ insNodes nods globalGraph
     mkCtxt ctor v = (valueUniqueId v, ctor v)
     mkVarCtxt ctor v = [(valueUniqueId v, VariableNode v), (-(valueUniqueId v), ctor v)]
+    mkIEdge :: IsValue a => a -> LEdge EscapeEdge
+    mkIEdge v = (valueUniqueId v, -valueUniqueId v, IEdge Nothing)
     nods = concat [ paramNodes, returnNodes, insideNodes {-, fieldNodes -} ]
     insts = concatMap basicBlockInstructions (functionBody f)
     paramNodes = concatMap (mkVarCtxt OParameterNode . Value) (functionParameters f)
-    insideNodes = concatMap (mkVarCtxt INode . Value) $ filter isInternal insts
+    paramEdges = map mkIEdge (functionParameters f)
+    internalNodes = filter isInternal insts
+    insideNodes = concatMap (mkVarCtxt INode . Value) internalNodes
+    insideEdges = map mkIEdge internalNodes
     returnNodes = map (mkCtxt OReturnNode . Value) $ filter isNonVoidCall insts
 
 isNonVoidCall :: Instruction -> Bool
@@ -260,15 +266,20 @@ isInternal inst = case inst of
 -- | Construct the base graph that contains all of the global nodes in
 -- the program.  The hope is that by having a common base graph, some
 -- of the common structure can be shared.
+--
+-- FIXME: Add edges induced by global initializers
 buildBaseGlobalGraph :: Module -> PTEGraph
-buildBaseGlobalGraph m = mkGraph nodes0 []
+buildBaseGlobalGraph m = mkGraph nodes0 edges0
   where
     globals = map Value $ moduleGlobalVariables m
     externs = map Value $ moduleExternalValues m
     efuncs = map Value $ moduleExternalFunctions m
     dfuncs = map Value $ moduleDefinedFunctions m
-    nodes0 = concatMap mkNod $ concat [ globals, externs, efuncs, dfuncs ]
+    globalVals = concat [ globals, externs, efuncs, dfuncs ]
+    nodes0 = concatMap mkNod globalVals
+    edges0 = map mkInitEdge globalVals
     mkNod v = [(-(valueUniqueId v), OGlobalNode v), (valueUniqueId v, VariableNode v)]
+    mkInitEdge v = (valueUniqueId v, -valueUniqueId v, OEdge Nothing)
 
 
 -- Debugging and visualization stuff
@@ -282,11 +293,13 @@ escapeParams funcName =
   where
     graphTitle = [GraphAttrs [toLabel funcName]]
     formatEscapeNode (_,l) = case l of
-      VariableNode v -> [toLabel (show (valueName v)), shape PlainText]
+      VariableNode v ->
+        let Just vname = valueName v
+        in [toLabel (show vname), shape PlainText]
       OParameterNode _ -> [toLabel "p", shape Circle]
       OGlobalNode _ -> [toLabel "g", shape Circle]
       OReturnNode _ -> [toLabel "ret", shape Triangle]
-      INode _ -> [shape BoxShape]
+      INode _ -> [toLabel "", shape BoxShape]
     formatEscapeEdge (_,_,l) = case l of
       IEdge Nothing -> []
       OEdge Nothing -> [style dotted, color Crimson]
