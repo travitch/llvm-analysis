@@ -34,7 +34,7 @@ module Data.LLVM.Analysis.Escape (
 import Algebra.Lattice
 import Data.Graph.Inductive hiding ( Gr )
 import Data.GraphViz
-import Data.List ( foldl' )
+import Data.List ( foldl', mapAccumR )
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Set ( Set, (\\) )
@@ -46,11 +46,12 @@ import Data.LLVM.Analysis.Dataflow
 import Data.LLVM.Internal.PatriciaTree
 
 -- | The types of nodes in the graph
-data EscapeNode = VariableNode Value
-                | OParameterNode Value
-                | OGlobalNode Value
-                | OReturnNode Value
-                | INode Value -- Allocas and allocators
+data EscapeNode = VariableNode !Value
+                | OParameterNode !Value
+                | OGlobalNode !Value
+                | OReturnNode !Value
+                | INode !Value -- Allocas and allocators
+                | IVirtual !Value
                 deriving (Eq)
 
 -- | Edges labels for the points-to escape graph.  These differentiate
@@ -82,7 +83,11 @@ instance MeetSemiLattice EscapeGraph where
     where
       ecm = M.unionWith S.union (escapeCalleeMap eg1) (escapeCalleeMap eg2)
       er = escapeReturns eg1 `S.union` escapeReturns eg2
-      e1 = S.fromList $ labEdges (escapeGraph eg1)
+      e1 = S.fromList $ labEdges (escapeGraph eg1) -- FIXME: Need to
+                                                   -- merge nodes too
+                                                   -- now that we add
+                                                   -- new virtual
+                                                   -- nodes
       e2 = S.fromList $ labEdges (escapeGraph eg2)
       newEs = S.toList $ e2 \\ e1
       -- Insert new edges from eg2 into eg1
@@ -97,40 +102,78 @@ instance BoundedMeetSemiLattice EscapeGraph where
 instance DataflowAnalysis EscapeGraph where
   transfer = escapeTransfer
 
+-- | An opaque result type for the analysis.  Use
+-- @escapeGraphAtLocation@ to access it.
+newtype EscapeResult = ER (Map Function (Instruction -> EscapeGraph))
+
+-- | An accessor to retrieve the @EscapeGraph@ for any program point.
+escapeGraphAtLocation :: EscapeResult -> Instruction -> EscapeGraph
+escapeGraphAtLocation (ER er) i = mapping i
+  where
+    Just bb = instructionBasicBlock i
+    f = basicBlockFunction bb
+    mapping = M.findWithDefault (error "No escape result for function") f er
+
+-- | Run the Whaley-Rinard escape analysis on a Module.  This returns
+-- an opaque result that can be accessed via @escapeGraphAtLocation@.
+runEscapeAnalysis :: Module -> EscapeResult
+runEscapeAnalysis m = ER $! M.fromList mapping
+  where
+    funcLookups = map (uncurry forwardDataflow) statesAndCFGs
+    mapping = zip fs funcLookups
+
+    fs = moduleDefinedFunctions m
+    globalGraph = buildBaseGlobalGraph m
+    cfgs = map mkCFG fs
+    states = map (mkInitialGraph globalGraph) fs
+    statesAndCFGs = zip states cfgs
+
+-- Internal stuff
+
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
 escapeTransfer :: EscapeGraph -> Instruction -> [CFGEdge] -> EscapeGraph
 escapeTransfer eg StoreInst { storeValue = sv, storeAddress = sa } _  =
   updatePTEGraph sv sa eg
 escapeTransfer eg RetInst { retInstValue = Just rv } _ =
-  eg { escapeReturns = S.fromList (targetNodes eg rv) }
+  let (eg', targets) = targetNodes eg rv
+  in eg' { escapeReturns = S.fromList targets }
 escapeTransfer eg _ _ = eg
 
 -- | Add/Remove edges from the PTE graph due to a store instruction
 --
 -- FIXME: Determine the "type" of the assigment
 updatePTEGraph :: Value -> Value -> EscapeGraph -> EscapeGraph
-updatePTEGraph sv sa eg = eg { escapeGraph = g' }
+updatePTEGraph sv sa eg =
+  foldl' genEdges egKilled addrNodes
   where
-    g = killModifiedLocalEdges eg addrNodes
-    g' = foldl' genEdges g addrNodes
-    valueNodes = targetNodes eg sv
-    addrNodes = targetNodes eg sa
+    -- First, find the possible target nodes in the graph.  These
+    -- operations can add virtual nodes, depending on what other nodes
+    -- are dereferenced and what they point to.
+    (eg', valueNodes) = targetNodes eg sv
+    (eg'', addrNodes) = targetNodes eg' sa
+
+
+    egKilled = killModifiedLocalEdges eg'' addrNodes
     -- | Add edges from addrNode to all of the valueNodes.  If
     -- addrNode is global, do NOT kill its current edges.  If it is
     -- local, kill the current edges.
     genEdges escGr addrNode =
       foldl' (addEdge addrNode) escGr valueNodes
 
-addEdge :: Node -> PTEGraph -> Node -> PTEGraph
-addEdge addrNode g valueNode = insEdge (addrNode, valueNode, IEdge Nothing) g
+addEdge :: Node -> EscapeGraph -> Node -> EscapeGraph
+addEdge addrNode eg valueNode =
+  eg { escapeGraph = insEdge (addrNode, valueNode, IEdge Nothing) g }
+  where
+    g = escapeGraph eg
 
 -- | Given an EscapeGraph @eg@ and a list of location nodes, kill all
 -- of the edges from the *local* locations.  Note that this returns a
 -- bare PTE graph instead of the wrapped dataflow fact.
-killModifiedLocalEdges :: EscapeGraph -> [Node] -> PTEGraph
-killModifiedLocalEdges eg addrNodes =
-  foldl' killLocalEdges (escapeGraph eg) addrNodes
+killModifiedLocalEdges :: EscapeGraph -> [Node] -> EscapeGraph
+killModifiedLocalEdges eg addrNodes = eg { escapeGraph = g' }
+  where
+    g' = foldl' killLocalEdges (escapeGraph eg) addrNodes
 
 killLocalEdges :: PTEGraph -> Node -> PTEGraph
 killLocalEdges escGr n =
@@ -163,61 +206,64 @@ isGlobalNode g n = case lbl of
 
 -- | Find the nodes that are pointed to by a Value (following pointer
 -- dereferences).
-targetNodes :: EscapeGraph -> Value -> [Node]
-targetNodes eg = S.toList . targetNodes'
+targetNodes :: EscapeGraph -> Value -> (EscapeGraph, [Node])
+targetNodes eg val =
+  let (g', targets) = targetNodes' val
+  in (eg { escapeGraph = g' }, S.toList targets)
   where
     g = escapeGraph eg
     targetNodes' v = case valueContent v of
       -- Return the actual *locations* denoted by variable references.
-      ArgumentC a -> S.singleton $ (-argumentUniqueId a)
-      GlobalVariableC gv -> S.singleton (-globalVariableUniqueId gv)
-      ExternalValueC e -> S.singleton (-externalValueUniqueId e)
-      FunctionC f -> S.singleton (-functionUniqueId f)
-      ExternalFunctionC e -> S.singleton (-externalFunctionUniqueId e)
+      ArgumentC a -> (g, S.singleton $ (-argumentUniqueId a))
+      GlobalVariableC gv -> (g, S.singleton (-globalVariableUniqueId gv))
+      ExternalValueC e -> (g, S.singleton (-externalValueUniqueId e))
+      FunctionC f -> (g, S.singleton (-functionUniqueId f))
+      ExternalFunctionC e -> (g, S.singleton (-externalFunctionUniqueId e))
       -- The NULL pointer doesn't point to anything
-      ConstantC ConstantPointerNull {} -> S.empty
+      ConstantC ConstantPointerNull {} -> (g, S.empty)
       -- Now deal with the instructions we might see in a memory
       -- reference.  There are many extras here (beyond just field
       -- sensitivity): select, phi, etc.
-      InstructionC AllocaInst {} -> S.singleton (-valueUniqueId v)
-      InstructionC LoadInst { loadAddress = la } ->
-        unionMap (S.fromList . suc g) (targetNodes' la)
+      InstructionC AllocaInst {} -> (g, S.singleton (-valueUniqueId v))
+      -- Follow chains of loads (dereferences).  If there is no
+      -- successor for the current LoadInst, we have a situation like
+      -- a global pointer with no points-to target.  In that case, we
+      -- need to create a virtual location node based on this load.
+      --
+      -- NOTE: check to see if this provides consistent behavior if
+      -- different virtual nodes are chosen for the same logical
+      -- location (e.g., in separate branches of an if statement).
+      InstructionC i@LoadInst { loadAddress = la } ->
+        let (g', targets) = targetNodes' la
+        -- in unionMap (S.fromList . suc g) ns
+            (g'', successors) = mapAccumR (augmentingSuc i) g' (S.toList targets)
+        in (g'', S.unions successors)
       InstructionC BitcastInst { castedValue = cv } ->
         -- It isn't clear that this is really safe if we want field
         -- sensitivity...  this would probably have to add edges for
         -- all possible types.
         targetNodes' cv
 
+-- | This helper follows "pointers" in the points-to-escape graph by
+-- one step, effectively dereferencing a pointer.  This is basically
+-- just chasing the successors of the input node.
+--
+-- In some cases, though, a successor might not exist where the
+-- dereference chain indicates that there should be one.  This means
+-- that no points-to links/locations were set up in the local scope
+-- for the dereference.  This can easily happen with struct field
+-- accesses and references to global pointers.
+--
+-- In these unfortunate cases, the successor operation inserts
+-- *virtual* nodes (and edges) to stand in for these unknown
+-- locations.
+augmentingSuc i g tgt = case suc g tgt of
+  [] -> undefined
+  sucs -> (g, S.fromList sucs)
 
 -- | An analogue to concatMap for sets
-unionMap :: (Ord a, Ord b) => (a -> Set b) -> Set a -> Set b
-unionMap f = S.unions . S.toList . (S.map f)
-
--- | An opaque result type for the analysis.  Use
--- @escapeGraphAtLocation@ to access it.
-newtype EscapeResult = ER (Map Function (Instruction -> EscapeGraph))
-
--- | An accessor to retrieve the @EscapeGraph@ for any program point.
-escapeGraphAtLocation :: EscapeResult -> Instruction -> EscapeGraph
-escapeGraphAtLocation (ER er) i = mapping i
-  where
-    Just bb = instructionBasicBlock i
-    f = basicBlockFunction bb
-    mapping = M.findWithDefault (error "No escape result for function") f er
-
--- | Run the Whaley-Rinard escape analysis on a Module.  This returns
--- an opaque result that can be accessed via @escapeGraphAtLocation@.
-runEscapeAnalysis :: Module -> EscapeResult
-runEscapeAnalysis m = ER $! M.fromList mapping
-  where
-    funcLookups = map (uncurry forwardDataflow) statesAndCFGs
-    mapping = zip fs funcLookups
-
-    fs = moduleDefinedFunctions m
-    globalGraph = buildBaseGlobalGraph m
-    cfgs = map mkCFG fs
-    states = map (mkInitialGraph globalGraph) fs
-    statesAndCFGs = zip states cfgs
+-- unionMap :: (Ord a, Ord b) => (a -> Set b) -> Set a -> Set b
+-- unionMap f = S.unions . S.toList . (S.map f)
 
 -- FIXME: Also need to identify new objects returned by allocators.
 -- This is kind of nice because we don't need explicit information
@@ -300,6 +346,7 @@ escapeParams funcName =
       OGlobalNode _ -> [toLabel "g", shape Circle]
       OReturnNode _ -> [toLabel "ret", shape Triangle]
       INode _ -> [toLabel "", shape BoxShape]
+      IVirtual _ -> [toLabel "v", shape BoxShape, color Brown]
     formatEscapeEdge (_,_,l) = case l of
       IEdge Nothing -> []
       OEdge Nothing -> [style dotted, color Crimson]
