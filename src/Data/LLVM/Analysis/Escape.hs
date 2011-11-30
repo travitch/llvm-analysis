@@ -257,13 +257,24 @@ targetNodes eg val =
 -- In these unfortunate cases, the successor operation inserts
 -- *virtual* nodes (and edges) to stand in for these unknown
 -- locations.
+augmentingSuc :: Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
 augmentingSuc i g tgt = case suc g tgt of
-  [] -> undefined
+  [] -> addVirtual i g tgt
   sucs -> (g, S.fromList sucs)
 
--- | An analogue to concatMap for sets
--- unionMap :: (Ord a, Ord b) => (a -> Set b) -> Set a -> Set b
--- unionMap f = S.unions . S.toList . (S.map f)
+-- | A small helper to add a new virtual node (based on a load
+-- instruction) and an edge from @tgt@ to the virtual instruction:
+--
+-- > addVirtual loadInst g tgt
+--
+-- It returns the modified graph and the singleton set containing the
+-- new Node.
+addVirtual :: Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
+addVirtual i g tgt = (g'', S.singleton iid)
+  where
+    iid = instructionUniqueId i
+    g' = insNode (iid, IVirtual (Value i)) g
+    g'' = insEdge (tgt, iid, IEdge Nothing) g'
 
 -- FIXME: Also need to identify new objects returned by allocators.
 -- This is kind of nice because we don't need explicit information
