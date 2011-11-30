@@ -294,10 +294,6 @@ mkInitialGraph globalGraph f =
   EG { escapeGraph = g, escapeCalleeMap = M.empty, escapeReturns = S.empty }
   where
     g = insEdges (insideEdges ++ paramEdges) $ insNodes nods globalGraph
-    mkCtxt ctor v = (valueUniqueId v, ctor v)
-    mkVarCtxt ctor v = [(valueUniqueId v, VariableNode v), (-(valueUniqueId v), ctor v)]
-    mkIEdge :: IsValue a => a -> LEdge EscapeEdge
-    mkIEdge v = (valueUniqueId v, -valueUniqueId v, IEdge Nothing)
     nods = concat [ paramNodes, returnNodes, insideNodes {-, fieldNodes -} ]
     insts = concatMap basicBlockInstructions (functionBody f)
     paramNodes = concatMap (mkVarCtxt OParameterNode . Value) (functionParameters f)
@@ -306,6 +302,15 @@ mkInitialGraph globalGraph f =
     insideNodes = concatMap (mkVarCtxt INode . Value) internalNodes
     insideEdges = map mkIEdge internalNodes
     returnNodes = map (mkCtxt OReturnNode . Value) $ filter isNonVoidCall insts
+
+mkCtxt :: (Value -> EscapeNode) -> Value -> LNode EscapeNode
+mkCtxt ctor v = (valueUniqueId v, ctor v)
+
+mkVarCtxt :: (Value -> EscapeNode) -> Value -> [LNode EscapeNode]
+mkVarCtxt ctor v = [(valueUniqueId v, VariableNode v), (-(valueUniqueId v), ctor v)]
+
+mkIEdge :: IsValue a => a -> LEdge EscapeEdge
+mkIEdge v = (valueUniqueId v, -valueUniqueId v, IEdge Nothing)
 
 isNonVoidCall :: Instruction -> Bool
 isNonVoidCall inst = case inst of
