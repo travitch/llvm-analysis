@@ -60,7 +60,7 @@ collectPointsToRelations :: [Value]
                             -> Map String (Set String)
                             -> Map String (Set String)
 collectPointsToRelations globals er f acc =
-  M.fromList (zip vnames vtargets)
+  M.fromList $ filter (not . S.null . snd) (zip vnames vtargets)
   where
     exitInst = functionExitInstruction f
     eg = escapeGraphAtLocation er exitInst
