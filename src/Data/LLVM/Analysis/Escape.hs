@@ -141,8 +141,9 @@ pointsTo eg v = S.fromList (map (lab' . context g) succs)
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
 escapeTransfer :: EscapeGraph -> Instruction -> [CFGEdge] -> EscapeGraph
-escapeTransfer eg StoreInst { storeValue = sv, storeAddress = sa } _  =
-  updatePTEGraph sv sa eg
+escapeTransfer eg StoreInst { storeValue = sv, storeAddress = sa } _
+  | isPointerType sv = updatePTEGraph sv sa eg
+  | otherwise = eg
 escapeTransfer eg RetInst { retInstValue = Just rv } _ =
   let (eg', targets) = targetNodes eg rv
   in eg' { escapeReturns = S.fromList targets }
@@ -353,6 +354,14 @@ buildBaseGlobalGraph m = mkGraph nodes0 edges0
     edges0 = map mkInitEdge globalVals
     mkNod v = [(-(valueUniqueId v), OGlobalNode v), (valueUniqueId v, VariableNode v)]
     mkInitEdge v = (valueUniqueId v, -valueUniqueId v, OEdge Nothing)
+
+isPointerType :: Value -> Bool
+isPointerType = isPointer' . valueType
+  where
+    isPointer' t = case t of
+      TypePointer _ _ -> True
+      TypeNamed _ it -> isPointer' it
+      _ -> False
 
 -- Debugging and visualization stuff
 
