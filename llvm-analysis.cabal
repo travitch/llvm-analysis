@@ -48,6 +48,14 @@ library
   ghc-options: -Wall -funbox-strict-fields
   ghc-prof-options: -auto-all
 
+test-suite EscapeTests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: EscapeTests.hs
+  hs-source-dirs: tests
+  build-depends: llvm-analysis, llvm-data-interop, bytestring,
+                 base > 3 && < 5, filepath, containers, HUnit
+
 test-suite CallGraphTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0

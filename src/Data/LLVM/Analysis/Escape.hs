@@ -27,6 +27,7 @@ module Data.LLVM.Analysis.Escape (
   -- * Functions
   runEscapeAnalysis,
   escapeGraphAtLocation,
+  pointsTo,
   -- * Debugging
   viewEscapeGraph
   ) where
@@ -52,7 +53,7 @@ data EscapeNode = VariableNode !Value
                 | OReturnNode !Value
                 | INode !Value -- Allocas and allocators
                 | IVirtual !Value
-                deriving (Eq)
+                deriving (Eq, Ord)
 
 -- | Edges labels for the points-to escape graph.  These differentiate
 -- between internal and external edges.
@@ -127,6 +128,13 @@ runEscapeAnalysis m = ER $! M.fromList mapping
     cfgs = map mkCFG fs
     states = map (mkInitialGraph globalGraph) fs
     statesAndCFGs = zip states cfgs
+
+pointsTo :: EscapeGraph -> Value -> Set EscapeNode
+pointsTo eg v = S.fromList (map (lab' . context g) succs)
+  where
+    locid = -valueUniqueId v
+    g = escapeGraph eg
+    succs = suc g locid
 
 -- Internal stuff
 
@@ -329,7 +337,10 @@ isInternal inst = case inst of
 -- the program.  The hope is that by having a common base graph, some
 -- of the common structure can be shared.
 --
--- FIXME: Add edges induced by global initializers
+-- FIXME: Add edges induced by global initializers - actually that
+-- might be a bad idea since those edges may not actually exist when a
+-- local function is analyzed.  The on-demand virtual node
+-- construction should make them unnecessary anyway.
 buildBaseGlobalGraph :: Module -> PTEGraph
 buildBaseGlobalGraph m = mkGraph nodes0 edges0
   where
@@ -342,7 +353,6 @@ buildBaseGlobalGraph m = mkGraph nodes0 edges0
     edges0 = map mkInitEdge globalVals
     mkNod v = [(-(valueUniqueId v), OGlobalNode v), (valueUniqueId v, VariableNode v)]
     mkInitEdge v = (valueUniqueId v, -valueUniqueId v, OEdge Nothing)
-
 
 -- Debugging and visualization stuff
 
