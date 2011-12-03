@@ -194,6 +194,11 @@ buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (inst, Nothing) (nodeAcc, e
         ]
         -- No edges from the unreachable instruction, either
       UnreachableInst {} -> []
+      -- The resume instruction resumes propagating exceptions, so
+      -- control will transfer to the caller.  In theory, another
+      -- handler in the same function could pick it up...  Resolving
+      -- that might require some more sophisticated analysis.
+      ResumeInst {} -> []
       _ -> error ("Last instruction in a block should be a terminator: " ++ show (Value inst))
 buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (inst, Just successor) (nodeAcc, edgeAcc) =
   case (callEdgeN inst, inst) of
