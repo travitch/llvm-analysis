@@ -32,7 +32,6 @@ extractSummary m = foldr addInfo M.empty ptrs
 
 isPointerType t = case t of
   TypePointer _ _ -> True
-  TypeNamed _ t' -> isPointerType t'
   _ -> False
 
 isPointer :: (IsValue a) => a -> Bool

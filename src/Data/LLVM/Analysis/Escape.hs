@@ -360,7 +360,6 @@ isPointerType = isPointer' . valueType
   where
     isPointer' t = case t of
       TypePointer _ _ -> True
-      TypeNamed _ it -> isPointer' it
       _ -> False
 
 -- Debugging and visualization stuff

@@ -654,12 +654,10 @@ getGlobalLocations m = (concat [es, gs, efs, fs], gedges)
 
 isPointerType :: Type -> Bool
 isPointerType (TypePointer _ _) = True
-isPointerType (TypeNamed _ it) = isPointerType it
 isPointerType _ = False
 
 isFunctionType :: Type -> Bool
 isFunctionType (TypeFunction _ _ _) = True
-isFunctionType (TypeNamed _ t) = isFunctionType t
 isFunctionType _ = False
 
 isPointerOrFunctionType :: Type -> Bool
@@ -672,11 +670,10 @@ hasPointerOrFunctionType :: Type -> Bool
 hasPointerOrFunctionType t =
   case t of
     TypePointer _ _ -> True
-    TypeNamed _ it -> hasPointerOrFunctionType it
     TypeFunction _ _ _ -> True
     TypeArray _ t' -> hasPointerOrFunctionType t'
     TypeVector _ t' -> hasPointerOrFunctionType t'
-    TypeStruct ts _ -> any hasPointerOrFunctionType ts
+    TypeStruct _ ts _ -> any hasPointerOrFunctionType ts
     _ -> False
 
 
