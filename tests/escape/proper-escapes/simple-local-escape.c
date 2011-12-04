@@ -1,6 +1,7 @@
 extern int * p;
 
 void f() {
-  int * z;
-  p = z;
+  int z;
+  int * y = &z;
+  p = y;
 }
