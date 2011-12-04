@@ -27,7 +27,10 @@ module Data.LLVM.Analysis.Escape (
   -- * Functions
   runEscapeAnalysis,
   escapeGraphAtLocation,
-  pointsTo,
+  localPointsTo,
+  valueEscaped,
+  valueProperlyEscaped,
+  valueWillEscape,
   -- * Debugging
   viewEscapeGraph
   ) where
@@ -129,12 +132,58 @@ runEscapeAnalysis m = ER $! M.fromList mapping
     states = map (mkInitialGraph globalGraph) fs
     statesAndCFGs = zip states cfgs
 
-pointsTo :: EscapeGraph -> Value -> Set EscapeNode
-pointsTo eg v = S.fromList (map (lab' . context g) succs)
+-- | Provide local points-to information for a value @v@:
+--
+-- > pointsTo eg v
+--
+-- This information is flow sensitive (there is an EscapeGraph for
+-- each program point).  The returned set of nodes reflect the things
+-- that the value can point to.
+--
+-- The set will be empty if the value is not a location (alloca,
+-- argument, newly allocated storage, or global) or if it does not
+-- point to anything yet.
+--
+-- This information does not include edges between globals or from
+-- globals that are not established locally to the function call.  For
+-- information at that level, use one of the global PointsTo analyses.
+localPointsTo :: EscapeGraph -> Value -> Set EscapeNode
+localPointsTo eg v = S.fromList (map (lab' . context g) succs)
   where
     locid = -valueUniqueId v
     g = escapeGraph eg
     succs = suc g locid
+
+-- | The value escaped from the current context because it is
+-- reachable from an outside node.
+valueEscaped :: EscapeGraph -> Value -> Bool
+valueEscaped eg v = isGlobalNode g n || valueProperlyEscaped eg v
+  where
+    n = valueUniqueId v
+    g = escapeGraph eg
+
+-- | The value escaped from the current context because it is
+-- reachable from an ouside node *besides itself*.  This is analagous
+-- to the subset vs. proper subset distinction.
+--
+-- This is most useful to determine when one argument escapes by being
+-- assigned into another.
+valueProperlyEscaped :: EscapeGraph -> Value -> Bool
+valueProperlyEscaped eg v = any (isGlobalNode g) nodesReachableFrom
+  where
+    n = valueUniqueId v
+    g = escapeGraph eg
+    nodesReachableFrom = rdfs [n] g
+
+-- | The value will escape from the current context when the function
+-- returns (i.e., through the return value).
+valueWillEscape :: EscapeGraph -> Value -> Bool
+valueWillEscape eg v = S.member n escapingNodes
+  where
+    n = valueUniqueId v
+    g = escapeGraph eg
+    erList = S.toList (escapeReturns eg)
+    escapingNodes = escapeReturns eg `S.union` S.fromList (dfs erList g)
 
 -- Internal stuff
 
@@ -144,9 +193,10 @@ escapeTransfer :: EscapeGraph -> Instruction -> [CFGEdge] -> EscapeGraph
 escapeTransfer eg StoreInst { storeValue = sv, storeAddress = sa } _
   | isPointerType sv = updatePTEGraph sv sa eg
   | otherwise = eg
-escapeTransfer eg RetInst { retInstValue = Just rv } _ =
-  let (eg', targets) = targetNodes eg rv
-  in eg' { escapeReturns = S.fromList targets }
+escapeTransfer eg RetInst { retInstValue = Just rv } _
+  | isPointerType rv = let (eg', targets) = targetNodes eg rv
+                       in eg' { escapeReturns = S.fromList targets }
+  | otherwise = eg
 escapeTransfer eg _ _ = eg
 
 -- | Add/Remove edges from the PTE graph due to a store instruction
@@ -198,12 +248,6 @@ killLocalEdges escGr n =
 -- from the storeAddress to all of the storeValues.  Apparently loads
 -- from local fields that may escape induce an extra Outside edge.
 
-isEscapedNode :: EscapeGraph -> Node -> Bool
-isEscapedNode eg n =
-  isGlobalNode g n || any (isGlobalNode g) nodesReachableFrom
-  where
-    g = escapeGraph eg
-    nodesReachableFrom = rdfs [n] g
 
 isGlobalNode :: PTEGraph -> Node -> Bool
 isGlobalNode g n = case lbl of

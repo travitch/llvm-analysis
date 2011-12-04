@@ -20,9 +20,9 @@ main = testAgainstExpected bcParser testDescriptors
   where
     bcParser = parseLLVMBitcodeFile defaultParserOptions
 
-testDescriptors = [ TestDescriptor { testPattern = "tests/escape/escaping-locals/*.c"
+testDescriptors = [ TestDescriptor { testPattern = "tests/escape/proper-escapes/*.c"
                                    , testExpectedMapping = (<.> "expected")
-                                   , testResultBuilder = escapingLocalsSummary
+                                   , testResultBuilder = properEscapeSummary
                                    , testResultComparator = assertEqual
                                    }
                   , TestDescriptor { testPattern = "tests/escape/points-to/*.c"
@@ -32,17 +32,22 @@ testDescriptors = [ TestDescriptor { testPattern = "tests/escape/escaping-locals
                                    }
                   ]
 
-escapingLocalsSummary :: Module -> Set String
-escapingLocalsSummary m =
-  foldr (findEscapingLocals er) S.empty (moduleDefinedFunctions m)
+properEscapeSummary :: Module -> Set String
+properEscapeSummary m =
+  foldr (findProperEscapes er) S.empty (moduleDefinedFunctions m)
   where
     er = runEscapeAnalysis m
 
-findEscapingLocals :: EscapeResult -> Function -> Set String -> Set String
-findEscapingLocals er f acc = undefined
+-- | check all instructions and arguments
+findProperEscapes :: EscapeResult -> Function -> Set String -> Set String
+findProperEscapes er f acc = acc `S.union` S.fromList peNames
   where
     exitInst = functionExitInstruction f
     eg = escapeGraphAtLocation er exitInst
+    allInstructions = map Value $ concatMap basicBlockInstructions (functionBody f)
+    args = map Value $ functionParameters f
+    properEscapes = filter (valueProperlyEscaped eg) (args ++ allInstructions)
+    peNames = map (show . fromJust' "Escapee should have name" . valueName) properEscapes
 
 pointsToSummary :: Module -> Map String (Set String)
 pointsToSummary m =
@@ -68,7 +73,7 @@ collectPointsToRelations globals er f acc =
     localVars = map Value $ filter isLocal funcInsts
     allVals = globals ++ localVars
     vnames = map (show . fromJust' "escVarPT" . valueName) allVals
-    vtargets = map (S.map escNodeToString . pointsTo eg) allVals
+    vtargets = map (S.map escNodeToString . localPointsTo eg) allVals
 
 -- | Is this instruction an alloca representing a local variable?
 -- Returns False for anonymous locals.
