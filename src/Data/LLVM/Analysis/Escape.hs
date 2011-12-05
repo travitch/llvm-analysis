@@ -172,8 +172,9 @@ valueProperlyEscaped :: EscapeGraph -> Value -> Bool
 valueProperlyEscaped eg v = any (isGlobalNode g) nodesReachableFrom
   where
     n = valueUniqueId v
-    g = escapeGraph eg
-    nodesReachableFrom = rdfs [-n] g
+    -- Remove the variable node corresponding to this value
+    (_, g) = match n $ escapeGraph eg
+    nodesReachableFrom = filter (/= -n) $ rdfs [-n] g
 
 -- | The value will escape from the current context when the function
 -- returns (i.e., through the return value).
