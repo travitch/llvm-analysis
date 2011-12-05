@@ -6,11 +6,12 @@ import Data.LLVM
 import Data.LLVM.CallGraph
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.Visualization
+import Data.LLVM.Parse
 
 main :: IO ()
 main = do
   [ fname ] <- getArgs
-  Right m <- parseLLVMBitcodeFile defaultParserOptions fname
+  Right m <- parseLLVMFile defaultParserOptions fname
   let aa = runPointsToAnalysis m
       cg = mkCallGraph m aa ""
   viewCG cg

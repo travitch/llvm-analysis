@@ -173,7 +173,7 @@ valueProperlyEscaped eg v = any (isGlobalNode g) nodesReachableFrom
   where
     n = valueUniqueId v
     g = escapeGraph eg
-    nodesReachableFrom = rdfs [n] g
+    nodesReachableFrom = rdfs [-n] g
 
 -- | The value will escape from the current context when the function
 -- returns (i.e., through the return value).

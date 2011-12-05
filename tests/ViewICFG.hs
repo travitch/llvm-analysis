@@ -6,14 +6,14 @@ import System.FilePath
 
 import Data.LLVM
 import Data.LLVM.ICFG
-import Data.LLVM.ParseBitcode
+import Data.LLVM.Parse
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.Visualization
 
 main :: IO ()
 main = do
   [ fname ] <- getArgs
-  Right m <- parseLLVMBitcodeFile defaultParserOptions fname
+  Right m <- parseLLVMFile defaultParserOptions fname
   let aa = runPointsToAnalysis m
       icfg = mkICFG m aa []
 --  viewICFG icfg

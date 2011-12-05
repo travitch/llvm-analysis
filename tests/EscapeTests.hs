@@ -11,14 +11,13 @@ import Test.HUnit ( assertEqual )
 
 import Data.LLVM
 import Data.LLVM.Analysis.Escape
-
-import Data.LLVM.ParseBitcode
+import Data.LLVM.Parse
 import Data.LLVM.Testing
 
 main :: IO ()
 main = testAgainstExpected bcParser testDescriptors
   where
-    bcParser = parseLLVMBitcodeFile defaultParserOptions
+    bcParser = parseLLVMFile defaultParserOptions
 
 testDescriptors = [ TestDescriptor { testPattern = "tests/escape/proper-escapes/*.c"
                                    , testExpectedMapping = (<.> "expected")

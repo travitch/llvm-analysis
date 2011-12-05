@@ -10,12 +10,12 @@ import Data.LLVM
 import Data.LLVM.Analysis.PointsTo.AllocatorProfile
 import Data.LLVM.Analysis.PointsTo.Andersen
 import Data.LLVM.Analysis.PointsTo
-import Data.LLVM.ParseBitcode
+import Data.LLVM.Parse
 import Data.LLVM.Testing
 
 ptPattern = "tests/points-to-inputs/*.c"
 expectedMapper = flip replaceExtension ".expected-andersen"
-bcParser = parseLLVMBitcodeFile defaultParserOptions
+bcParser = parseLLVMFile defaultParserOptions
 
 -- extractSummary :: Module -> ExpectedResult
 extractSummary m = foldr addInfo M.empty ptrs

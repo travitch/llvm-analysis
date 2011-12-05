@@ -2,12 +2,12 @@ import System.Environment ( getArgs )
 
 import Data.LLVM.Analysis.PointsTo.AllocatorProfile
 import Data.LLVM.Analysis.PointsTo.Andersen
-import Data.LLVM.ParseBitcode
+import Data.LLVM.Parse
 
 main :: IO ()
 main = do
   [ fname ] <- getArgs
-  mm <- parseLLVMBitcodeFile defaultParserOptions fname
+  mm <- parseLLVMFile defaultParserOptions fname
   case mm of
     Left err -> putStrLn err
     Right m -> do

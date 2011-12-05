@@ -9,14 +9,13 @@ import Data.LLVM
 import Data.LLVM.CallGraph
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.Analysis.CallGraphSCCTraversal
-
-import Data.LLVM.ParseBitcode
+import Data.LLVM.Parse
 import Data.LLVM.Testing
 
 main :: IO ()
 main = testAgainstExpected bcParser testDescriptors
   where
-    bcParser = parseLLVMBitcodeFile defaultParserOptions
+    bcParser = parseLLVMFile defaultParserOptions
 
 testDescriptors = [ TestDescriptor { testPattern = cgPattern
                                    , testExpectedMapping = expectedMapper

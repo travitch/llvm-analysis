@@ -6,7 +6,7 @@ import Data.Set ( Set )
 import qualified Data.Set as S
 
 import Data.LLVM
-import Data.LLVM.Types
+import Data.LLVM.Parse
 import Data.LLVM.CFG
 import Data.LLVM.Analysis.Dataflow
 
@@ -116,7 +116,7 @@ transferFunc na v edges = maybe na' addDerefInfo dereferencedPtr
 main :: IO ()
 main = do
   [ inFile ] <- getArgs
-  llvmModule <- parseLLVMBitcodeFile defaultParserOptions inFile
+  llvmModule <- parseLLVMFile defaultParserOptions inFile
   either putStrLn nullAnalysis llvmModule
 
 isArgument :: Value -> Bool

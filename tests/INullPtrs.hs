@@ -15,7 +15,7 @@ import Data.LLVM.ICFG
 import Data.LLVM.Analysis.IFDS
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 
-import Data.LLVM.ParseBitcode
+import Data.LLVM.Parse
 import Data.LLVM.Testing
 
 import Text.Printf
@@ -240,7 +240,7 @@ main = do
                                          , testResultComparator = assertEqual
                                          }
                         ]
-  testAgainstExpected (parseLLVMBitcodeFile defaultParserOptions) testDescriptors
+  testAgainstExpected (parseLLVMFile defaultParserOptions) testDescriptors
 
 isArgument :: Value -> Bool
 isArgument v = case valueContent v of
