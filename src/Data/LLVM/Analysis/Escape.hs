@@ -1,3 +1,4 @@
+{-# LANGUAGE ViewPatterns #-}
 -- | This module implements the compositional pointer/escape analysis
 -- described by Whaley and Rinard (http://doi.acm.org/10.1145/320384.320400).
 --
@@ -58,10 +59,15 @@ data EscapeNode = VariableNode !Value
                 | IVirtual !Value
                 deriving (Eq, Ord)
 
+data AccessType = Direct
+                | Array
+                | Field !Int !Type
+                deriving (Eq, Ord)
+
 -- | Edges labels for the points-to escape graph.  These differentiate
 -- between internal and external edges.
-data EscapeEdge = IEdge (Maybe Int)
-                | OEdge (Maybe Int)
+data EscapeEdge = IEdge !AccessType
+                | OEdge !AccessType
                 deriving (Eq, Ord)
 
 -- | A type synonym for the underlying points-to escape graph
@@ -223,7 +229,7 @@ updatePTEGraph sv sa eg =
 
 addEdge :: Node -> EscapeGraph -> Node -> EscapeGraph
 addEdge addrNode eg valueNode =
-  eg { escapeGraph = insEdge (addrNode, valueNode, IEdge Nothing) g }
+  eg { escapeGraph = insEdge (addrNode, valueNode, IEdge Direct) g }
   where
     g = escapeGraph eg
 
@@ -266,7 +272,7 @@ targetNodes eg val =
   in (eg { escapeGraph = g' }, S.toList targets)
   where
     g = escapeGraph eg
-    targetNodes' v = case valueContent v of
+    targetNodes' v = case valueContent' v of
       -- Return the actual *locations* denoted by variable references.
       ArgumentC a -> (g, S.singleton $ (-argumentUniqueId a))
       GlobalVariableC gv -> (g, S.singleton (-globalVariableUniqueId gv))
@@ -279,6 +285,28 @@ targetNodes eg val =
       -- reference.  There are many extras here (beyond just field
       -- sensitivity): select, phi, etc.
       InstructionC AllocaInst {} -> (g, S.singleton (-valueUniqueId v))
+      InstructionC LoadInst { loadAddress =
+        (valueContent' -> InstructionC i@GetElementPtrInst { getElementPtrValue = base
+                                                           , getElementPtrIndices = idxs
+                                                           }) } ->
+        case idxs of
+          [] -> error "Escape analysis: GEP with no indexes"
+          [_] ->
+            let (g', targets) = targetNodes' base
+                (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
+            in (g'', S.unions successors)
+          -- For this to be a simple field access, the array indexing
+          -- offset must be zero and the field index must be some
+          -- constant.
+          (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
+            (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
+              undefined -- field access (assert that the first ix is zero)
+          -- Otherwise this is something really fancy and we can just
+          -- treat it as an array
+          _ ->
+            let (g', targets) = targetNodes' base
+                (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
+            in (g'', S.unions successors)
       -- Follow chains of loads (dereferences).  If there is no
       -- successor for the current LoadInst, we have a situation like
       -- a global pointer with no points-to target.  In that case, we
@@ -292,11 +320,13 @@ targetNodes eg val =
         -- in unionMap (S.fromList . suc g) ns
             (g'', successors) = mapAccumR (augmentingSuc i) g' (S.toList targets)
         in (g'', S.unions successors)
-      InstructionC BitcastInst { castedValue = cv } ->
-        -- It isn't clear that this is really safe if we want field
-        -- sensitivity...  this would probably have to add edges for
-        -- all possible types.
-        targetNodes' cv
+
+augmentingArraySuc :: Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
+augmentingArraySuc i g tgt = case arraySucs of
+  [] -> addVirtual (IEdge Array) i g tgt
+  _ -> (g, S.fromList arraySucs)
+  where
+    arraySucs = map fst $ filter isArraySuc $ lsuc g tgt
 
 -- | This helper follows "pointers" in the points-to-escape graph by
 -- one step, effectively dereferencing a pointer.  This is basically
@@ -312,23 +342,35 @@ targetNodes eg val =
 -- *virtual* nodes (and edges) to stand in for these unknown
 -- locations.
 augmentingSuc :: Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
-augmentingSuc i g tgt = case suc g tgt of
-  [] -> addVirtual i g tgt
-  sucs -> (g, S.fromList sucs)
+augmentingSuc i g tgt = case directSucs of
+  [] -> addVirtual (IEdge Direct) i g tgt
+  _ -> (g, S.fromList directSucs)
+  where
+    directSucs = map fst $ filter isDirectSuc $ lsuc g tgt
+
+isDirectSuc :: (Node, EscapeEdge) -> Bool
+isDirectSuc (_, IEdge Direct) = True
+isDirectSuc (_, OEdge Direct) = True
+isDirectSuc _ = False
+
+isArraySuc :: (Node, EscapeEdge) -> Bool
+isArraySuc (_, IEdge Array) = True
+isArraySuc (_, OEdge Array) = True
+isArraySuc _ = False
 
 -- | A small helper to add a new virtual node (based on a load
 -- instruction) and an edge from @tgt@ to the virtual instruction:
 --
--- > addVirtual loadInst g tgt
+-- > addVirtual edgeLabel loadInst g tgt
 --
 -- It returns the modified graph and the singleton set containing the
 -- new Node.
-addVirtual :: Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
-addVirtual i g tgt = (g'', S.singleton iid)
+addVirtual :: EscapeEdge -> Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
+addVirtual elbl i g tgt = (g'', S.singleton iid)
   where
     iid = instructionUniqueId i
     g' = insNode (iid, IVirtual (Value i)) g
-    g'' = insEdge (tgt, iid, IEdge Nothing) g'
+    g'' = insEdge (tgt, iid, elbl) g'
 
 -- FIXME: Also need to identify new objects returned by allocators.
 -- This is kind of nice because we don't need explicit information
@@ -364,7 +406,7 @@ mkVarCtxt :: (Value -> EscapeNode) -> Value -> [LNode EscapeNode]
 mkVarCtxt ctor v = [(valueUniqueId v, VariableNode v), (-(valueUniqueId v), ctor v)]
 
 mkIEdge :: IsValue a => a -> LEdge EscapeEdge
-mkIEdge v = (valueUniqueId v, -valueUniqueId v, IEdge Nothing)
+mkIEdge v = (valueUniqueId v, -valueUniqueId v, IEdge Direct)
 
 isNonVoidCall :: Instruction -> Bool
 isNonVoidCall inst = case inst of
@@ -398,7 +440,7 @@ buildBaseGlobalGraph m = mkGraph nodes0 edges0
     nodes0 = concatMap mkNod globalVals
     edges0 = map mkInitEdge globalVals
     mkNod v = [(-(valueUniqueId v), OGlobalNode v), (valueUniqueId v, VariableNode v)]
-    mkInitEdge v = (valueUniqueId v, -valueUniqueId v, OEdge Nothing)
+    mkInitEdge v = (valueUniqueId v, -valueUniqueId v, OEdge Direct)
 
 isPointerType :: Value -> Bool
 isPointerType = isPointer' . valueType
@@ -427,8 +469,21 @@ escapeParams funcName =
       INode _ -> [toLabel "", shape BoxShape]
       IVirtual _ -> [toLabel "v", shape BoxShape, color Brown]
     formatEscapeEdge (_,_,l) = case l of
-      IEdge Nothing -> []
-      OEdge Nothing -> [style dotted, color Crimson]
+      IEdge Direct -> []
+      IEdge Array -> [toLabel "[*]"]
+      IEdge (Field ix t) -> fieldAccessToLabel ix t []
+      OEdge Direct -> [style dotted, color Crimson]
+      OEdge Array -> [toLabel "[*]", style dotted, color Crimson]
+      OEdge (Field ix t) -> fieldAccessToLabel ix t [style dotted, color Crimson]
+
+fieldAccessToLabel :: Int -> Type -> [Attribute] -> [Attribute]
+fieldAccessToLabel ix t initSet = case t of
+  TypeStruct (Just n) _ _ ->
+    let accessStr = concat [ n, ".", show ix ]
+    in toLabel accessStr : initSet
+  TypeStruct Nothing _ _ ->
+    let accessStr = "<anon>." ++ show ix
+    in toLabel accessStr : initSet
 
 viewEscapeGraph :: EscapeResult -> Function -> IO ()
 viewEscapeGraph e f = do
