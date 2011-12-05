@@ -320,7 +320,6 @@ targetNodes eg val =
       -- location (e.g., in separate branches of an if statement).
       InstructionC i@LoadInst { loadAddress = la } ->
         let (g', targets) = targetNodes' la
-        -- in unionMap (S.fromList . suc g) ns
             (g'', successors) = mapAccumR (augmentingSuc i) g' (S.toList targets)
         in (g'', S.unions successors)
 
