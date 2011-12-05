@@ -322,6 +322,11 @@ targetNodes eg val =
         let (g', targets) = targetNodes' la
             (g'', successors) = mapAccumR (augmentingSuc i) g' (S.toList targets)
         in (g'', S.unions successors)
+      InstructionC i@CallInst { } -> case gelem (valueUniqueId i) g of
+        False -> error "Escape analysis: result of void return used"
+        True -> (g, S.singleton (valueUniqueId i))
+      -- wat
+      _ -> error $ "Escape Analysis unmatched: " ++ show v
 
 getBaseType :: Value -> Type
 getBaseType v = case valueType v of
@@ -392,16 +397,6 @@ addVirtual elbl i g tgt = (g'', S.singleton iid)
     g' = insNode (iid, IVirtual (Value i)) g
     g'' = insEdge (tgt, iid, elbl) g'
 
--- FIXME: Also need to identify new objects returned by allocators.
--- This is kind of nice because we don't need explicit information
--- about this library - only dependencies.  The escape analysis will
--- essentially identify allocators for us.
---
--- FIXME: Add field nodes - when showing/comparing field nodes, use
--- the dotted field access notation.  Field nodes should be
--- represented by the first GetElementPtrInst node for each field (of
--- each object).
-
 -- | Build the initial EscapeGraph <O_0, I_0, e_0, r_0> for the given
 -- Function.  This adds local edges to the base global graph
 -- (hopefully sharing some structure).
@@ -410,7 +405,7 @@ mkInitialGraph globalGraph f =
   EG { escapeGraph = g, escapeCalleeMap = M.empty, escapeReturns = S.empty }
   where
     g = insEdges (insideEdges ++ paramEdges) $ insNodes nods globalGraph
-    nods = concat [ paramNodes, returnNodes, insideNodes {-, fieldNodes -} ]
+    nods = concat [ paramNodes, returnNodes, insideNodes ]
     insts = concatMap basicBlockInstructions (functionBody f)
     paramNodes = concatMap (mkVarCtxt OParameterNode . Value) (functionParameters f)
     paramEdges = map mkIEdge (functionParameters f)
