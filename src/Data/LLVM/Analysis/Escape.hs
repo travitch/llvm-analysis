@@ -300,7 +300,10 @@ targetNodes eg val =
           -- constant.
           (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
             (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
-              undefined -- field access (assert that the first ix is zero)
+              let (g', targets) = targetNodes' base
+                  accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i
+                  (g'', successors) = mapAccumR accumF g' (S.toList targets)
+              in (g'', S.unions successors)
           -- Otherwise this is something really fancy and we can just
           -- treat it as an array
           _ ->
@@ -320,6 +323,19 @@ targetNodes eg val =
         -- in unionMap (S.fromList . suc g) ns
             (g'', successors) = mapAccumR (augmentingSuc i) g' (S.toList targets)
         in (g'', S.unions successors)
+
+getBaseType :: Value -> Type
+getBaseType v = case valueType v of
+  TypePointer t _ -> t
+  _ -> error $ "Array base value has illegal type: " ++ show v
+
+augmentingFieldSuc :: Int -> Type -> Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
+augmentingFieldSuc ix ty i g tgt = case fieldSucs of
+  -- FIXME: There are some cases where this should be an OEdge!
+  [] -> addVirtual (IEdge (Field ix ty)) i g tgt
+  _ -> (g, S.fromList fieldSucs)
+  where
+    fieldSucs = map fst $ filter (isFieldSuc ix) $ lsuc g tgt
 
 augmentingArraySuc :: Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
 augmentingArraySuc i g tgt = case arraySucs of
@@ -357,6 +373,11 @@ isArraySuc :: (Node, EscapeEdge) -> Bool
 isArraySuc (_, IEdge Array) = True
 isArraySuc (_, OEdge Array) = True
 isArraySuc _ = False
+
+isFieldSuc :: Int -> (Node, EscapeEdge) -> Bool
+isFieldSuc ix (_, IEdge (Field fieldNo _)) = ix == fieldNo
+isFieldSuc ix (_, OEdge (Field fieldNo _)) = ix == fieldNo
+isFieldSuc _ _ = False
 
 -- | A small helper to add a new virtual node (based on a load
 -- instruction) and an edge from @tgt@ to the virtual instruction:
