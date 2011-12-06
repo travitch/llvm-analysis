@@ -32,8 +32,8 @@ import           Control.Arrow ( second )
 newtype Gr a b = Gr (GraphRep a b)
 
 type GraphRep a b = IntMap (Context' a b)
-type Context' a b = (IntMap [b], a, IntMap [b])
--- data Context' a b = Context' !(IntMap [b]) !a !(IntMap [b])
+-- type Context' a b = (IntMap [b], a, IntMap [b])
+data Context' a b = Context' !(IntMap [b]) !a !(IntMap [b])
 
 type UGr = Gr () ()
 
@@ -47,18 +47,19 @@ instance Graph Gr where
   mkGraph vs es =
     let g0 = insNodes vs empty
     in foldl' (flip insEdge) g0 es
-  labNodes (Gr g) = [ (node, label) | (node, (_, label, _)) <- IM.toList g ]
+  labNodes (Gr g) = [ (node, label) | (node, Context' _ label _) <- IM.toList g ]
 
     -- overriding members for efficiency
   noNodes (Gr g) = IM.size g
   nodeRange (Gr g) = nr g
 
   labEdges (Gr g) = do
-    (node, (_, _, s)) <- IM.toList g
+    (node, Context' _ _ s) <- IM.toList g
     (next, labels) <- IM.toList s
     label <- labels
     return (node, next, label)
 
+nr :: IntMap b -> (IM.Key, IM.Key)
 nr g | IM.null g = (0, 0)
      | otherwise = (ix (IM.minViewWithKey g), ix (IM.maxViewWithKey g))
   where
@@ -67,7 +68,7 @@ nr g | IM.null g = (0, 0)
 
 instance DynGraph Gr where
     (p, v, l, s) & (Gr g)
-        = let !g1 = IM.insert v (fromAdj p, l, fromAdj s) g
+        = let !g1 = IM.insert v (Context' (fromAdj p) l (fromAdj s)) g
               !g2 = addSucc g1 v p
               !g3 = addPred g2 v s
           in
@@ -80,7 +81,7 @@ matchGr node (Gr g)
         Nothing
             -> (Nothing, Gr g)
 
-        Just (p, label, s)
+        Just (Context' p label s)
             -> let !g1 = IM.delete node g
                    !p' = IM.delete node p
                    !s' = IM.delete node s
@@ -96,7 +97,7 @@ matchGr node (Gr g)
 fastInsNode :: LNode a -> Gr a b -> Gr a b
 fastInsNode (v, l) (Gr g) = g' `seq` Gr g'
     where
-      g' = IM.insert v (IM.empty, l, IM.empty) g
+      g' = IM.insert v (Context' IM.empty l IM.empty) g
 
 
 {-# RULES
@@ -108,8 +109,8 @@ fastInsEdge (v, w, l) (Gr g) = g2 `seq` Gr g2
       g1 = IM.adjust addSucc' v g
       g2 = IM.adjust addPred' w g1
 
-      addSucc' (ps, l', ss) = (ps, l', IM.insertWith addLists w [l] ss)
-      addPred' (ps, l', ss) = (IM.insertWith addLists v [l] ps, l', ss)
+      addSucc' (Context' ps l' ss) = Context' ps l' (IM.insertWith addLists w [l] ss)
+      addPred' (Context' ps l' ss) = Context' (IM.insertWith addLists v [l] ps) l' ss
 
 
 {-# RULES
@@ -129,7 +130,7 @@ fastNMap :: forall a b c. (a -> c) -> Gr a b -> Gr c b
 fastNMap f (Gr g) = Gr (IM.map f' g)
     where
       f' :: Context' a b -> Context' c b
-      f' (ps, a, ss) = (ps, f a, ss)
+      f' (Context' ps a ss) = Context' ps (f a) ss
 
 
 {-# RULES
@@ -139,7 +140,7 @@ fastEMap :: forall a b c. (b -> c) -> Gr a b -> Gr a c
 fastEMap f (Gr g) = Gr (IM.map f' g)
     where
       f' :: Context' a b -> Context' a c
-      f' (ps, a, ss) = (IM.map (map f) ps, a, IM.map (map f) ss)
+      f' (Context' ps a ss) = Context' (IM.map (map f) ps) a (IM.map (map f) ss)
 
 
 toAdj :: IntMap [b] -> Adj b
@@ -153,13 +154,13 @@ fromAdj = IM.fromListWith addLists . map (second return . swap)
 
 
 toContext :: Node -> Context' a b -> Context a b
-toContext v (ps, a, ss)
+toContext v (Context' ps a ss)
     = (toAdj ps, v, a, toAdj ss)
 
 
 fromContext :: Context a b -> Context' a b
 fromContext (ps, _, a, ss)
-    = (fromAdj ps, a, fromAdj ss)
+    = Context' (fromAdj ps) a (fromAdj ss)
 
 
 swap :: (a, b) -> (b, a)
@@ -180,7 +181,7 @@ addSucc g _ []              = g
 addSucc g v ((l, p) : rest) = addSucc g' v rest
     where
       g' = IM.adjust f p g
-      f (ps, l', ss) = (ps, l', IM.insertWith addLists v [l] ss)
+      f (Context' ps l' ss) = Context' ps l' (IM.insertWith addLists v [l] ss)
 
 
 addPred :: GraphRep a b -> Node -> [(b, Node)] -> GraphRep a b
@@ -188,7 +189,7 @@ addPred g _ []              = g
 addPred g v ((l, s) : rest) = addPred g' v rest
     where
       g' = IM.adjust f s g
-      f (ps, l', ss) = (IM.insertWith addLists v [l] ps, l', ss)
+      f (Context' ps l' ss) = Context' (IM.insertWith addLists v [l] ps) l' ss
 
 
 clearSucc :: GraphRep a b -> Node -> [Node] -> GraphRep a b
@@ -196,7 +197,7 @@ clearSucc g _ []       = g
 clearSucc g v (p:rest) = clearSucc g' v rest
     where
       g' = IM.adjust f p g
-      f (ps, l, ss) = (ps, l, IM.delete v ss)
+      f (Context' ps l ss) = Context' ps l (IM.delete v ss)
 
 
 clearPred :: GraphRep a b -> Node -> [Node] -> GraphRep a b
@@ -204,4 +205,4 @@ clearPred g _ []       = g
 clearPred g v (s:rest) = clearPred g' v rest
     where
       g' = IM.adjust f s g
-      f (ps, l, ss) = (IM.delete v ps, l, ss)
+      f (Context' ps l ss) = Context' (IM.delete v ps) l ss
