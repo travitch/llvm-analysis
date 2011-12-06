@@ -10,7 +10,9 @@ import System.FilePath
 import Test.HUnit ( assertEqual )
 
 import Data.LLVM
+import Data.LLVM.CallGraph
 import Data.LLVM.Analysis.Escape
+import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.Parse
 import Data.LLVM.Testing
 
@@ -35,7 +37,9 @@ properEscapeSummary :: Module -> Set String
 properEscapeSummary m =
   foldr (findProperEscapes er) S.empty (moduleDefinedFunctions m)
   where
-    er = runEscapeAnalysis m
+    pta = runPointsToAnalysis m
+    cg = mkCallGraph m pta []
+    er = runEscapeAnalysis m cg
 
 -- | check all instructions and arguments
 findProperEscapes :: EscapeResult -> Function -> Set String -> Set String
@@ -53,7 +57,9 @@ pointsToSummary m =
   foldr (collectPointsToRelations globalVars er) M.empty (moduleDefinedFunctions m)
   where
     globalVars = map Value $ moduleGlobalVariables m
-    er = runEscapeAnalysis m
+    pta = runPointsToAnalysis m
+    cg = mkCallGraph m pta []
+    er = runEscapeAnalysis m cg
 
 -- | Starting at all of the locals (allocas with real names) and
 -- globals, record each of the things they point to.  If they point to

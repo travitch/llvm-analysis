@@ -45,10 +45,14 @@ import qualified Data.Map as M
 import Data.Set ( Set, (\\) )
 import qualified Data.Set as S
 import Data.Hashable
+import Data.HashMap.Strict ( HashMap )
+import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 
 import Data.LLVM
 import Data.LLVM.CFG
+import Data.LLVM.CallGraph
+import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.Dataflow
 import Data.LLVM.Internal.PatriciaTree
 
@@ -135,28 +139,35 @@ instance BoundedMeetSemiLattice EscapeGraph where
            , escapeReturns = S.empty
            }
 
-instance DataflowAnalysis EscapeGraph (ExternalFunction -> Int -> Bool) where
+instance DataflowAnalysis EscapeGraph EscapeData where
   transfer = escapeTransfer
+
+data EscapeData = EscapeData { externalP :: ExternalFunction -> Int -> Bool
+                             , escapeSummary :: Map Function (HashMap Instruction EscapeGraph)
+                             }
 
 -- | An opaque result type for the analysis.  Use
 -- @escapeGraphAtLocation@ to access it.
-newtype EscapeResult = ER (Map Function (Instruction -> EscapeGraph))
+newtype EscapeResult = ER (Map Function (HashMap Instruction EscapeGraph))
+                     deriving (Eq)
 
 -- | An accessor to retrieve the @EscapeGraph@ for any program point.
 escapeGraphAtLocation :: EscapeResult -> Instruction -> EscapeGraph
-escapeGraphAtLocation (ER er) i = mapping i
+escapeGraphAtLocation (ER er) i = case HM.lookup i funcMapping of
+  Nothing -> error ("No escape result for instruction " ++ show i)
+  Just eg -> eg
   where
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
-    mapping = M.findWithDefault (error "No escape result for function") f er
+    funcMapping = M.findWithDefault (error "No escape result for function") f er
 
 -- | Run the Whaley-Rinard escape analysis on a Module.  This returns
 -- an opaque result that can be accessed via @escapeGraphAtLocation@.
 --
 -- This variant conservatively assumes that any parameter passed to an
 -- external function escapes.
-runEscapeAnalysis :: Module -> EscapeResult
-runEscapeAnalysis m = runEscapeAnalysis' (\_ _ -> True) m
+runEscapeAnalysis :: Module -> CallGraph -> EscapeResult
+runEscapeAnalysis m cg = runEscapeAnalysis' m cg (\_ _ -> True)
 
 -- | A variant of @runEscapeAnalysis@ that accepts a function to
 -- provide escape information about arguments for external functions.
@@ -166,17 +177,17 @@ runEscapeAnalysis m = runEscapeAnalysis' (\_ _ -> True) m
 -- The function @externP@ will be called for each argument of each
 -- external function.  The @externP ef ix@ should return @True@ if the
 -- @ix@th argument of @ef@ causes the argument to escape.
-runEscapeAnalysis' :: (ExternalFunction -> Int -> Bool) -> Module -> EscapeResult
-runEscapeAnalysis' externP m = ER $! M.fromList mapping
+runEscapeAnalysis' :: Module -> CallGraph -> (ExternalFunction -> Int -> Bool) -> EscapeResult
+runEscapeAnalysis' m cg externP = moduleSummary
   where
-    funcLookups = map (uncurry (forwardDataflow externP)) statesAndCFGs
-    mapping = zip fs funcLookups
-
-    fs = moduleDefinedFunctions m
     globalGraph = buildBaseGlobalGraph m
-    cfgs = map mkCFG fs
-    states = map (mkInitialGraph globalGraph) fs
-    statesAndCFGs = zip states cfgs
+
+    moduleSummary = callGraphSCCTraversal cg summarizeFunction (ER M.empty)
+    summarizeFunction f (ER summ) =
+      let s0 = mkInitialGraph globalGraph f
+          ed = EscapeData externP summ
+          lookupFunc = forwardDataflow ed s0 f
+      in ER $ M.insert f lookupFunc summ
 
 -- | Provide local points-to information for a value @v@:
 --
@@ -236,7 +247,7 @@ valueWillEscape eg v = S.member n escapingNodes
 
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
-escapeTransfer :: (ExternalFunction -> Int -> Bool )
+escapeTransfer :: EscapeData
                   -> EscapeGraph
                   -> Instruction
                   -> [CFGEdge]

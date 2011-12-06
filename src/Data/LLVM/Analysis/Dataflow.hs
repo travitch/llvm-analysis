@@ -34,6 +34,7 @@ module Data.LLVM.Analysis.Dataflow (
 
 import Algebra.Lattice
 import Data.Graph.Inductive hiding ( (><) )
+import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
 import Text.Printf
 
@@ -61,8 +62,7 @@ forwardDataflow :: (Eq a, DataflowAnalysis a c, HasCFG b)
                    => c -- ^ Constant data available to the transfer function
                    -> a -- ^ The initial state of the analysis to run
                    -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
-                   -> Instruction -- ^ The program point to retrieve facts for
-                   -> a
+                   -> HashMap Instruction a
 forwardDataflow = dataflowAnalysis lpre lsuc cfgExitNode
 
 -- | Perform a backward dataflow analysis of the given type over a
@@ -71,62 +71,64 @@ backwardDataflow :: (Eq a, DataflowAnalysis a c, HasCFG b)
                     => c -- ^ Constant data available to the transfer function
                     -> a -- ^ The initial state of the analysis to run
                     -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
-                    -> Instruction -- ^ The program point to retrieve facts for
-                    -> a
+                    -> HashMap Instruction a
 backwardDataflow = dataflowAnalysis lsuc lpre cfgEntryNode
 
 dataflowAnalysis :: (Eq a, DataflowAnalysis a c, HasCFG b) =>
                     (CFGType -> Node -> [(Node, CFGEdge)]) ->
                     (CFGType -> Node -> [(Node, CFGEdge)]) ->
-                    (CFG -> Node) -> c -> a -> b -> Instruction -> a
-dataflowAnalysis predFunc succFunc finalNodeFunc constData analysis f target =
-  lookupFact finalStates (valueUniqueId target)
+                    (CFG -> Node) -> c -> a -> b -> HashMap Instruction a
+dataflowAnalysis predFunc succFunc finalNodeFunc constData analysis f =
+  dataflow initialWorklist initialStates
   where
-    finalStates = dataflow initialWorklist initialStates
-
-    cfg = getCFG f
+    cfgWrapper = getCFG f
+    cfg = cfgGraph cfgWrapper
     -- ^ The control flow graph for this function
 
-    initialWorklist = worklistFromList (nodes (cfgGraph cfg))
+    instructions = map snd $ labNodes cfg
+
+    initialWorklist = worklistFromList instructions
     -- ^ Put all nodes on the worklist
-    initialStates = M.fromList $ zip (nodes (cfgGraph cfg)) (repeat analysis)
+    initialStates = M.fromList $ zip instructions (repeat analysis)
     -- ^ Start all nodes with the initial state provided by the user
 
     -- | If there is nothing left in the worklist, return the facts
     -- associated with the exit node.
     dataflow work facts = case takeWorkItem work of
       EmptyWorklist -> facts
-      nod :< rest -> processNode nod rest facts
+      inst :< rest -> processNode inst rest facts
 
-    lookupFact facts n = case M.lookup n facts of
+    lookupFact facts inst = case M.lookup inst facts of
       Just fact -> fact
-      Nothing -> error $ printf "No facts for CFG node %d" n
+      Nothing -> error $ printf "No facts for CFG node %s" (show inst)
 
     -- | Apply the transfer function to this node.  If the result is
     -- different than the current fact, add all successors to the
     -- worklist.
-    processNode nod work outputFacts = case outputFact == lastOutputFact of
+    processNode inst work outputFacts = case outputFact == lastOutputFact of
       -- No change, don't add successors
       True -> dataflow work outputFacts
       -- Facts changed, update map and add successors
       False -> dataflow work' outputFacts'
       where
-        outputFact = transfer constData inputFact value incomingEdges
-        lastOutputFact = lookupFact outputFacts nod
+        outputFact = transfer constData inputFact inst incomingEdges
+        lastOutputFact = lookupFact outputFacts inst
 
         -- Updated worklist and facts
-        work' = addWorkItems (fst $ unzip $ succFunc (cfgGraph cfg) nod) work
-        outputFacts' = M.insert nod outputFact outputFacts
+        work' = let succNodes = succFunc cfg (instructionUniqueId inst)
+                    justIds = fst $ unzip succNodes
+                in addWorkItems (map value justIds) work
+        outputFacts' = M.insert inst outputFact outputFacts
 
-        (preds, incomingEdges) = unzip $ predFunc (cfgGraph cfg) nod
-        inputFact = case preds of
+        (preds, incomingEdges) = unzip $ predFunc cfg (instructionUniqueId inst)
+        inputFact = case map value preds of
           -- For the entry node, the input facts never change and we
           -- can use the input to the dataflow analysis.
           [] -> analysis
           -- Otherwise, get all output facts for the predecessor and
           -- join them.
-          _ -> meets $ map (lookupFact outputFacts) preds
+          predInsts -> meets $ map (lookupFact outputFacts) predInsts
 
-        value = case lab (cfgGraph cfg) nod of
+        value nod = case lab cfg nod of
           Just v -> v
           Nothing -> error $ printf "No value for CFG node %d" nod
