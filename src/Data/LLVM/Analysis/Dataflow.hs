@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 -- | This module defines an interface for intra-procedural dataflow
 -- analysis (forward and backward).
 --
@@ -43,17 +44,22 @@ import Data.LLVM.Internal.Worklist
 -- | A class defining the interface to a dataflow analysis.  The
 -- analysis object itself that is passed to one of the dataflow
 -- functions acts as the initial state.
-class BoundedMeetSemiLattice a => DataflowAnalysis a where
-  transfer :: a -> Instruction -> [CFGEdge] -> a
-  -- ^ The transfer function of this analysis.  It is given the
-  -- current set of facts, the current instruction, and a list of
-  -- incoming edges.
+class BoundedMeetSemiLattice a => DataflowAnalysis a c where
+  transfer :: c -- ^ Global (to the analysis) constant data
+              -> a -- ^ The incoming analysis state
+              -> Instruction -- ^ The instruction being analyzed
+              -> [CFGEdge] -- ^ Incoming CFG edges
+              -> a
+  -- ^ The transfer function of this analysis.  It is given any global
+  -- constant data, the current set of facts, the current instruction,
+  -- and a list of incoming edges.
 
 
 -- | Perform a forward dataflow analysis of the given type over a
 -- function or CFG.
-forwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b)
-                   => a -- ^ The initial state of the analysis to run
+forwardDataflow :: (Eq a, DataflowAnalysis a c, HasCFG b)
+                   => c -- ^ Constant data available to the transfer function
+                   -> a -- ^ The initial state of the analysis to run
                    -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
                    -> Instruction -- ^ The program point to retrieve facts for
                    -> a
@@ -61,18 +67,19 @@ forwardDataflow = dataflowAnalysis lpre lsuc cfgExitNode
 
 -- | Perform a backward dataflow analysis of the given type over a
 -- function or CFG.
-backwardDataflow :: (Eq a, DataflowAnalysis a, HasCFG b)
-                    => a -- ^ The initial state of the analysis to run
+backwardDataflow :: (Eq a, DataflowAnalysis a c, HasCFG b)
+                    => c -- ^ Constant data available to the transfer function
+                    -> a -- ^ The initial state of the analysis to run
                     -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
                     -> Instruction -- ^ The program point to retrieve facts for
                     -> a
 backwardDataflow = dataflowAnalysis lsuc lpre cfgEntryNode
 
-dataflowAnalysis :: (Eq a, DataflowAnalysis a, HasCFG b) =>
+dataflowAnalysis :: (Eq a, DataflowAnalysis a c, HasCFG b) =>
                     (CFGType -> Node -> [(Node, CFGEdge)]) ->
                     (CFGType -> Node -> [(Node, CFGEdge)]) ->
-                    (CFG -> Node) -> a -> b -> Instruction -> a
-dataflowAnalysis predFunc succFunc finalNodeFunc analysis f target =
+                    (CFG -> Node) -> c -> a -> b -> Instruction -> a
+dataflowAnalysis predFunc succFunc finalNodeFunc constData analysis f target =
   lookupFact finalStates (valueUniqueId target)
   where
     finalStates = dataflow initialWorklist initialStates
@@ -104,7 +111,7 @@ dataflowAnalysis predFunc succFunc finalNodeFunc analysis f target =
       -- Facts changed, update map and add successors
       False -> dataflow work' outputFacts'
       where
-        outputFact = transfer inputFact value incomingEdges
+        outputFact = transfer constData inputFact value incomingEdges
         lastOutputFact = lookupFact outputFacts nod
 
         -- Updated worklist and facts

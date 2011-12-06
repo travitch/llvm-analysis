@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, BangPatterns #-}
+{-# LANGUAGE ViewPatterns, BangPatterns, FlexibleInstances, MultiParamTypeClasses #-}
 -- | This module implements the compositional pointer/escape analysis
 -- described by Whaley and Rinard (http://doi.acm.org/10.1145/320384.320400).
 --
@@ -135,7 +135,7 @@ instance BoundedMeetSemiLattice EscapeGraph where
            , escapeReturns = S.empty
            }
 
-instance DataflowAnalysis EscapeGraph where
+instance DataflowAnalysis EscapeGraph (ExternalFunction -> Int -> Bool) where
   transfer = escapeTransfer
 
 -- | An opaque result type for the analysis.  Use
@@ -153,9 +153,23 @@ escapeGraphAtLocation (ER er) i = mapping i
 -- | Run the Whaley-Rinard escape analysis on a Module.  This returns
 -- an opaque result that can be accessed via @escapeGraphAtLocation@.
 runEscapeAnalysis :: Module -> EscapeResult
-runEscapeAnalysis m = ER $! M.fromList mapping
+runEscapeAnalysis m = runEscapeAnalysis' (\_ _ -> True) m
+  {-ER $! M.fromList mapping
   where
     funcLookups = map (uncurry forwardDataflow) statesAndCFGs
+    mapping = zip fs funcLookups
+
+    fs = moduleDefinedFunctions m
+    globalGraph = buildBaseGlobalGraph m
+    cfgs = map mkCFG fs
+    states = map (mkInitialGraph globalGraph) fs
+    statesAndCFGs = zip states cfgs
+-}
+
+runEscapeAnalysis' :: (ExternalFunction -> Int -> Bool) -> Module -> EscapeResult
+runEscapeAnalysis' externP m = ER $! M.fromList mapping
+  where
+    funcLookups = map (uncurry (forwardDataflow externP)) statesAndCFGs
     mapping = zip fs funcLookups
 
     fs = moduleDefinedFunctions m
@@ -222,15 +236,19 @@ valueWillEscape eg v = S.member n escapingNodes
 
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
-escapeTransfer :: EscapeGraph -> Instruction -> [CFGEdge] -> EscapeGraph
-escapeTransfer eg StoreInst { storeValue = sv, storeAddress = sa } _
+escapeTransfer :: (ExternalFunction -> Int -> Bool )
+                  -> EscapeGraph
+                  -> Instruction
+                  -> [CFGEdge]
+                  -> EscapeGraph
+escapeTransfer _ eg StoreInst { storeValue = sv, storeAddress = sa } _
   | isPointerType sv = updatePTEGraph sv sa eg
   | otherwise = eg
-escapeTransfer eg RetInst { retInstValue = Just rv } _
+escapeTransfer _ eg RetInst { retInstValue = Just rv } _
   | isPointerType rv = let (eg', targets) = targetNodes eg rv
                        in eg' { escapeReturns = S.fromList targets }
   | otherwise = eg
-escapeTransfer eg _ _ = eg
+escapeTransfer _ eg _ _ = eg
 
 -- | Add/Remove edges from the PTE graph due to a store instruction
 --
@@ -400,6 +418,8 @@ augmentingArraySuc i g tgt = case arraySucs of
   _ -> (g, S.fromList arraySucs)
   where
     arraySucs = map fst $ filter isArraySuc $ lsuc g tgt
+
+-- FIXME: Can't kill edges if dealing with an array or escaped node
 
 -- | This helper follows "pointers" in the points-to-escape graph by
 -- one step, effectively dereferencing a pointer.  This is basically
