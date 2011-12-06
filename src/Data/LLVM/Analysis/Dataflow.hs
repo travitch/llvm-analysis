@@ -45,6 +45,13 @@ import Data.LLVM.Internal.Worklist
 -- | A class defining the interface to a dataflow analysis.  The
 -- analysis object itself that is passed to one of the dataflow
 -- functions acts as the initial state.
+--
+-- Note that the second type parameter, @c@, can be used to pass
+-- information that is global and constant for the analysis of a
+-- function.  This can save space by not requiring the information to
+-- be stored redundantly in every dataflow fact.  If this parameter is
+-- not needed, it can safely be instantiated as () (and subsequently
+-- ignored).
 class BoundedMeetSemiLattice a => DataflowAnalysis a c where
   transfer :: c -- ^ Global (to the analysis) constant data
               -> a -- ^ The incoming analysis state

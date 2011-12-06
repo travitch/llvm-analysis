@@ -103,6 +103,10 @@ instance Hashable EscapeNode where
   hash (INode v) = 13 `combine` hash v
   hash (IVirtual v) = 17 `combine` hash v
 
+-- | Internal graph equality test that doesn't require sorting lists.
+-- It could be less efficient, but it is at least strict enough.
+geq :: (Eq a, Eq b, Hashable a, Hashable b, Graph gr1, Graph gr2)
+       => gr1 a b -> gr2 a b -> Bool
 geq !g1 !g2 = ns1 == ns2 && es1 == es2
   where
     ns1 = HS.fromList (labNodes g1)
@@ -142,6 +146,11 @@ instance BoundedMeetSemiLattice EscapeGraph where
 instance DataflowAnalysis EscapeGraph EscapeData where
   transfer = escapeTransfer
 
+-- | This is a module-internal datatype to represent information that
+-- is constant throughout the analysis of a single function.  This
+-- saves us from having to waste extra space in the dataflow fact,
+-- since the dataflow analysis engine can just hand it off in constant
+-- space.
 data EscapeData = EscapeData { externalP :: ExternalFunction -> Int -> Bool
                              , escapeSummary :: Map Function (HashMap Instruction EscapeGraph)
                              }
@@ -226,12 +235,7 @@ valueEscaped eg v = isGlobalNode g n || valueProperlyEscaped eg v
 -- This is most useful to determine when one argument escapes by being
 -- assigned into another.
 valueProperlyEscaped :: EscapeGraph -> Value -> Bool
-valueProperlyEscaped eg v = any (isGlobalNode g) nodesReachableFrom
-  where
-    n = valueUniqueId v
-    -- Remove the variable node corresponding to this value
-    (_, g) = match n $ escapeGraph eg
-    nodesReachableFrom = filter (/= -n) $ rdfs [-n] g
+valueProperlyEscaped eg v = nodeProperlyEscaped (escapeGraph eg) (valueUniqueId v)
 
 -- | The value will escape from the current context when the function
 -- returns (i.e., through the return value).
@@ -244,6 +248,18 @@ valueWillEscape eg v = S.member n escapingNodes
     escapingNodes = escapeReturns eg `S.union` S.fromList (dfs erList g)
 
 -- Internal stuff
+
+nodeEscaped :: PTEGraph -> Node -> Bool
+nodeEscaped escGr n = isGlobalNode escGr n || nodeProperlyEscaped escGr n
+
+nodeProperlyEscaped :: PTEGraph -> Node -> Bool
+nodeProperlyEscaped escGr n = any (isGlobalNode g) nodesReachableFrom
+  where
+    -- Remove the variable node corresponding to this node so that we
+    -- don't say that it is escaping because its own variable node
+    -- points to it.
+    (_, g) = match n escGr
+    nodesReachableFrom = filter (/= -n) $ rdfs [-n] g
 
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
@@ -298,7 +314,7 @@ killModifiedLocalEdges eg addrNodes = eg { escapeGraph = g' }
 
 killLocalEdges :: PTEGraph -> Node -> PTEGraph
 killLocalEdges escGr n =
-  case isGlobalNode escGr n of
+  case nodeEscaped escGr n of
     True -> escGr
     False -> delEdges es escGr
   where
