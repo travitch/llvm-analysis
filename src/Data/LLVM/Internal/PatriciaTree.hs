@@ -40,27 +40,29 @@ type UGr = Gr () ()
 
 instance Graph Gr where
     -- required members
-    empty           = Gr IM.empty
-    isEmpty (Gr g)  = IM.null g
-    match           = matchGr
+  empty = Gr IM.empty
+  isEmpty (Gr g) = IM.null g
+  match = matchGr
 
-    mkGraph vs es =
-      let g0 = insNodes vs empty
-      in foldl' (flip insEdge) g0 es
-    labNodes (Gr g) = [ (node, label) | (node, (_, label, _)) <- IM.toList g ]
+  mkGraph vs es =
+    let g0 = insNodes vs empty
+    in foldl' (flip insEdge) g0 es
+  labNodes (Gr g) = [ (node, label) | (node, (_, label, _)) <- IM.toList g ]
 
     -- overriding members for efficiency
-    noNodes   (Gr g) = IM.size g
-    nodeRange (Gr g)
-        | IM.null g = (0, 0)
-        | otherwise = (ix (IM.minViewWithKey g), ix (IM.maxViewWithKey g))
-                  where
-                    ix = fst . fst . fromJust
+  noNodes (Gr g) = IM.size g
+  nodeRange (Gr g) = nr g
 
-    labEdges (Gr g) = do (node, (_, _, s)) <- IM.toList g
-                         (next, labels)    <- IM.toList s
-                         label             <- labels
-                         return (node, next, label)
+  labEdges (Gr g) = do
+    (node, (_, _, s)) <- IM.toList g
+    (next, labels) <- IM.toList s
+    label <- labels
+    return (node, next, label)
+
+nr g | IM.null g = (0, 0)
+     | otherwise = (ix (IM.minViewWithKey g), ix (IM.maxViewWithKey g))
+  where
+    ix = fst . fst . fromJust
 
 
 instance DynGraph Gr where
