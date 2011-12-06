@@ -40,9 +40,9 @@ library
   other-modules: Data.LLVM.Internal.Condense,
                  Data.LLVM.Internal.ImperativeGraph,
                  Data.LLVM.Internal.PatriciaTree,
-                 Data.LLVM.Internal.Worklist,
+                 Data.LLVM.Internal.Worklist
                  -- This module does not work yet.
-                 Data.LLVM.Rewrite
+                 -- Data.LLVM.Rewrite
 
 
   ghc-options: -Wall -funbox-strict-fields
