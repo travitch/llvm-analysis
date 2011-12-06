@@ -152,20 +152,20 @@ escapeGraphAtLocation (ER er) i = mapping i
 
 -- | Run the Whaley-Rinard escape analysis on a Module.  This returns
 -- an opaque result that can be accessed via @escapeGraphAtLocation@.
+--
+-- This variant conservatively assumes that any parameter passed to an
+-- external function escapes.
 runEscapeAnalysis :: Module -> EscapeResult
 runEscapeAnalysis m = runEscapeAnalysis' (\_ _ -> True) m
-  {-ER $! M.fromList mapping
-  where
-    funcLookups = map (uncurry forwardDataflow) statesAndCFGs
-    mapping = zip fs funcLookups
 
-    fs = moduleDefinedFunctions m
-    globalGraph = buildBaseGlobalGraph m
-    cfgs = map mkCFG fs
-    states = map (mkInitialGraph globalGraph) fs
-    statesAndCFGs = zip states cfgs
--}
-
+-- | A variant of @runEscapeAnalysis@ that accepts a function to
+-- provide escape information about arguments for external functions.
+--
+-- > runEscapeAnalysis' externP m
+--
+-- The function @externP@ will be called for each argument of each
+-- external function.  The @externP ef ix@ should return @True@ if the
+-- @ix@th argument of @ef@ causes the argument to escape.
 runEscapeAnalysis' :: (ExternalFunction -> Int -> Bool) -> Module -> EscapeResult
 runEscapeAnalysis' externP m = ER $! M.fromList mapping
   where
