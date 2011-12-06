@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ViewPatterns, BangPatterns #-}
 -- | This module implements the compositional pointer/escape analysis
 -- described by Whaley and Rinard (http://doi.acm.org/10.1145/320384.320400).
 --
@@ -44,6 +44,8 @@ import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Set ( Set, (\\) )
 import qualified Data.Set as S
+import Data.Hashable
+import qualified Data.HashSet as HS
 
 import Data.LLVM
 import Data.LLVM.CFG
@@ -75,15 +77,39 @@ type PTEGraph = Gr EscapeNode EscapeEdge
 
 -- | The escape graph that is constructed for each program point.
 -- They should all share considerable structure.
-data EscapeGraph = EG { escapeGraph :: PTEGraph
-                      , escapeCalleeMap :: Map Node (Set Instruction)
-                      , escapeReturns :: Set Node
+data EscapeGraph = EG { escapeGraph :: !PTEGraph
+                      , escapeCalleeMap :: !(Map Node (Set Instruction))
+                      , escapeReturns :: !(Set Node)
                       }
 
+instance Hashable EscapeEdge where
+  hash (IEdge at) = 3 `combine` hash at
+  hash (OEdge at) = 7 `combine` hash at
+
+instance Hashable AccessType where
+  hash Direct = 11
+  hash Array = 13
+  hash (Field i t) = 17 `combine` hash i `combine` hash t
+
+instance Hashable EscapeNode where
+  hash (VariableNode v) = 3 `combine` hash v
+  hash (OParameterNode v) = 5 `combine` hash v
+  hash (OGlobalNode v) = 7 `combine` hash v
+  hash (OReturnNode v) = 11 `combine` hash v
+  hash (INode v) = 13 `combine` hash v
+  hash (IVirtual v) = 17 `combine` hash v
+
+geq !g1 !g2 = ns1 == ns2 && es1 == es2
+  where
+    ns1 = HS.fromList (labNodes g1)
+    ns2 = HS.fromList (labNodes g2)
+    es1 = HS.fromList (labEdges g1)
+    es2 = HS.fromList (labEdges g2)
+
 instance Eq EscapeGraph where
-  eg1 == eg2 = escapeReturns eg1 == escapeReturns eg2 &&
+  (==) !eg1 !eg2 = escapeReturns eg1 == escapeReturns eg2 &&
                escapeCalleeMap eg1 == escapeCalleeMap eg2 &&
-               (escapeGraph eg1 `equal` escapeGraph eg2)
+               (escapeGraph eg1 `geq` escapeGraph eg2)
 
 instance MeetSemiLattice EscapeGraph where
   meet eg1 eg2 = EG { escapeGraph = g'
@@ -325,7 +351,34 @@ targetNodes eg val =
       InstructionC i@CallInst { } -> case gelem (valueUniqueId i) g of
         False -> error "Escape analysis: result of void return used"
         True -> (g, S.singleton (valueUniqueId i))
-      -- wat
+      -- It is also possible to store into the result of a GEP
+      -- instruction (without a load), so add a case to handle
+      -- un-loaded GEPs.
+      InstructionC i@GetElementPtrInst { getElementPtrValue = base
+                                       , getElementPtrIndices = idxs
+                                       } ->
+        case idxs of
+          [] -> error "Escape analysis: GEP with no indexes"
+          [_] ->
+            let (g', targets) = targetNodes' base
+                (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
+            in (g'', S.unions successors)
+          -- For this to be a simple field access, the array indexing
+          -- offset must be zero and the field index must be some
+          -- constant.
+          (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
+            (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
+              let (g', targets) = targetNodes' base
+                  accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i
+                  (g'', successors) = mapAccumR accumF g' (S.toList targets)
+              in (g'', S.unions successors)
+          -- Otherwise this is something really fancy and we can just
+          -- treat it as an array
+          _ ->
+            let (g', targets) = targetNodes' base
+                (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
+            in (g'', S.unions successors)
+
       _ -> error $ "Escape Analysis unmatched: " ++ show v
 
 getBaseType :: Value -> Type
