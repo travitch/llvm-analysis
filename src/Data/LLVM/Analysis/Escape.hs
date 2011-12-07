@@ -59,10 +59,6 @@ import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.Dataflow
 import Data.LLVM.Internal.PatriciaTree
 
-import Text.Printf
-import Debug.Trace
-debug = flip trace
-
 -- | The types of nodes in the graph
 data EscapeNode = VariableNode { escapeNodeValue :: !Value }
                 | OParameterNode { escapeNodeValue :: !Value }
@@ -401,6 +397,12 @@ targetNodes eg val =
                                                            , getElementPtrIndices = idxs
                                                            }) } ->
         gepInstTargets i base idxs
+      InstructionC LoadInst { loadAddress =
+        (valueContent' -> ConstantC ConstantValue { constantInstruction =
+          i@GetElementPtrInst { getElementPtrValue = base
+                              , getElementPtrIndices = idxs
+                              } }) } ->
+        gepInstTargets i base idxs
 
       -- Follow chains of loads (dereferences).  If there is no
       -- successor for the current LoadInst, we have a situation like
@@ -423,6 +425,11 @@ targetNodes eg val =
       InstructionC i@GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = idxs
                                        } ->
+        gepInstTargets i base idxs
+      ConstantC ConstantValue { constantInstruction =
+       i@GetElementPtrInst { getElementPtrValue = base
+                           , getElementPtrIndices = idxs
+                           } } ->
         gepInstTargets i base idxs
 
       _ -> error $ "Escape Analysis unmatched: " ++ show v
@@ -463,7 +470,7 @@ augmentingFieldSuc ix ty i baseEscaped g tgt = case fieldSucs of
   -- FIXME: There are some cases where this should be an OEdge!  If
   -- the base object of the field access is escaped, this should be an
   -- OEdge
-  [] -> addVirtual (edgeCon (Field ix ty)) i g tgt `debug` printf "Adding virtual node labeled with %s" (show i)
+  [] -> addVirtual (edgeCon (Field ix ty)) i g tgt
   _ -> (g, S.fromList fieldSucs)
   where
     edgeCon = if baseEscaped then OEdge else IEdge
