@@ -314,12 +314,22 @@ killModifiedLocalEdges eg addrNodes = eg { escapeGraph = g' }
 
 killLocalEdges :: PTEGraph -> Node -> PTEGraph
 killLocalEdges escGr n =
-  case nodeEscaped escGr n of
+  case nodeEscaped escGr n || isNotSingularNode escGr n of
     True -> escGr
     False -> delEdges es escGr
   where
     es = map unLabel $ out escGr n
     unLabel (s, d, _) = (s, d)
+
+-- | Determine whether or not a node is singular (e.g., represents a
+-- single value).  Nodes that were obtained by an array access are not
+-- singular.  Values returned by a function call in a loop are not
+-- singular (they are summary values).
+--
+-- Non-singular values cannot be updated strongly.
+--
+-- FIXME: This is a stub for now and should be filled in.
+isNotSingularNode _ _ = False
 
 -- If storing to a global node, do NOT kill the edges from it.  Edges
 -- should be killed for stores to locals.  Other than that, add edges
