@@ -400,28 +400,8 @@ targetNodes eg val =
         (valueContent' -> InstructionC i@GetElementPtrInst { getElementPtrValue = base
                                                            , getElementPtrIndices = idxs
                                                            }) } ->
-        case idxs of
-          [] -> error "Escape analysis: GEP with no indexes"
-          [_] ->
-            let (g', targets) = targetNodes' base
-                (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
-            in (g'', S.unions successors)
-          -- For this to be a simple field access, the array indexing
-          -- offset must be zero and the field index must be some
-          -- constant.
-          (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
-            (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
-              let (g', targets) = targetNodes' base
-                  baseIsEscaped = valueEscaped eg base
-                  accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i baseIsEscaped
-                  (g'', successors) = mapAccumR accumF g' (S.toList targets)
-              in (g'', S.unions successors)
-          -- Otherwise this is something really fancy and we can just
-          -- treat it as an array
-          _ ->
-            let (g', targets) = targetNodes' base
-                (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
-            in (g'', S.unions successors)
+        gepInstTargets i base idxs
+
       -- Follow chains of loads (dereferences).  If there is no
       -- successor for the current LoadInst, we have a situation like
       -- a global pointer with no points-to target.  In that case, we
@@ -443,30 +423,35 @@ targetNodes eg val =
       InstructionC i@GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = idxs
                                        } ->
-        case idxs of
-          [] -> error "Escape analysis: GEP with no indexes"
-          [_] ->
-            let (g', targets) = targetNodes' base
-                (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
-            in (g'', S.unions successors)
-          -- For this to be a simple field access, the array indexing
-          -- offset must be zero and the field index must be some
-          -- constant.
-          (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
-            (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
-              let (g', targets) = targetNodes' base
-                  baseIsEscaped = valueEscaped eg base
-                  accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i baseIsEscaped
-                  (g'', successors) = mapAccumR accumF g' (S.toList targets)
-              in (g'', S.unions successors)
-          -- Otherwise this is something really fancy and we can just
-          -- treat it as an array
-          _ ->
-            let (g', targets) = targetNodes' base
-                (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
-            in (g'', S.unions successors)
+        gepInstTargets i base idxs
 
       _ -> error $ "Escape Analysis unmatched: " ++ show v
+
+    gepInstTargets :: Instruction -> Value -> [Value] -> (PTEGraph, Set Node)
+    gepInstTargets i base idxs =
+      case idxs of
+        [] -> error "Escape analysis: GEP with no indexes"
+        [_] ->
+          let (g', targets) = targetNodes' base
+              (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
+          in (g'', S.unions successors)
+        -- For this to be a simple field access, the array indexing
+        -- offset must be zero and the field index must be some
+        -- constant.
+        (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
+          (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
+            let (g', targets) = targetNodes' base
+                baseIsEscaped = valueEscaped eg base
+                accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i baseIsEscaped
+                (g'', successors) = mapAccumR accumF g' (S.toList targets)
+            in (g'', S.unions successors)
+        -- Otherwise this is something really fancy and we can just
+        -- treat it as an array
+        _ ->
+          let (g', targets) = targetNodes' base
+              (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
+          in (g'', S.unions successors)
+
 
 getBaseType :: Value -> Type
 getBaseType v = case valueType v of
