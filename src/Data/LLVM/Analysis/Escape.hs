@@ -57,12 +57,12 @@ import Data.LLVM.Analysis.Dataflow
 import Data.LLVM.Internal.PatriciaTree
 
 -- | The types of nodes in the graph
-data EscapeNode = VariableNode !Value
-                | OParameterNode !Value
-                | OGlobalNode !Value
-                | OReturnNode !Value
-                | INode !Value -- Allocas and allocators
-                | IVirtual !Value
+data EscapeNode = VariableNode { escapeNodeValue :: !Value }
+                | OParameterNode { escapeNodeValue :: !Value }
+                | OGlobalNode { escapeNodeValue :: !Value }
+                | OReturnNode { escapeNodeValue :: !Value }
+                | INode { escapeNodeValue :: !Value } -- Allocas and allocators
+                | IVirtual { escapeNodeValue :: !Value }
                 deriving (Eq, Ord)
 
 data AccessType = Direct
