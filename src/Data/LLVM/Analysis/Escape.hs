@@ -278,8 +278,6 @@ escapeTransfer _ eg RetInst { retInstValue = Just rv } _
 escapeTransfer _ eg _ _ = eg
 
 -- | Add/Remove edges from the PTE graph due to a store instruction
---
--- FIXME: Determine the "type" of the assigment
 updatePTEGraph :: Value -> Value -> EscapeGraph -> EscapeGraph
 updatePTEGraph sv sa eg =
   foldl' genEdges egKilled addrNodes
