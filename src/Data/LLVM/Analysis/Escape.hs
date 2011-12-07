@@ -203,7 +203,7 @@ runEscapeAnalysis' m cg externP = moduleSummary
 
 -- | Provide local points-to information for a value @v@:
 --
--- > pointsTo eg v
+-- > localPointsTo eg v
 --
 -- This information is flow sensitive (there is an EscapeGraph for
 -- each program point).  The returned set of nodes reflect the things
