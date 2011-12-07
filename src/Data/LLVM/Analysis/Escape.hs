@@ -24,6 +24,7 @@ module Data.LLVM.Analysis.Escape (
   EscapeGraph(..),
   EscapeNode(..),
   EscapeEdge(..),
+  AccessType(Array, Field),
   PTEGraph,
   -- * Functions
   runEscapeAnalysis,
@@ -32,6 +33,8 @@ module Data.LLVM.Analysis.Escape (
   valueEscaped,
   valueProperlyEscaped,
   valueWillEscape,
+  valueInGraph,
+  followEscapeEdge,
   -- * Debugging
   viewEscapeGraph
   ) where
@@ -55,6 +58,10 @@ import Data.LLVM.CallGraph
 import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.Dataflow
 import Data.LLVM.Internal.PatriciaTree
+
+import Text.Printf
+import Debug.Trace
+debug = flip trace
 
 -- | The types of nodes in the graph
 data EscapeNode = VariableNode { escapeNodeValue :: !Value }
@@ -216,9 +223,16 @@ runEscapeAnalysis' m cg externP = moduleSummary
 localPointsTo :: EscapeGraph -> Value -> Set EscapeNode
 localPointsTo eg v = S.fromList (map (lab' . context g) succs)
   where
-    locid = -valueUniqueId v
+    locid = valueUniqueId v
     g = escapeGraph eg
     succs = suc g locid
+
+-- | Determine whether or not the value has a representation in the
+-- escape graph.
+valueInGraph :: EscapeGraph -> Value -> Bool
+valueInGraph eg v = gelem (valueUniqueId v) g
+  where
+    g = escapeGraph eg
 
 -- | The value escaped from the current context because it is
 -- reachable from an outside node.
@@ -247,6 +261,24 @@ valueWillEscape eg v = S.member n escapingNodes
     erList = S.toList (escapeReturns eg)
     escapingNodes = escapeReturns eg `S.union` S.fromList (dfs erList g)
 
+-- | From the base value @v@, follow the edge for the provided
+-- @accessType@.  AccessTypes describe either array accesses or field
+-- accesses.  There should only be one edge for each access type.
+--
+-- This function returns the Value at the indicated node (a
+-- GetElementPtrInst).
+--
+-- > followEscapeEdge eg v accessType
+followEscapeEdge :: EscapeGraph -> Value -> AccessType -> Maybe Value
+followEscapeEdge eg v at =
+  case targetSucs of
+    [] -> Nothing
+    [ts] -> Just $ (escapeNodeValue . lab' . context g . fst) ts
+  where
+    g = escapeGraph eg
+    ss = lsuc g (valueUniqueId v)
+    targetSucs = filter ((\x -> x==IEdge at || x==OEdge at) . snd) ss
+
 -- Internal stuff
 
 nodeEscaped :: PTEGraph -> Node -> Bool
@@ -258,8 +290,8 @@ nodeProperlyEscaped escGr n = any (isGlobalNode g) nodesReachableFrom
     -- Remove the variable node corresponding to this node so that we
     -- don't say that it is escaping because its own variable node
     -- points to it.
-    (_, g) = match n escGr
-    nodesReachableFrom = filter (/= -n) $ rdfs [-n] g
+    (_, g) = match (-n) escGr
+    nodesReachableFrom = filter (/= n) $ rdfs [n] g
 
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
@@ -353,17 +385,17 @@ targetNodes eg val =
     g = escapeGraph eg
     targetNodes' v = case valueContent' v of
       -- Return the actual *locations* denoted by variable references.
-      ArgumentC a -> (g, S.singleton $ (-argumentUniqueId a))
-      GlobalVariableC gv -> (g, S.singleton (-globalVariableUniqueId gv))
-      ExternalValueC e -> (g, S.singleton (-externalValueUniqueId e))
-      FunctionC f -> (g, S.singleton (-functionUniqueId f))
-      ExternalFunctionC e -> (g, S.singleton (-externalFunctionUniqueId e))
+      ArgumentC a -> (g, S.singleton $ (argumentUniqueId a))
+      GlobalVariableC gv -> (g, S.singleton (globalVariableUniqueId gv))
+      ExternalValueC e -> (g, S.singleton (externalValueUniqueId e))
+      FunctionC f -> (g, S.singleton (functionUniqueId f))
+      ExternalFunctionC e -> (g, S.singleton (externalFunctionUniqueId e))
       -- The NULL pointer doesn't point to anything
       ConstantC ConstantPointerNull {} -> (g, S.empty)
       -- Now deal with the instructions we might see in a memory
       -- reference.  There are many extras here (beyond just field
       -- sensitivity): select, phi, etc.
-      InstructionC AllocaInst {} -> (g, S.singleton (-valueUniqueId v))
+      InstructionC AllocaInst {} -> (g, S.singleton (valueUniqueId v))
       InstructionC LoadInst { loadAddress =
         (valueContent' -> InstructionC i@GetElementPtrInst { getElementPtrValue = base
                                                            , getElementPtrIndices = idxs
@@ -446,7 +478,7 @@ augmentingFieldSuc ix ty i baseEscaped g tgt = case fieldSucs of
   -- FIXME: There are some cases where this should be an OEdge!  If
   -- the base object of the field access is escaped, this should be an
   -- OEdge
-  [] -> addVirtual (edgeCon (Field ix ty)) i g tgt
+  [] -> addVirtual (edgeCon (Field ix ty)) i g tgt `debug` printf "Adding virtual node labeled with %s" (show i)
   _ -> (g, S.fromList fieldSucs)
   where
     edgeCon = if baseEscaped then OEdge else IEdge
@@ -535,10 +567,10 @@ mkCtxt :: (Value -> EscapeNode) -> Value -> LNode EscapeNode
 mkCtxt ctor v = (valueUniqueId v, ctor v)
 
 mkVarCtxt :: (Value -> EscapeNode) -> Value -> [LNode EscapeNode]
-mkVarCtxt ctor v = [(valueUniqueId v, VariableNode v), (-(valueUniqueId v), ctor v)]
+mkVarCtxt ctor v = [(-valueUniqueId v, VariableNode v), (valueUniqueId v, ctor v)]
 
 mkIEdge :: IsValue a => a -> LEdge EscapeEdge
-mkIEdge v = (valueUniqueId v, -valueUniqueId v, IEdge Direct)
+mkIEdge v = (-valueUniqueId v, valueUniqueId v, IEdge Direct)
 
 isNonVoidCall :: Instruction -> Bool
 isNonVoidCall inst = case inst of
@@ -571,8 +603,8 @@ buildBaseGlobalGraph m = mkGraph nodes0 edges0
     globalVals = concat [ globals, externs, efuncs, dfuncs ]
     nodes0 = concatMap mkNod globalVals
     edges0 = map mkInitEdge globalVals
-    mkNod v = [(-(valueUniqueId v), OGlobalNode v), (valueUniqueId v, VariableNode v)]
-    mkInitEdge v = (valueUniqueId v, -valueUniqueId v, OEdge Direct)
+    mkNod v = [(valueUniqueId v, OGlobalNode v), (-valueUniqueId v, VariableNode v)]
+    mkInitEdge v = (-valueUniqueId v, valueUniqueId v, OEdge Direct)
 
 isPointerType :: Value -> Bool
 isPointerType = isPointer' . valueType
