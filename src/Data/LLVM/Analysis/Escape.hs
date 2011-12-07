@@ -380,7 +380,8 @@ targetNodes eg val =
           (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
             (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
               let (g', targets) = targetNodes' base
-                  accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i
+                  baseIsEscaped = valueEscaped eg base
+                  accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i baseIsEscaped
                   (g'', successors) = mapAccumR accumF g' (S.toList targets)
               in (g'', S.unions successors)
           -- Otherwise this is something really fancy and we can just
@@ -422,7 +423,8 @@ targetNodes eg val =
           (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
             (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
               let (g', targets) = targetNodes' base
-                  accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i
+                  baseIsEscaped = valueEscaped eg base
+                  accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i baseIsEscaped
                   (g'', successors) = mapAccumR accumF g' (S.toList targets)
               in (g'', S.unions successors)
           -- Otherwise this is something really fancy and we can just
@@ -439,13 +441,16 @@ getBaseType v = case valueType v of
   TypePointer t _ -> t
   _ -> error $ "Array base value has illegal type: " ++ show v
 
-augmentingFieldSuc :: Int -> Type -> Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
-augmentingFieldSuc ix ty i g tgt = case fieldSucs of
-  -- FIXME: There are some cases where this should be an OEdge!
-  [] -> addVirtual (IEdge (Field ix ty)) i g tgt
+augmentingFieldSuc :: Int -> Type -> Instruction -> Bool -> PTEGraph -> Node -> (PTEGraph, Set Node)
+augmentingFieldSuc ix ty i baseEscaped g tgt = case fieldSucs of
+  -- FIXME: There are some cases where this should be an OEdge!  If
+  -- the base object of the field access is escaped, this should be an
+  -- OEdge
+  [] -> addVirtual (edgeCon (Field ix ty)) i g tgt
   _ -> (g, S.fromList fieldSucs)
   where
-    fieldSucs = map fst $ filter (isFieldSuc ix) $ lsuc g tgt
+    edgeCon = if baseEscaped then OEdge else IEdge
+    fieldSucs = map fst $ filter (isFieldSuc ix baseEscaped) $ lsuc g tgt
 
 augmentingArraySuc :: Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
 augmentingArraySuc i g tgt = case arraySucs of
@@ -486,10 +491,14 @@ isArraySuc (_, IEdge Array) = True
 isArraySuc (_, OEdge Array) = True
 isArraySuc _ = False
 
-isFieldSuc :: Int -> (Node, EscapeEdge) -> Bool
-isFieldSuc ix (_, IEdge (Field fieldNo _)) = ix == fieldNo
-isFieldSuc ix (_, OEdge (Field fieldNo _)) = ix == fieldNo
-isFieldSuc _ _ = False
+-- | When checking field successors, also match on the edge type.  If
+-- the base node is escaped, we need to ensure we have an OEdge here
+-- (if not, we make one in the caller).  If the base does escape, the
+-- boolean flag here should match anyway...
+isFieldSuc :: Int -> Bool -> (Node, EscapeEdge) -> Bool
+isFieldSuc ix False (_, IEdge (Field fieldNo _)) = ix == fieldNo
+isFieldSuc ix _ (_, OEdge (Field fieldNo _)) = ix == fieldNo
+isFieldSuc _ _ _ = False
 
 -- | A small helper to add a new virtual node (based on a load
 -- instruction) and an edge from @tgt@ to the virtual instruction:
