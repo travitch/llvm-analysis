@@ -1,3 +1,4 @@
+{-# LANGUAGE ExistentialQuantification #-}
 -- | This module defines a call graph and related functions.  The call
 -- graph is a static view of the calls between functions in a
 -- 'Module'.  The nodes of the graph are global functions and the
@@ -30,7 +31,9 @@ module Data.LLVM.CallGraph (
   -- * Constructor
   mkCallGraph,
   -- * Accessors
-  callGraphRepr
+  callGraphRepr,
+  callValueTargets,
+  callInstructionTargets
   ) where
 
 import Control.Arrow ( (&&&) )
@@ -83,12 +86,40 @@ instance Labellable CallEdge where
 
 -- | An opaque wrapper for the callgraph.  The nodes are functions and
 -- the edges are calls between them.
-data CallGraph = CallGraph CG
+data CallGraph = forall pta . (PointsToAnalysis pta) => CallGraph CG pta
 
 -- | Convert the CallGraph to an FGL graph that can be traversed,
 -- manipulated, or easily displayed with graphviz.
 callGraphRepr :: CallGraph -> CG
-callGraphRepr (CallGraph g) = g
+callGraphRepr (CallGraph g _) = g
+
+-- | Given a Call or Invoke instruction, return the list of possible
+-- callees.  All returned Values will be either Functions or
+-- ExternalFunctions.
+--
+-- Passing a non-call/invoke instruction will trigger a noisy pattern
+-- matching failure.
+callInstructionTargets :: CallGraph -> Instruction -> [Value]
+callInstructionTargets (CallGraph _ pta) (CallInst { callFunction = f }) =
+  case valueContent' f of
+    FunctionC _ -> [f]
+    ExternalFunctionC _ -> [f]
+    _ -> S.toList $ pointsToValues pta f
+callInstructionTargets (CallGraph _ pta) (InvokeInst { invokeFunction = f}) =
+  case valueContent' f of
+    FunctionC _ -> [f]
+    ExternalFunctionC _ -> [f]
+    _ -> S.toList $ pointsToValues pta f
+
+-- | Given the value called by a Call or Invoke instruction, return
+-- all of the possible Functions or ExternalFunctions that it could
+-- be.
+callValueTargets :: CallGraph -> Value -> [Value]
+callValueTargets (CallGraph _ pta) v =
+  case valueContent' v of
+    FunctionC _ -> [v]
+    ExternalFunctionC _ -> [v]
+    _ -> S.toList $ pointsToValues pta v
 
 -- | Build a call graph for the given 'Module' using a pre-computed
 -- points-to analysis.  The String parameter identifies the program
@@ -103,7 +134,7 @@ mkCallGraph :: (PointsToAnalysis a) => Module
                -> [Function]   -- ^ The entry points to the 'Module'
                -> CallGraph
 mkCallGraph m pta entryPoints =
-  CallGraph $ mkGraph allNodes (unique allEdges)
+  CallGraph (mkGraph allNodes (unique allEdges)) pta
   where
     allNodes = concat [ knownNodes, unknownNodes, externNodes ]
     (allEdges, unknownNodes) = buildEdges pta funcs
