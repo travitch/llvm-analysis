@@ -126,7 +126,7 @@ buildModule parseFile inputFilePath =
     ".C" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang++")
     ".cxx" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang++")
     ".cpp" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang++")
-    _ -> error ("No build method for " ++ inputFilePath)
+    _ -> error ("TestSuite: No build method for test input " ++ inputFilePath)
   where
     -- | Parse a bitcode or llvm assembly file into a Module.
     simpleBuilder infile = do
