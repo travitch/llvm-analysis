@@ -1,13 +1,45 @@
 {-# LANGUAGE ExistentialQuantification #-}
 -- | Various functions to help test this library and analyses based on
 -- it.
+--
+-- The idea behind the test framework is that each 'TestDescriptor'
+-- describes inputs for a test suite and automatically converts the inputs
+-- to a summary value, which it compares against an expected value.  It
+-- reports how many such tests pass/fail.
+--
+-- More concretely, each test suite specifies:
+--
+-- * The test input files (via a shell glob)
+--
+-- * A function to conver a test input file name to a filename
+--   containing the expected outut.
+--
+-- * A summary function to reduce a Module to a summary value
+--
+-- * A comparison function (usually an assertion from HUnit)
+--
+-- With these components, the framework reads each input file and
+-- converts it to bitcode.  It uses the summary function to reduce the
+-- Module to a summary value and reads the expected output (using the
+-- 'read' function).  These two types (the summary and expected
+-- output) must be identical.  The comparison function is then
+-- applied.  If it throws an exception, the test is considered to have
+-- failed.
+--
+-- NOTE 1: The result type of the summary function MUST be an instance
+-- of 'Read' AND the same as the type found in the expected results
+-- file.
+--
+-- NOTE 2: The test inputs can be C, C++, bitcode, or LLVM assembly
+-- files.
 module Data.LLVM.Testing (
   -- * Types
   TestDescriptor(..),
   -- * Actions
+  testAgainstExpected,
+  -- * Helpers
   buildModule,
-  readInputAndExpected,
-  testAgainstExpected
+  readInputAndExpected
   ) where
 
 import Control.Exception ( bracket )
@@ -26,10 +58,21 @@ import Test.Framework.Providers.HUnit
 
 import Data.LLVM
 
+-- | A description of a set of tests.
+data TestDescriptor =
+  forall a. (Read a) => TestDescriptor {
+    testPattern :: String, -- ^ A shell glob pattern (relative to the project root) that collects all test inputs
+    testExpectedMapping :: FilePath -> FilePath, -- ^ A function to apply to an input file name to find the file containing its expected results
+    testResultBuilder :: Module -> a, -- ^ A function to turn a Module into a summary value of any type
+    testResultComparator :: String -> a -> a -> IO () -- ^ A function to compare two summary values (throws on failure)
+    }
+
+-- | An intermediate helper to turn input files into modules and
+-- return the expected output.
 readInputAndExpected :: (Read a)
-                        => (FilePath -> IO (Either String Module))
-                        -> (FilePath -> FilePath)
-                        -> FilePath
+                        => (FilePath -> IO (Either String Module)) -- ^ A function to parse bitcode files
+                        -> (FilePath -> FilePath) -- ^ The function to map an input file name to the expected output file
+                        -> FilePath -- ^ The input file
                         -> IO (FilePath, Module, a)
 readInputAndExpected parseBitcode expectedFunc inputFile = do
   let exFile = expectedFunc inputFile
@@ -39,15 +82,13 @@ readInputAndExpected parseBitcode expectedFunc inputFile = do
   m <- buildModule parseBitcode inputFile
   return (inputFile, m, expected)
 
-data TestDescriptor =
-  forall a. (Read a) => TestDescriptor { testPattern :: String
-                                       , testExpectedMapping :: FilePath -> FilePath
-                                       , testResultBuilder :: Module -> a
-                                       , testResultComparator :: String -> a -> a -> IO ()
-                                       }
-
-testAgainstExpected :: (FilePath -> IO (Either String Module))
-                        -> [TestDescriptor]
+-- | This is the main test suite entry point.  It takes a bitcode
+-- parser and a list of test suites.
+--
+-- The bitcode parser is taken as an input so that this library does
+-- not have a direct dependency on any FFI code.
+testAgainstExpected :: (FilePath -> IO (Either String Module)) -- ^ A bitcode parsing function
+                        -> [TestDescriptor] -- ^ The list of test suites to run
                         -> IO ()
 testAgainstExpected parseBitcode testDescriptors = do
   caseSets <- mapM mkDescriptorSet testDescriptors
@@ -72,17 +113,28 @@ testAgainstExpected parseBitcode testDescriptors = do
       return $ testCase file $ cmp file expected actual
 
 -- | Build a 'Module' from a C or C++ file using clang.  The binary
--- must be in PATH
+-- must be in PATH.  This function also supports LLVM bitcode and LLVM
+-- assembly files.
+--
+-- It will raise an error if passed an unrecognized input file type.
 buildModule :: (FilePath -> IO (Either String Module)) -> FilePath -> IO Module
-buildModule parseBitcode inputFilePath =
-  bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode buildModule'
+buildModule parseFile inputFilePath =
+  case takeExtension inputFilePath of
+    ".ll" -> simpleBuilder inputFilePath
+    ".bc" -> simpleBuilder inputFilePath
+    ".c" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang")
+    ".C" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang++")
+    ".cxx" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang++")
+    ".cpp" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang++")
+    _ -> error ("No build method for " ++ inputFilePath)
   where
-    compileDriver = case takeExtension inputFilePath of
-      ".c" -> "clang"
-      ".cpp" -> "clang++"
-      ".cxx" -> "clang++"
-      ".C" -> "clang++"
-    buildModule' (fp, h) = do
+    -- | Parse a bitcode or llvm assembly file into a Module.
+    simpleBuilder infile = do
+      parseResult <- parseFile infile
+      either error return parseResult
+    -- | Turn a source file into a bitcode file with clang and then
+    -- parse the result into a Module.
+    buildModule' compileDriver (fp, h) = do
       -- If we are optimizing, wire opt into the process pipeline.
       -- Otherwise, just have clang write directly to the output file.
       (clangHandle, mOptProc) <- return (h, Nothing)
@@ -94,7 +146,7 @@ buildModule parseBitcode inputFilePath =
       when (clangrc /= ExitSuccess) (error $ printf "Failed to compile %s" inputFilePath)
       when (optrc /= ExitSuccess) (error $ printf "Failed to optimize %s" inputFilePath)
 
-      parseResult <- parseBitcode fp
+      parseResult <- parseFile fp
       either error return parseResult
 
 -- | Clean up after a temporary bitcode file
