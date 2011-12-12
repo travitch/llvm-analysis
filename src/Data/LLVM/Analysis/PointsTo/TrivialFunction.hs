@@ -59,4 +59,9 @@ trivialPointsTo p@(TrivialFunction m) v =
     ExternalFunctionC _ -> PTSet $ S.singleton (Direct v)
     GlobalAliasC ga -> trivialPointsTo p (Value ga)
     InstructionC BitcastInst { castedValue = c } -> trivialPointsTo p c
-    _ -> PTSet $ S.map Direct $ M.lookupDefault S.empty (valueType v) m
+    _ -> PTSet $ S.map Direct $ M.lookupDefault S.empty (derefPointer v) m
+
+derefPointer :: Value -> Type
+derefPointer v = case valueType v of
+  TypePointer p _ -> p
+  _ -> error "TrivialFunction PTA: Non-pointer type given to trivalPointsTo"
