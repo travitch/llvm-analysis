@@ -158,7 +158,7 @@ disposeTempBitcode (fp, h) = do
 -- | Create a temporary bitcode file
 openTempBitcodeFile :: FilePath -> IO (FilePath, Handle)
 openTempBitcodeFile inputFilePath = do
-  let fname = addExtension inputFilePath ".bc"
+  let fname = inputFilePath <.> "bc"
   tmpDir <- getTemporaryDirectory
   -- The filename has leading directory components (or can) - drop
   -- them when opening the temp file
