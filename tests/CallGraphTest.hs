@@ -1,5 +1,7 @@
 module Main ( main ) where
 
+import Control.Monad.Identity
+import Data.ByteString ( ByteString )
 import Data.Set ( Set )
 import qualified Data.Set as S
 import System.FilePath
@@ -28,12 +30,13 @@ cgPattern = "tests/callgraph/order/*.c"
 expectedMapper = (<.> "expected")
 
 extractTraversalOrder m =
-  basicCallGraphSCCTraversal cg buildSummary []
+  runIdentity $ basicCallGraphSCCTraversal cg buildSummary []
   where
     Just main = findMain m
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta [main]
 
-buildSummary scc summ = S.fromList fnames : summ
+buildSummary :: [Function] -> [Set ByteString] -> Identity [Set ByteString]
+buildSummary scc summ = return $ S.fromList fnames : summ
   where
     fnames = map (identifierContent . functionName) scc

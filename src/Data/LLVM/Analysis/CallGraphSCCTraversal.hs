@@ -3,6 +3,7 @@ module Data.LLVM.Analysis.CallGraphSCCTraversal (
   basicCallGraphSCCTraversal
   ) where
 
+import Control.Monad ( foldM )
 import Data.Graph.Inductive
 
 import Data.LLVM.CallGraph
@@ -13,11 +14,11 @@ import Data.LLVM.Internal.Condense
 -- | This is the high-level interface to the CallGraphSCCTraversal.
 -- It encapsualtes the logic to find a fixed-point for each SCC for
 -- any analysis.
-callGraphSCCTraversal :: (Eq summary)
+callGraphSCCTraversal :: (Monad m, Eq summary)
                          => CallGraph -- ^ The callgraph
-                         -> (Function -> summary -> summary) -- ^ A function to analyze a single Function and merge its results into a summary value
+                         -> (Function -> summary -> m summary) -- ^ A function to analyze a single Function and merge its results into a summary value
                          -> summary -- ^ An initial summary value
-                         -> summary
+                         -> m summary
 callGraphSCCTraversal cg analyzeFunction initialSummary =
   basicCallGraphSCCTraversal cg f initialSummary
   where
@@ -25,10 +26,10 @@ callGraphSCCTraversal cg analyzeFunction initialSummary =
     f [singleComponent] summ = analyzeFunction singleComponent summ
     -- Otherwise, we need to find a fixed-point of the summary over
     -- all of the functions in this SCC.
-    f sccComponents summ =
-      let newSummary = foldr analyzeFunction summ sccComponents
-      in case newSummary == summ of
-        True -> summ
+    f sccComponents summ = do
+      newSummary <- foldM (flip analyzeFunction) summ sccComponents
+      case newSummary == summ of
+        True -> return summ
         False -> f sccComponents newSummary
 
 -- | Traverse the callgraph bottom-up with an accumulator function.
@@ -45,18 +46,21 @@ callGraphSCCTraversal cg analyzeFunction initialSummary =
 --
 -- FIXME: Add a flag that says whether or not to include indirect
 -- function calls
-basicCallGraphSCCTraversal :: CallGraph -- ^ The callgraph
-                              -> ([Function] -> summary -> summary) -- ^ A function to process a strongly-connected component
+basicCallGraphSCCTraversal :: (Monad m)
+                              => CallGraph -- ^ The callgraph
+                              -> ([Function] -> summary -> m summary) -- ^ A function to process a strongly-connected component
                               -> summary -- ^ An initial summary value
-                              -> summary
+                              -> m summary
 basicCallGraphSCCTraversal callgraph f seed =
-  foldr applyAnalysis seed sccList
+  -- Note, have to reverse the list here to process in bottom-up order
+  -- since foldM is a left fold
+  foldM applyAnalysis seed (reverse sccList)
   where
     g = projectDefinedFunctions $ callGraphRepr callgraph
     cg :: Gr [LNode Function] ()
     cg = condense g
     sccList = topsort' cg
-    applyAnalysis component = f (map snd component)
+    applyAnalysis summ component = f (map snd component) summ
 
 projectDefinedFunctions :: Gr CallNode b -> Gr Function b
 projectDefinedFunctions g = nmap unwrap g'

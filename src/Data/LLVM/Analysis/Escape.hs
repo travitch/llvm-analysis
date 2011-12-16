@@ -40,6 +40,7 @@ module Data.LLVM.Analysis.Escape (
   ) where
 
 import Algebra.Lattice
+import Control.Monad.Identity
 import Data.Graph.Inductive hiding ( Gr )
 import Data.GraphViz
 import Data.List ( foldl', mapAccumR )
@@ -181,6 +182,8 @@ escapeGraphAtLocation (ER er) i = case HM.lookup i funcMapping of
 runEscapeAnalysis :: Module -> CallGraph -> EscapeResult
 runEscapeAnalysis m cg = runEscapeAnalysis' m cg (\_ _ -> True)
 
+type EscapeAnalysis = Identity
+
 -- | A variant of @runEscapeAnalysis@ that accepts a function to
 -- provide escape information about arguments for external functions.
 --
@@ -190,16 +193,19 @@ runEscapeAnalysis m cg = runEscapeAnalysis' m cg (\_ _ -> True)
 -- external function.  The @externP ef ix@ should return @True@ if the
 -- @ix@th argument of @ef@ causes the argument to escape.
 runEscapeAnalysis' :: Module -> CallGraph -> (ExternalFunction -> Int -> Bool) -> EscapeResult
-runEscapeAnalysis' m cg externP = moduleSummary
+runEscapeAnalysis' m cg externP =
+  let analysis = callGraphSCCTraversal cg summarizeFunction (ER M.empty)
+  in runIdentity analysis
   where
     globalGraph = buildBaseGlobalGraph m
 
     moduleSummary = callGraphSCCTraversal cg summarizeFunction (ER M.empty)
+    summarizeFunction :: Function -> EscapeResult -> EscapeAnalysis EscapeResult
     summarizeFunction f (ER summ) =
       let s0 = mkInitialGraph globalGraph f
           ed = EscapeData externP summ
           lookupFunc = forwardDataflow ed s0 f
-      in ER $ M.insert f lookupFunc summ
+      in return $ ER $ M.insert f lookupFunc summ
 
 -- | Provide local points-to information for a value @v@:
 --
