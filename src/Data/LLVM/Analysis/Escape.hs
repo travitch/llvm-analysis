@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, BangPatterns, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE ViewPatterns, BangPatterns, TypeSynonymInstances, FlexibleInstances, MultiParamTypeClasses #-}
 -- | This module implements the compositional pointer/escape analysis
 -- described by Whaley and Rinard (http://doi.acm.org/10.1145/320384.320400).
 --
@@ -41,6 +41,7 @@ module Data.LLVM.Analysis.Escape (
 
 import Algebra.Lattice
 import Control.Monad.Identity
+import Control.Monad.Reader
 import Data.Graph.Inductive hiding ( Gr )
 import Data.GraphViz
 import Data.List ( foldl', mapAccumR )
@@ -147,7 +148,7 @@ instance BoundedMeetSemiLattice EscapeGraph where
            , escapeReturns = S.empty
            }
 
-instance DataflowAnalysis EscapeGraph EscapeData where
+instance DataflowAnalysis (Reader EscapeData) EscapeGraph where
   transfer = escapeTransfer
 
 -- | This is a module-internal datatype to represent information that
@@ -204,7 +205,7 @@ runEscapeAnalysis' m cg externP =
     summarizeFunction f (ER summ) =
       let s0 = mkInitialGraph globalGraph f
           ed = EscapeData externP summ
-          lookupFunc = forwardDataflow ed s0 f
+          lookupFunc = runReader (forwardDataflow s0 f) ed
       in return $ ER $ M.insert f lookupFunc summ
 
 -- | Provide local points-to information for a value @v@:
@@ -297,24 +298,23 @@ nodeProperlyEscaped escGr n = any (isGlobalNode g) nodesReachableFrom
 
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
-escapeTransfer :: EscapeData
-                  -> EscapeGraph
+escapeTransfer :: EscapeGraph
                   -> Instruction
                   -> [CFGEdge]
-                  -> EscapeGraph
-escapeTransfer _ eg StoreInst { storeValue = sv, storeAddress = sa } _
+                  -> Reader EscapeData EscapeGraph
+escapeTransfer eg StoreInst { storeValue = sv, storeAddress = sa } _
   | isPointerType sv = updatePTEGraph sv sa eg
-  | otherwise = eg
-escapeTransfer _ eg RetInst { retInstValue = Just rv } _
+  | otherwise = return eg
+escapeTransfer eg RetInst { retInstValue = Just rv } _
   | isPointerType rv = let (eg', targets) = targetNodes eg rv
-                       in eg' { escapeReturns = S.fromList targets }
-  | otherwise = eg
-escapeTransfer _ eg _ _ = eg
+                       in return eg' { escapeReturns = S.fromList targets }
+  | otherwise = return eg
+escapeTransfer eg _ _ = return eg
 
 -- | Add/Remove edges from the PTE graph due to a store instruction
-updatePTEGraph :: Value -> Value -> EscapeGraph -> EscapeGraph
+updatePTEGraph :: Value -> Value -> EscapeGraph -> Reader EscapeData EscapeGraph
 updatePTEGraph sv sa eg =
-  foldl' genEdges egKilled addrNodes
+  return $ foldl' genEdges egKilled addrNodes
   where
     -- First, find the possible target nodes in the graph.  These
     -- operations can add virtual nodes, depending on what other nodes
@@ -381,89 +381,100 @@ isGlobalNode g n = case lbl of
 -- dereferences).
 targetNodes :: EscapeGraph -> Value -> (EscapeGraph, [Node])
 targetNodes eg val =
-  let (g', targets) = targetNodes' val
+  let ((g', _), targets) = targetNodes' ((escapeGraph eg), S.empty) val
   in (eg { escapeGraph = g' }, S.toList targets)
   where
-    g = escapeGraph eg
-    targetNodes' v = case valueContent' v of
-      -- Return the actual *locations* denoted by variable references.
-      ArgumentC a -> (g, S.singleton $ (argumentUniqueId a))
-      GlobalVariableC gv -> (g, S.singleton (globalVariableUniqueId gv))
-      ExternalValueC e -> (g, S.singleton (externalValueUniqueId e))
-      FunctionC f -> (g, S.singleton (functionUniqueId f))
-      ExternalFunctionC e -> (g, S.singleton (externalFunctionUniqueId e))
-      -- The NULL pointer doesn't point to anything
-      ConstantC ConstantPointerNull {} -> (g, S.empty)
-      -- Now deal with the instructions we might see in a memory
-      -- reference.  There are many extras here (beyond just field
-      -- sensitivity): select, phi, etc.
-      InstructionC AllocaInst {} -> (g, S.singleton (valueUniqueId v))
-      InstructionC LoadInst { loadAddress =
-        (valueContent' -> InstructionC i@GetElementPtrInst { getElementPtrValue = base
-                                                           , getElementPtrIndices = idxs
-                                                           }) } ->
-        gepInstTargets i base idxs
-      InstructionC LoadInst { loadAddress =
-        (valueContent' -> ConstantC ConstantValue { constantInstruction =
+    targetNodes' (g, visited) v = case v `S.member` visited of
+      True -> ((g, visited), S.empty)
+      False -> case valueContent' v of
+        -- Return the actual *locations* denoted by variable references.
+        ArgumentC a -> ((g, vis'), S.singleton (argumentUniqueId a))
+        GlobalVariableC gv -> ((g, vis'), S.singleton (globalVariableUniqueId gv))
+        ExternalValueC e -> ((g, vis'), S.singleton (externalValueUniqueId e))
+        FunctionC f -> ((g, vis'), S.singleton (functionUniqueId f))
+        ExternalFunctionC e -> ((g, vis'), S.singleton (externalFunctionUniqueId e))
+        -- The NULL pointer doesn't point to anything
+        ConstantC ConstantPointerNull {} -> ((g, vis'), S.empty)
+        -- Now deal with the instructions we might see in a memory
+        -- reference.  There are many extras here (beyond just field
+        -- sensitivity): select, phi, etc.
+        InstructionC AllocaInst {} -> ((g, vis'), S.singleton (valueUniqueId v))
+        InstructionC LoadInst { loadAddress =
+          (valueContent' -> InstructionC i@GetElementPtrInst { getElementPtrValue = base
+                                                             , getElementPtrIndices = idxs
+                                                             }) } ->
+          gepInstTargets (g, vis') i base idxs
+        InstructionC LoadInst { loadAddress =
+          (valueContent' -> ConstantC ConstantValue { constantInstruction =
+            i@GetElementPtrInst { getElementPtrValue = base
+                                , getElementPtrIndices = idxs
+                                } }) } ->
+          gepInstTargets (g, vis') i base idxs
+
+        -- Follow chains of loads (dereferences).  If there is no
+        -- successor for the current LoadInst, we have a situation like
+        -- a global pointer with no points-to target.  In that case, we
+        -- need to create a virtual location node based on this load.
+        --
+        -- NOTE: check to see if this provides consistent behavior if
+        -- different virtual nodes are chosen for the same logical
+        -- location (e.g., in separate branches of an if statement).
+        InstructionC i@LoadInst { loadAddress = la } ->
+          let ((g', vis''), targets) = targetNodes' (g, vis') la
+              (g'', successors) = mapAccumR (augmentingSuc i) g' (S.toList targets)
+          in ((g'', vis''), S.unions successors)
+        InstructionC i@CallInst { } -> case gelem (valueUniqueId i) g of
+          False -> error "Escape analysis: result of void return used"
+          True -> ((g, vis'), S.singleton (valueUniqueId i))
+        InstructionC SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
+          let ((g', vis''), tTargets) = targetNodes' (g, vis') tv
+              ((g'', vis'''), fTargets) = targetNodes' (g', vis'') fv
+          in ((g'', vis'''), tTargets `S.union` fTargets)
+        InstructionC PhiNode { phiIncomingValues = incoming } ->
+          let ((g', vis''), targets) = mapAccumR targetNodes' (g, vis') (map fst incoming)
+          in ((g', vis''), S.unions targets)
+        -- It is also possible to store into the result of a GEP
+        -- instruction (without a load), so add a case to handle
+        -- un-loaded GEPs.
+        InstructionC i@GetElementPtrInst { getElementPtrValue = base
+                                         , getElementPtrIndices = idxs
+                                         } ->
+          gepInstTargets (g, vis') i base idxs
+        ConstantC ConstantValue { constantInstruction =
           i@GetElementPtrInst { getElementPtrValue = base
                               , getElementPtrIndices = idxs
-                              } }) } ->
-        gepInstTargets i base idxs
+                              } } ->
+          gepInstTargets (g, vis') i base idxs
 
-      -- Follow chains of loads (dereferences).  If there is no
-      -- successor for the current LoadInst, we have a situation like
-      -- a global pointer with no points-to target.  In that case, we
-      -- need to create a virtual location node based on this load.
-      --
-      -- NOTE: check to see if this provides consistent behavior if
-      -- different virtual nodes are chosen for the same logical
-      -- location (e.g., in separate branches of an if statement).
-      InstructionC i@LoadInst { loadAddress = la } ->
-        let (g', targets) = targetNodes' la
-            (g'', successors) = mapAccumR (augmentingSuc i) g' (S.toList targets)
-        in (g'', S.unions successors)
-      InstructionC i@CallInst { } -> case gelem (valueUniqueId i) g of
-        False -> error "Escape analysis: result of void return used"
-        True -> (g, S.singleton (valueUniqueId i))
-      -- It is also possible to store into the result of a GEP
-      -- instruction (without a load), so add a case to handle
-      -- un-loaded GEPs.
-      InstructionC i@GetElementPtrInst { getElementPtrValue = base
-                                       , getElementPtrIndices = idxs
-                                       } ->
-        gepInstTargets i base idxs
-      ConstantC ConstantValue { constantInstruction =
-       i@GetElementPtrInst { getElementPtrValue = base
-                           , getElementPtrIndices = idxs
-                           } } ->
-        gepInstTargets i base idxs
+        _ -> error $ "Escape Analysis unmatched: " ++ show v
+      where
+        vis' = S.insert v visited
 
-      _ -> error $ "Escape Analysis unmatched: " ++ show v
-
-    gepInstTargets :: Instruction -> Value -> [Value] -> (PTEGraph, Set Node)
-    gepInstTargets i base idxs =
+    gepInstTargets :: (PTEGraph, Set Value) -> Instruction -> Value -> [Value]
+                      -> ((PTEGraph, Set Value), Set Node)
+    gepInstTargets (g, vis) i base idxs =
       case idxs of
         [] -> error "Escape analysis: GEP with no indexes"
         [_] ->
-          let (g', targets) = targetNodes' base
+          let ((g', vis'), targets) = targetNodes' (g, vis) base
               (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
-          in (g'', S.unions successors)
+          in ((g'', vis'), S.unions successors)
         -- For this to be a simple field access, the array indexing
         -- offset must be zero and the field index must be some
         -- constant.
         (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
           (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
-            let (g', targets) = targetNodes' base
+            let ((g', vis'), targets) = targetNodes' (g, vis) base
                 baseIsEscaped = valueEscaped eg base
                 accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i baseIsEscaped
                 (g'', successors) = mapAccumR accumF g' (S.toList targets)
-            in (g'', S.unions successors)
+            in ((g'', vis'), S.unions successors)
         -- Otherwise this is something really fancy and we can just
         -- treat it as an array
         _ ->
-          let (g', targets) = targetNodes' base
+          let ((g', vis'), targets) = targetNodes' (g, vis) base
               (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
-          in (g'', S.unions successors)
+          in ((g'', vis'), S.unions successors)
 
 
 getBaseType :: Value -> Type
