@@ -125,22 +125,22 @@ instance Eq EscapeGraph where
                (escapeGraph eg1 `geq` escapeGraph eg2)
 
 instance MeetSemiLattice EscapeGraph where
-  meet eg1 eg2 = EG { escapeGraph = g'
+  meet eg1 eg2 = EG { escapeGraph = g''
                     , escapeCalleeMap = ecm
                     , escapeReturns = er
                     }
     where
       ecm = M.unionWith S.union (escapeCalleeMap eg1) (escapeCalleeMap eg2)
       er = escapeReturns eg1 `S.union` escapeReturns eg2
-      e1 = S.fromList $ labEdges (escapeGraph eg1) -- FIXME: Need to
-                                                   -- merge nodes too
-                                                   -- now that we add
-                                                   -- new virtual
-                                                   -- nodes
+      e1 = S.fromList $ labEdges (escapeGraph eg1)
       e2 = S.fromList $ labEdges (escapeGraph eg2)
+      n1 = S.fromList $ labNodes (escapeGraph eg1)
+      n2 = S.fromList $ labNodes (escapeGraph eg2)
       newEs = S.toList $ e2 \\ e1
+      newNs = S.toList $ n2 \\ n1
       -- Insert new edges from eg2 into eg1
-      g' = insEdges newEs (escapeGraph eg1)
+      g' = insNodes newNs (escapeGraph eg1)
+      g'' = insEdges newEs g'
 
 instance BoundedMeetSemiLattice EscapeGraph where
   top = EG { escapeGraph = mkGraph [] []
