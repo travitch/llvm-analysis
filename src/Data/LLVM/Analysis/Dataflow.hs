@@ -52,12 +52,11 @@ import Data.LLVM.Internal.Worklist
 -- be stored redundantly in every dataflow fact.  If this parameter is
 -- not needed, it can safely be instantiated as () (and subsequently
 -- ignored).
-class BoundedMeetSemiLattice a => DataflowAnalysis a c where
-  transfer :: c -- ^ Global (to the analysis) constant data
-              -> a -- ^ The incoming analysis state
+class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
+  transfer :: a -- ^ The incoming analysis state
               -> Instruction -- ^ The instruction being analyzed
               -> [CFGEdge] -- ^ Incoming CFG edges
-              -> a
+              -> m a
   -- ^ The transfer function of this analysis.  It is given any global
   -- constant data, the current set of facts, the current instruction,
   -- and a list of incoming edges.
@@ -65,27 +64,25 @@ class BoundedMeetSemiLattice a => DataflowAnalysis a c where
 
 -- | Perform a forward dataflow analysis of the given type over a
 -- function or CFG.
-forwardDataflow :: (Eq a, DataflowAnalysis a c, HasCFG b)
-                   => c -- ^ Constant data available to the transfer function
-                   -> a -- ^ The initial state of the analysis to run
+forwardDataflow :: (Eq a, DataflowAnalysis m a, HasCFG b)
+                   => a -- ^ The initial state of the analysis to run
                    -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
-                   -> HashMap Instruction a
-forwardDataflow = dataflowAnalysis lpre lsuc cfgExitNode
+                   -> m (HashMap Instruction a)
+forwardDataflow = dataflowAnalysis lpre lsuc
 
 -- | Perform a backward dataflow analysis of the given type over a
 -- function or CFG.
-backwardDataflow :: (Eq a, DataflowAnalysis a c, HasCFG b)
-                    => c -- ^ Constant data available to the transfer function
-                    -> a -- ^ The initial state of the analysis to run
+backwardDataflow :: (Eq a, DataflowAnalysis m a, HasCFG b)
+                    => a -- ^ The initial state of the analysis to run
                     -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
-                    -> HashMap Instruction a
-backwardDataflow = dataflowAnalysis lsuc lpre cfgEntryNode
+                    -> m (HashMap Instruction a)
+backwardDataflow = dataflowAnalysis lsuc lpre
 
-dataflowAnalysis :: (Eq a, DataflowAnalysis a c, HasCFG b) =>
-                    (CFGType -> Node -> [(Node, CFGEdge)]) ->
-                    (CFGType -> Node -> [(Node, CFGEdge)]) ->
-                    (CFG -> Node) -> c -> a -> b -> HashMap Instruction a
-dataflowAnalysis predFunc succFunc finalNodeFunc constData analysis f =
+dataflowAnalysis :: (Eq a, DataflowAnalysis m a, HasCFG b)
+                    => (CFGType -> Node -> [(Node, CFGEdge)])
+                    -> (CFGType -> Node -> [(Node, CFGEdge)])
+                    -> a -> b -> m (HashMap Instruction a)
+dataflowAnalysis predFunc succFunc analysis f =
   dataflow initialWorklist initialStates
   where
     cfgWrapper = getCFG f
@@ -102,7 +99,7 @@ dataflowAnalysis predFunc succFunc finalNodeFunc constData analysis f =
     -- | If there is nothing left in the worklist, return the facts
     -- associated with the exit node.
     dataflow work facts = case takeWorkItem work of
-      EmptyWorklist -> facts
+      EmptyWorklist -> return facts
       inst :< rest -> processNode inst rest facts
 
     lookupFact facts inst = case M.lookup inst facts of
@@ -112,21 +109,23 @@ dataflowAnalysis predFunc succFunc finalNodeFunc constData analysis f =
     -- | Apply the transfer function to this node.  If the result is
     -- different than the current fact, add all successors to the
     -- worklist.
-    processNode inst work outputFacts = case outputFact == lastOutputFact of
-      -- No change, don't add successors
-      True -> dataflow work outputFacts
-      -- Facts changed, update map and add successors
-      False -> dataflow work' outputFacts'
+    processNode inst work outputFacts = do
+      outputFact <- transfer inputFact inst incomingEdges
+      -- Updated worklist and facts
+      let outputFacts' = M.insert inst outputFact outputFacts
+          succNodes = succFunc cfg (instructionUniqueId inst)
+          justIds = fst $ unzip succNodes
+          work' = addWorkItems (map value justIds) work
+
+
+
+      case outputFact == lastOutputFact of
+        -- No change, don't add successors
+        True -> dataflow work outputFacts
+        -- Facts changed, update map and add successors
+        False -> dataflow work' outputFacts'
       where
-        outputFact = transfer constData inputFact inst incomingEdges
         lastOutputFact = lookupFact outputFacts inst
-
-        -- Updated worklist and facts
-        work' = let succNodes = succFunc cfg (instructionUniqueId inst)
-                    justIds = fst $ unzip succNodes
-                in addWorkItems (map value justIds) work
-        outputFacts' = M.insert inst outputFact outputFacts
-
         (preds, incomingEdges) = unzip $ predFunc cfg (instructionUniqueId inst)
         inputFact = case map value preds of
           -- For the entry node, the input facts never change and we
