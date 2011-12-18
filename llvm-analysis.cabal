@@ -36,7 +36,8 @@ library
                    Data.LLVM.CFG,
                    Data.LLVM.ICFG,
                    Data.LLVM.Testing,
-                   Data.LLVM.Visualization
+                   Data.LLVM.Visualization,
+                   Data.TransitiveClosure
   other-modules: Data.LLVM.Internal.Condense,
                  Data.LLVM.Internal.ImperativeGraph,
                  Data.LLVM.Internal.PatriciaTree,
@@ -88,6 +89,14 @@ test-suite IFDSTests
   main-is: INullPtrs.hs
   hs-source-dirs: tests
 
+test-suite TransClosTests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  build-depends: base > 3 && < 5, containers, llvm-analysis,
+                 test-framework, test-framework-hunit, HUnit
+  ghc-options: -Wall
+  main-is: TransClosTests.hs
+  hs-source-dirs: tests
 
 -- executable ParserDriver
 --   default-language: Haskell2010

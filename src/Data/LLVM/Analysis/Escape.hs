@@ -61,6 +61,11 @@ import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.Dataflow
 import Data.LLVM.Internal.PatriciaTree
 
+import Data.TransitiveClosure
+
+import Debug.Trace
+debug = flip trace
+
 -- | The types of nodes in the graph
 data EscapeNode = VariableNode { escapeNodeValue :: !Value }
                 | OParameterNode { escapeNodeValue :: !Value }
@@ -465,7 +470,7 @@ targetNodes eg val =
         (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
           (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
             let ((g', vis'), targets) = targetNodes' (g, vis) base
-                baseIsEscaped = valueEscaped eg base
+                baseIsEscaped = valueEscaped eg base `debug` ("Base escaped?: " ++ show base)
                 accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i baseIsEscaped
                 (g'', successors) = mapAccumR accumF g' (S.toList targets)
             in ((g'', vis'), S.unions successors)
@@ -475,6 +480,29 @@ targetNodes eg val =
           let ((g', vis'), targets) = targetNodes' (g, vis) base
               (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
           in ((g'', vis'), S.unions successors)
+
+-- Above in gepInstTargets, the crash in baseIsEscaped is because
+-- there is no explicit node in the graph for PHI (or Select)
+-- instructions.  The check should really be over all possible phi
+-- targets.
+--
+-- This pattern probably needs to be generalized throughout the
+-- analysis....
+
+-- FIXME: Filter out Phi instructions?  It is easiest to do that as a
+-- post-processing step than to handle it in the algorithm itself.
+possibleValues :: Value -> [Value]
+possibleValues = S.toList . markVisited pvs
+  where
+    pvs val =
+      case valueContent val of
+        InstructionC SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
+          S.fromList [ tv, fv ]
+        InstructionC PhiNode { phiIncomingValues = inc } ->
+          S.fromList (map fst inc)
+        InstructionC BitcastInst { castedValue = cv } ->
+          S.fromList [cv, val]
+        _ -> S.singleton val
 
 
 getBaseType :: Value -> Type
