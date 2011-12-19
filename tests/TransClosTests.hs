@@ -42,12 +42,12 @@ instance Hashable Value where
   hash (Phi i _) = i
 
 tester :: Value -> Set Int
-tester = S.map valueId . markVisited tester' . S.singleton
+tester = S.fromList . map valueId . markVisited tester' . (:[])
   where
     tester' v =
       case v of
-        Global _ -> S.singleton v
-        Phi _ vs -> S.fromList vs
+        Global _ -> [v] -- S.singleton v
+        Phi _ vs -> vs -- S.fromList vs
 
 test1 :: Assertion
 test1 = assertEqual "test1" expected (tester v)

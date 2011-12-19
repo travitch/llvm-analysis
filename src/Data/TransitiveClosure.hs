@@ -16,6 +16,12 @@ import qualified Data.HashSet as S
 -- seed value, apply @f@ to the seed and transitively to all of the
 -- results of that application, collecting all of the intermediate and
 -- final results into some Foldable container.
+--
+-- While this can be used with any foldable monoid, Data.Set seems to
+-- be a poor choice.  The calls to mappend create large thunk chains
+-- that explode eventually.  Lists, HashSets, and Sequences fare
+-- better.  A strict Set would be fine, but there is not yet one in
+-- the standard library.
 markVisited :: forall a t . (Hashable a, Eq a, Foldable t, Monoid (t a)) => (a -> t a) -> t a -> t a
 markVisited f as = mappend as $ snd $ (foldMap (mark' S.empty) as)
   where
