@@ -491,18 +491,24 @@ targetNodes eg val =
 
 -- FIXME: Filter out Phi instructions?  It is easiest to do that as a
 -- post-processing step than to handle it in the algorithm itself.
+
+
 possibleValues :: Value -> [Value]
-possibleValues = S.toList . markVisited pvs
+possibleValues = filter notMultiInst . markVisited pvs . (:[])
   where
+    notMultiInst val = case valueContent val of
+      InstructionC SelectInst {} -> False
+      InstructionC PhiNode {} -> False
+      _ -> True
     pvs val =
       case valueContent val of
         InstructionC SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
-          S.fromList [ tv, fv ]
+          [ tv, fv ]
         InstructionC PhiNode { phiIncomingValues = inc } ->
-          S.fromList (map fst inc)
+          (map fst inc)
         InstructionC BitcastInst { castedValue = cv } ->
-          S.fromList [cv, val]
-        _ -> S.singleton val
+          [cv, val]
+        _ -> [val]
 
 
 getBaseType :: Value -> Type
