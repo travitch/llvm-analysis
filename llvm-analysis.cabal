@@ -92,9 +92,9 @@ test-suite IFDSTests
 test-suite TransClosTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
-  build-depends: base > 3 && < 5, containers, llvm-analysis,
-                 test-framework, test-framework-hunit, HUnit
-  ghc-options: -Wall
+  build-depends: base > 3 && < 5, containers, llvm-analysis, unordered-containers,
+                 test-framework, test-framework-hunit, HUnit, hashable
+  ghc-options: -Wall -rtsopts
   main-is: TransClosTests.hs
   hs-source-dirs: tests
 

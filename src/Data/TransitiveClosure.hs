@@ -5,7 +5,7 @@ module Data.TransitiveClosure ( markVisited ) where
 import Prelude hiding ( notElem )
 
 import Data.Foldable ( Foldable, notElem, toList, foldMap )
---import Data.List ( mapAccumR )
+import Data.List ( foldl' )
 import Data.Monoid
 import Data.Hashable
 import Data.HashSet ( HashSet )
@@ -26,24 +26,8 @@ markVisited f as = mappend as $ snd $ (foldMap (mark' S.empty) as)
           unvisited = filter (`notElem` vis') (toList newVals)
       in case length unvisited of
         0 -> (vis', mempty)
-        _ -> followChildren vis' unvisited newVals
-    followChildren :: HashSet a -> [a] -> t a -> (HashSet a, t a)
-    followChildren visited unvisited newVals =
-      let (vis', transVals) = mapAccumL mark' visited unvisited
-          flatVals = mconcat transVals
-      in (vis', newVals `mappend` flatVals)
-
-x = foldl f
-  where
-    f (vis, vals) a =
-      let (vis', newVals) = mark' vis a
-      in (vis', vals `mappend` newVals)
--- mapAccumL :: (acc -> x -> (acc, y))
---              -> acc            -- Initial accumulator
---              -> [x]            -- Input list
---              -> (acc, [y])     -- Final accumulator and result list
-mapAccumL _ !s []        =  (s, [])
-mapAccumL f !s (x:xs)    =  (s'',y:ys)
-  where
-    (s', y ) = f s x
-    (s'',ys) = mapAccumL f s' xs
+        _ -> foldl' applyMark (vis', newVals) unvisited
+    applyMark (!vis, !vals) a =
+      let (!vis', !newVals) = mark' vis a
+          allVals = vals `mappend` newVals
+      in (S.size vis' `seq` allVals `seq` vis', allVals)
