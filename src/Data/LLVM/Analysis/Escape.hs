@@ -42,6 +42,7 @@ module Data.LLVM.Analysis.Escape (
 import Algebra.Lattice
 import Control.Monad.Identity
 import Control.Monad.Reader
+import qualified Data.Foldable as F
 import Data.Graph.Inductive hiding ( Gr )
 import Data.GraphViz
 import Data.List ( foldl', mapAccumR )
@@ -73,18 +74,18 @@ data EscapeNode = VariableNode { escapeNodeValue :: !Value }
                 | OReturnNode { escapeNodeValue :: !Value }
                 | INode { escapeNodeValue :: !Value } -- Allocas and allocators
                 | IVirtual { escapeNodeValue :: !Value }
-                deriving (Eq, Ord)
+                deriving (Eq, Ord, Show)
 
 data AccessType = Direct
                 | Array
                 | Field !Int !Type
-                deriving (Eq, Ord)
+                deriving (Eq, Ord, Show)
 
 -- | Edges labels for the points-to escape graph.  These differentiate
 -- between internal and external edges.
 data EscapeEdge = IEdge !AccessType
                 | OEdge !AccessType
-                deriving (Eq, Ord)
+                deriving (Eq, Ord, Show)
 
 -- | A type synonym for the underlying points-to escape graph
 type PTEGraph = Gr EscapeNode EscapeEdge
@@ -470,7 +471,9 @@ targetNodes eg val =
         (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
           (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
             let ((g', vis'), targets) = targetNodes' (g, vis) base
-                baseIsEscaped = valueEscaped eg base `debug` ("Base escaped?: " ++ show base)
+                -- baseIsEscaped = valueEscaped eg base `debug` ("Base escaped?: " ++ show base)
+                -- baseIsEscaped = nodeEscaped g' (valueUniqueId base) `debug` ("Base escaped?: " ++ show base)
+                baseIsEscaped = F.any (nodeEscaped g') targets
                 accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i baseIsEscaped
                 (g'', successors) = mapAccumR accumF g' (S.toList targets)
             in ((g'', vis'), S.unions successors)
@@ -554,7 +557,8 @@ augmentingSuc i g tgt = case directSucs of
   [] -> addVirtual (IEdge Direct) i g tgt
   _ -> (g, S.fromList directSucs)
   where
-    directSucs = map fst $ filter isDirectSuc $ lsuc g tgt
+    labeledSucs = lsuc g tgt
+    directSucs = map fst $ filter isDirectSuc labeledSucs
 
 isDirectSuc :: (Node, EscapeEdge) -> Bool
 isDirectSuc (_, IEdge Direct) = True
