@@ -40,19 +40,21 @@ module Data.LLVM.Analysis.Escape (
   ) where
 
 import Algebra.Lattice
+import Control.DeepSeq
 import Control.Monad.Identity
-import Control.Monad.Reader
+import Control.Monad.RWS.Strict
 import qualified Data.Foldable as F
 import Data.Graph.Inductive hiding ( Gr )
 import Data.GraphViz
 import Data.List ( foldl', mapAccumR )
 import Data.Map ( Map )
 import qualified Data.Map as M
-import Data.Set ( Set, (\\) )
+import Data.Set ( Set )
 import qualified Data.Set as S
 import Data.Hashable
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
+import Data.HashSet ( HashSet )
 import qualified Data.HashSet as HS
 
 import Data.LLVM
@@ -76,25 +78,37 @@ data EscapeNode = VariableNode { escapeNodeValue :: !Value }
                 | IVirtual { escapeNodeValue :: !Value }
                 deriving (Eq, Ord, Show)
 
+-- Don't need to define an instance here because the field is already strict
+instance NFData EscapeNode
+
 data AccessType = Direct
                 | Array
                 | Field !Int !Type
                 deriving (Eq, Ord, Show)
+instance NFData AccessType
 
 -- | Edges labels for the points-to escape graph.  These differentiate
 -- between internal and external edges.
 data EscapeEdge = IEdge !AccessType
                 | OEdge !AccessType
                 deriving (Eq, Ord, Show)
+instance NFData EscapeEdge
 
 -- | A type synonym for the underlying points-to escape graph
 type PTEGraph = Gr EscapeNode EscapeEdge
 
+data EscapeGraphId = GrUID !Int -- ^ A unique ID generated for a
+                                -- specific graph after it is modified
+                                -- by the transfer function
+                   | GrCompId !(HashSet Int) -- ^ A composite ID created by meeting graphs
+                   deriving (Eq, Show)
+
 -- | The escape graph that is constructed for each program point.
 -- They should all share considerable structure.
 data EscapeGraph = EG { escapeGraph :: !PTEGraph
-                      , escapeCalleeMap :: !(Map Node (Set Instruction))
-                      , escapeReturns :: !(Set Node)
+                      , escapeGraphId :: !EscapeGraphId
+                      , escapeCalleeMap :: !(Map Node (HashSet Instruction))
+                      , escapeReturns :: !(HashSet Node)
                       }
 
 instance Hashable EscapeEdge where
@@ -116,6 +130,7 @@ instance Hashable EscapeNode where
 
 -- | Internal graph equality test that doesn't require sorting lists.
 -- It could be less efficient, but it is at least strict enough.
+{-
 geq :: (Eq a, Eq b, Hashable a, Hashable b, Graph gr1, Graph gr2)
        => gr1 a b -> gr2 a b -> Bool
 geq !g1 !g2 = ns1 == ns2 && es1 == es2
@@ -124,37 +139,66 @@ geq !g1 !g2 = ns1 == ns2 && es1 == es2
     ns2 = HS.fromList (labNodes g2)
     es1 = HS.fromList (labEdges g1)
     es2 = HS.fromList (labEdges g2)
+-}
+
+-- This instance only forces the graph.  The other components are
+-- sufficiently strict.
+instance NFData EscapeGraph where
+  rnf EG { escapeGraph = g } = g `deepseq` ()
 
 instance Eq EscapeGraph where
-  (==) !eg1 !eg2 = escapeReturns eg1 == escapeReturns eg2 &&
-               escapeCalleeMap eg1 == escapeCalleeMap eg2 &&
-               (escapeGraph eg1 `geq` escapeGraph eg2)
+  (==) !eg1 !eg2 = escapeGraphId eg1 == escapeGraphId eg2 &&
+                   escapeReturns eg1 == escapeReturns eg2 &&
+                   escapeCalleeMap eg1 == escapeCalleeMap eg2
 
+meetGraphId :: EscapeGraphId -> EscapeGraphId -> EscapeGraphId
+meetGraphId (GrUID i1) (GrUID i2) = GrCompId (HS.fromList [i1, i2])
+meetGraphId (GrUID i1) (GrCompId ids) = GrCompId (HS.insert i1 ids)
+meetGraphId (GrCompId ids) (GrUID i2) = GrCompId (HS.insert i2 ids)
+meetGraphId (GrCompId ids1) (GrCompId ids2) = GrCompId (HS.union ids1 ids2)
+
+-- The state isn't available here so we can't really generate a new
+-- graph ID.  Just let it be -1...
 instance MeetSemiLattice EscapeGraph where
-  meet eg1 eg2 = EG { escapeGraph = g''
+  meet eg1 eg2 = EG { escapeGraph = force g''
+                    , escapeGraphId = nid
                     , escapeCalleeMap = ecm
                     , escapeReturns = er
                     }
     where
-      ecm = M.unionWith S.union (escapeCalleeMap eg1) (escapeCalleeMap eg2)
-      er = escapeReturns eg1 `S.union` escapeReturns eg2
-      e1 = S.fromList $ labEdges (escapeGraph eg1)
-      e2 = S.fromList $ labEdges (escapeGraph eg2)
-      n1 = S.fromList $ labNodes (escapeGraph eg1)
-      n2 = S.fromList $ labNodes (escapeGraph eg2)
-      newEs = S.toList $ e2 \\ e1
-      newNs = S.toList $ n2 \\ n1
+      nid = escapeGraphId eg1 `meetGraphId` escapeGraphId eg2
+      ecm = M.unionWith HS.union (escapeCalleeMap eg1) (escapeCalleeMap eg2)
+      er = escapeReturns eg1 `HS.union` escapeReturns eg2
+      newEs = newFeatures eg1 eg2 labEdges
+      newNs = newFeatures eg1 eg2 labNodes
+
       -- Insert new edges from eg2 into eg1
-      g' = insNodes newNs (escapeGraph eg1)
+      g' = insNodes newNs (escapeGraph eg1) `debug` show nid
       g'' = insEdges newEs g'
+
+newFeatures :: (Eq a, Hashable a) => EscapeGraph -> EscapeGraph -> (PTEGraph -> [a]) -> [a]
+newFeatures eg1 eg2 selector = HS.toList $ f2 `HS.difference` f1
+  where
+    l1 = selector (escapeGraph eg1)
+    l2 = selector (escapeGraph eg2)
+    f1 = HS.fromList l1
+    f2 = HS.fromList l2
 
 instance BoundedMeetSemiLattice EscapeGraph where
   top = EG { escapeGraph = mkGraph [] []
+           , escapeGraphId = GrUID 0
            , escapeCalleeMap = M.empty
-           , escapeReturns = S.empty
+           , escapeReturns = HS.empty
            }
 
-instance DataflowAnalysis (Reader EscapeData) EscapeGraph where
+data EscapeState = EscapeState { graphIdSource :: !Int
+                               , incomingGraphs :: HashMap Instruction EscapeGraphId
+                               , lastOutputGraphs :: HashMap Instruction EscapeGraph
+                               }
+type EscapeAnalysis = RWS EscapeData () EscapeState
+
+
+instance DataflowAnalysis EscapeAnalysis EscapeGraph where
   transfer = escapeTransfer
 
 -- | This is a module-internal datatype to represent information that
@@ -189,8 +233,6 @@ escapeGraphAtLocation (ER er) i = case HM.lookup i funcMapping of
 runEscapeAnalysis :: Module -> CallGraph -> EscapeResult
 runEscapeAnalysis m cg = runEscapeAnalysis' m cg (\_ _ -> True)
 
-type EscapeAnalysis = Identity
-
 -- | A variant of @runEscapeAnalysis@ that accepts a function to
 -- provide escape information about arguments for external functions.
 --
@@ -207,12 +249,18 @@ runEscapeAnalysis' m cg externP =
     globalGraph = buildBaseGlobalGraph m
 
     moduleSummary = callGraphSCCTraversal cg summarizeFunction (ER M.empty)
-    summarizeFunction :: Function -> EscapeResult -> EscapeAnalysis EscapeResult
+    -- | This is the sub-analysis applied to each function
+    -- individually.  Note that each instance of the sub-analysis gets
+    -- a new EscapeData and EscapeState.  The state is fresh each time
+    -- because the analyses are separate and the data is separate
+    -- because the summaries are updated each invocation.
+    summarizeFunction :: Function -> EscapeResult -> Identity EscapeResult
     summarizeFunction f (ER summ) =
       let s0 = mkInitialGraph globalGraph f
           ed = EscapeData externP summ
-          lookupFunc = runReader (forwardDataflow s0 f) ed
-      in return $ ER $ M.insert f lookupFunc summ
+          es = EscapeState 1 HM.empty HM.empty
+          (perInstLookupTable, ()) = evalRWS (forwardDataflow s0 f) ed es
+      in return $ ER $ M.insert f perInstLookupTable summ
 
 -- | Provide local points-to information for a value @v@:
 --
@@ -263,12 +311,12 @@ valueProperlyEscaped eg v = nodeProperlyEscaped (escapeGraph eg) (valueUniqueId 
 -- | The value will escape from the current context when the function
 -- returns (i.e., through the return value).
 valueWillEscape :: EscapeGraph -> Value -> Bool
-valueWillEscape eg v = S.member n escapingNodes
+valueWillEscape eg v = HS.member n escapingNodes
   where
     n = valueUniqueId v
     g = escapeGraph eg
-    erList = S.toList (escapeReturns eg)
-    escapingNodes = escapeReturns eg `S.union` S.fromList (dfs erList g)
+    erList = HS.toList (escapeReturns eg)
+    escapingNodes = escapeReturns eg `HS.union` HS.fromList (dfs erList g)
 
 -- | From the base value @v@, follow the edge for the provided
 -- @accessType@.  AccessTypes describe either array accesses or field
@@ -302,59 +350,136 @@ nodeProperlyEscaped escGr n = any (isGlobalNode g) nodesReachableFrom
     (_, g) = match (-n) escGr
     nodesReachableFrom = filter (/= n) $ rdfs [n] g
 
+-- data EscapeState = EscapeState { graphIdSource :: !Int
+--                                , incomingGraphs :: HashMap Instruction EscapeGraphId
+--                                , lastOutputGraphs :: HashMap Instruction EscapeGraph
+--                                }
+
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
 escapeTransfer :: EscapeGraph
                   -> Instruction
                   -> [CFGEdge]
-                  -> Reader EscapeData EscapeGraph
-escapeTransfer eg StoreInst { storeValue = sv, storeAddress = sa } _
-  | isPointerType sv = updatePTEGraph sv sa eg
-  | otherwise = return eg
-escapeTransfer eg RetInst { retInstValue = Just rv } _
-  | isPointerType rv = let (eg', targets) = targetNodes eg rv
-                       in return eg' { escapeReturns = S.fromList targets }
-  | otherwise = return eg
-escapeTransfer eg _ _ = return eg
+                  -> EscapeAnalysis EscapeGraph
+escapeTransfer eg i _ = do
+  s <- get
+  let prevIncGraph = HM.lookup i (incomingGraphs s)
+      lastOutput = HM.lookup i (lastOutputGraphs s)
+  case maybe False (escapeGraphId eg==) prevIncGraph of
+    -- If the input graph is the same as the last one we saw for this
+    -- instruction, the output must be the same and we don't have to
+    -- even try to change the graph at all.  It might be nice to push
+    -- this logic into the dataflow analysis library, but it isn't
+    -- obviously correct for every analysis (especially considering
+    -- that analyses can be run inside of arbitrary monads).
+    True -> do
+      let Just lastOutput' = lastOutput
+      return lastOutput'
+    False -> do
+      newGraph <- case i of
+        StoreInst { storeValue = sv, storeAddress = sa } ->
+          case isPointerType sv of
+            True -> updatePTEGraph sv sa eg >>= (return . force)
+            False -> return eg
+        RetInst { retInstValue = Just rv } ->
+          case isPointerType rv of
+            True -> do
+              (eg', targets) <- targetNodes eg rv
+              return $!! eg' { escapeReturns = HS.fromList targets }
+            False -> return eg
+        _ -> return eg
+      s' <- get
+      put s' { incomingGraphs = HM.insert i (escapeGraphId eg) (incomingGraphs s')
+             , lastOutputGraphs = HM.insert i newGraph (lastOutputGraphs s')
+             }
+      return newGraph
+
+-- FIXME: As it stands, this falls into infinite recursion in the
+-- presence of loops.  The underlying problem is that, despite the
+-- unique IDs, the transfer function can't tell if the graph it
+-- produced is different from the last iteration.
+--
+-- One fix here is that we could build up a "graph change descriptor"
+-- and compare that against the last change descriptor.  If they are
+-- equal AND the incoming graph IDs are the same, then the output
+-- graph will be the same and we don't need to do any work.  This will
+-- require a major restructuring to return the list of removed/new
+-- edges/nodes.
+
+{-
+escapeTransfer !eg StoreInst { storeValue = sv, storeAddress = sa } _
+  | isPointerType sv = updatePTEGraph sv sa eg >>= (return . force)
+  | otherwise = return $!! eg
+escapeTransfer !eg RetInst { retInstValue = Just rv } _
+  | isPointerType rv = do
+    (eg', targets) <- targetNodes eg rv
+    return $!! eg' { escapeReturns = HS.fromList targets }
+  | otherwise = return $!! eg
+escapeTransfer !eg _ _ = return $!! eg
+-}
 
 -- | Add/Remove edges from the PTE graph due to a store instruction
-updatePTEGraph :: Value -> Value -> EscapeGraph -> Reader EscapeData EscapeGraph
-updatePTEGraph sv sa eg =
-  return $ foldl' genEdges egKilled addrNodes
-  where
-    -- First, find the possible target nodes in the graph.  These
-    -- operations can add virtual nodes, depending on what other nodes
-    -- are dereferenced and what they point to.
-    (eg', valueNodes) = targetNodes eg sv
-    (eg'', addrNodes) = targetNodes eg' sa
+updatePTEGraph :: Value -> Value -> EscapeGraph -> EscapeAnalysis EscapeGraph
+updatePTEGraph sv sa !eg = do
+  -- First, find the possible target nodes in the graph.  These
+  -- operations can add virtual nodes, depending on what other nodes
+  -- are dereferenced and what they point to.
+  (eg', valueNodes) <- targetNodes eg sv
+  (eg'', addrNodes) <- targetNodes eg' sa
+  egKilled <- killModifiedLocalEdges eg'' addrNodes
+  foldM (genEdges valueNodes) egKilled addrNodes
+--  where
 
 
-    egKilled = killModifiedLocalEdges eg'' addrNodes
-    -- | Add edges from addrNode to all of the valueNodes.  If
-    -- addrNode is global, do NOT kill its current edges.  If it is
-    -- local, kill the current edges.
-    genEdges escGr addrNode =
-      foldl' (addEdge addrNode) escGr valueNodes
+--    egKilled = killModifiedLocalEdges eg'' addrNodes
+-- | Add edges from addrNode to all of the valueNodes.  If
+-- addrNode is global, do NOT kill its current edges.  If it is
+-- local, kill the current edges.
+genEdges :: [Node] -> EscapeGraph -> Node -> EscapeAnalysis EscapeGraph
+genEdges valueNodes !escGr addrNode =
+  case valueNodes of
+    [] -> return escGr
+    _ -> do
+      let newEdges = map (\vnode -> (addrNode, vnode, IEdge Direct)) valueNodes
+          g = escapeGraph escGr
+      gid <- nextGraphId
+      return $! escGr { escapeGraph = length newEdges `seq` insEdges newEdges g
+                      , escapeGraphId = gid
+                      }
 
-addEdge :: Node -> EscapeGraph -> Node -> EscapeGraph
-addEdge addrNode eg valueNode =
+--      foldl' (addEdge addrNode) escGr valueNodes
+{-
+addEdge :: Node -> EscapeGraph -> Node -> EscapeAnalysis EscapeGraph
+addEdge addrNode eg valueNode = do
+  gid <- nextGraphId
   eg { escapeGraph = insEdge (addrNode, valueNode, IEdge Direct) g }
   where
     g = escapeGraph eg
+-}
 
 -- | Given an EscapeGraph @eg@ and a list of location nodes, kill all
 -- of the edges from the *local* locations.  Note that this returns a
 -- bare PTE graph instead of the wrapped dataflow fact.
-killModifiedLocalEdges :: EscapeGraph -> [Node] -> EscapeGraph
-killModifiedLocalEdges eg addrNodes = eg { escapeGraph = g' }
+killModifiedLocalEdges :: EscapeGraph -> [Node] -> EscapeAnalysis EscapeGraph
+killModifiedLocalEdges !eg addrNodes =
+  case addrNodes of
+    [] -> return eg
+    _ ->
+      case changed of
+        False -> return eg
+        True -> do
+          gid <- nextGraphId
+          return $! eg { escapeGraph = g'
+                       , escapeGraphId = gid
+                       }
   where
-    g' = foldl' killLocalEdges (escapeGraph eg) addrNodes
+    (g', changed) = foldl' killLocalEdges ((escapeGraph eg), False) addrNodes
 
-killLocalEdges :: PTEGraph -> Node -> PTEGraph
-killLocalEdges escGr n =
-  case nodeEscaped escGr n || isNotSingularNode escGr n of
-    True -> escGr
-    False -> delEdges es escGr
+killLocalEdges :: (PTEGraph, Bool) -> Node -> (PTEGraph, Bool)
+killLocalEdges (!escGr, !changed) n =
+  case nodeEscaped escGr n || isNotSingularNode escGr n || null es of
+    True -> (escGr, changed)
+    False -> (delEdges es escGr, True)
   where
     es = map unLabel $ out escGr n
     unLabel (s, d, _) = (s, d)
@@ -367,6 +492,7 @@ killLocalEdges escGr n =
 -- Non-singular values cannot be updated strongly.
 --
 -- FIXME: This is a stub for now and should be filled in.
+isNotSingularNode :: PTEGraph -> Node -> Bool
 isNotSingularNode _ _ = False
 
 -- If storing to a global node, do NOT kill the edges from it.  Edges
@@ -385,37 +511,42 @@ isGlobalNode g n = case lbl of
 
 -- | Find the nodes that are pointed to by a Value (following pointer
 -- dereferences).
-targetNodes :: EscapeGraph -> Value -> (EscapeGraph, [Node])
+targetNodes :: EscapeGraph -> Value -> EscapeAnalysis (EscapeGraph, [Node])
 targetNodes eg val =
-  let ((g', _), targets) = targetNodes' ((escapeGraph eg), S.empty) val
-  in (eg { escapeGraph = g' }, S.toList targets)
+  let ((!g', _, !modified), !targets) = targetNodes' ((escapeGraph eg), HS.empty, False) val
+  in case modified of
+    True -> do
+      gid <- nextGraphId
+      return $! (eg { escapeGraph = g', escapeGraphId = gid}, HS.toList targets)
+    False -> return $! (eg, HS.toList targets)
+--  (eg { escapeGraph = g' }, S.toList targets)
   where
-    targetNodes' (g, visited) v = case v `S.member` visited of
-      True -> ((g, visited), S.empty)
+    targetNodes' (!g, !visited, !modified) v = case v `HS.member` visited of
+      True -> ((g, visited, modified), HS.empty)
       False -> case valueContent' v of
         -- Return the actual *locations* denoted by variable references.
-        ArgumentC a -> ((g, vis'), S.singleton (argumentUniqueId a))
-        GlobalVariableC gv -> ((g, vis'), S.singleton (globalVariableUniqueId gv))
-        ExternalValueC e -> ((g, vis'), S.singleton (externalValueUniqueId e))
-        FunctionC f -> ((g, vis'), S.singleton (functionUniqueId f))
-        ExternalFunctionC e -> ((g, vis'), S.singleton (externalFunctionUniqueId e))
+        ArgumentC a -> ((g, vis', modified), HS.singleton (argumentUniqueId a))
+        GlobalVariableC gv -> ((g, vis', modified), HS.singleton (globalVariableUniqueId gv))
+        ExternalValueC e -> ((g, vis', modified), HS.singleton (externalValueUniqueId e))
+        FunctionC f -> ((g, vis', modified), HS.singleton (functionUniqueId f))
+        ExternalFunctionC e -> ((g, vis', modified), HS.singleton (externalFunctionUniqueId e))
         -- The NULL pointer doesn't point to anything
-        ConstantC ConstantPointerNull {} -> ((g, vis'), S.empty)
+        ConstantC ConstantPointerNull {} -> ((g, vis', modified), HS.empty)
         -- Now deal with the instructions we might see in a memory
         -- reference.  There are many extras here (beyond just field
         -- sensitivity): select, phi, etc.
-        InstructionC AllocaInst {} -> ((g, vis'), S.singleton (valueUniqueId v))
+        InstructionC AllocaInst {} -> ((g, vis', modified), HS.singleton (valueUniqueId v))
         InstructionC LoadInst { loadAddress =
           (valueContent' -> InstructionC i@GetElementPtrInst { getElementPtrValue = base
                                                              , getElementPtrIndices = idxs
                                                              }) } ->
-          gepInstTargets (g, vis') i base idxs
+          gepInstTargets (g, vis', modified) i base idxs
         InstructionC LoadInst { loadAddress =
           (valueContent' -> ConstantC ConstantValue { constantInstruction =
             i@GetElementPtrInst { getElementPtrValue = base
                                 , getElementPtrIndices = idxs
                                 } }) } ->
-          gepInstTargets (g, vis') i base idxs
+          gepInstTargets (g, vis', modified) i base idxs
 
         -- Follow chains of loads (dereferences).  If there is no
         -- successor for the current LoadInst, we have a situation like
@@ -426,63 +557,63 @@ targetNodes eg val =
         -- different virtual nodes are chosen for the same logical
         -- location (e.g., in separate branches of an if statement).
         InstructionC i@LoadInst { loadAddress = la } ->
-          let ((g', vis''), targets) = targetNodes' (g, vis') la
-              (g'', successors) = mapAccumR (augmentingSuc i) g' (S.toList targets)
-          in ((g'', vis''), S.unions successors)
+          let ((g', vis'', mod'), targets) = targetNodes' (g, vis', modified) la
+              ((g'', mod''), successors) = mapAccumR (augmentingSuc i) (g', mod') (HS.toList targets)
+          in ((g'', vis'', mod''), mconcat successors)
         InstructionC i@CallInst { } -> case gelem (valueUniqueId i) g of
           False -> error "Escape analysis: result of void return used"
-          True -> ((g, vis'), S.singleton (valueUniqueId i))
+          True -> ((g, vis', modified), HS.singleton (valueUniqueId i))
         InstructionC SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
-          let ((g', vis''), tTargets) = targetNodes' (g, vis') tv
-              ((g'', vis'''), fTargets) = targetNodes' (g', vis'') fv
-          in ((g'', vis'''), tTargets `S.union` fTargets)
+          let ((g', vis'', mod'), tTargets) = targetNodes' (g, vis', modified) tv
+              ((g'', vis''', mod''), fTargets) = targetNodes' (g', vis'', mod') fv
+          in ((g'', vis''', mod''), tTargets `HS.union` fTargets)
         InstructionC PhiNode { phiIncomingValues = incoming } ->
-          let ((g', vis''), targets) = mapAccumR targetNodes' (g, vis') (map fst incoming)
-          in ((g', vis''), S.unions targets)
+          let ((g', vis'', mod'), targets) = mapAccumR targetNodes' (g, vis', modified) (map fst incoming)
+          in ((g', vis'', mod'), mconcat targets)
         -- It is also possible to store into the result of a GEP
         -- instruction (without a load), so add a case to handle
         -- un-loaded GEPs.
         InstructionC i@GetElementPtrInst { getElementPtrValue = base
                                          , getElementPtrIndices = idxs
                                          } ->
-          gepInstTargets (g, vis') i base idxs
+          gepInstTargets (g, vis', modified) i base idxs
         ConstantC ConstantValue { constantInstruction =
           i@GetElementPtrInst { getElementPtrValue = base
                               , getElementPtrIndices = idxs
                               } } ->
-          gepInstTargets (g, vis') i base idxs
+          gepInstTargets (g, vis', modified) i base idxs
 
         _ -> error $ "Escape Analysis unmatched: " ++ show v
       where
-        vis' = S.insert v visited
+        vis' = HS.insert v visited
 
-    gepInstTargets :: (PTEGraph, Set Value) -> Instruction -> Value -> [Value]
-                      -> ((PTEGraph, Set Value), Set Node)
-    gepInstTargets (g, vis) i base idxs =
+    gepInstTargets :: (PTEGraph, HashSet Value, Bool) -> Instruction -> Value -> [Value]
+                      -> ((PTEGraph, HashSet Value, Bool), HashSet Node)
+    gepInstTargets (!g, !vis, !modified) i base idxs =
       case idxs of
         [] -> error "Escape analysis: GEP with no indexes"
         [_] ->
-          let ((g', vis'), targets) = targetNodes' (g, vis) base
-              (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
-          in ((g'', vis'), S.unions successors)
+          let ((g', vis', mod'), targets) = targetNodes' (g, vis, modified) base
+              ((g'', mod''), successors) = mapAccumR (augmentingArraySuc i) (g', mod') (HS.toList targets)
+          in ((g'', vis', mod''), mconcat successors)
         -- For this to be a simple field access, the array indexing
         -- offset must be zero and the field index must be some
         -- constant.
         (valueContent -> ConstantC ConstantInt { constantIntValue = 0}) :
           (valueContent -> ConstantC ConstantInt { constantIntValue = fieldNo }) : _ ->
-            let ((g', vis'), targets) = targetNodes' (g, vis) base
+            let ((g', vis', mod'), targets) = targetNodes' (g, vis, modified) base
                 -- baseIsEscaped = valueEscaped eg base `debug` ("Base escaped?: " ++ show base)
                 -- baseIsEscaped = nodeEscaped g' (valueUniqueId base) `debug` ("Base escaped?: " ++ show base)
                 baseIsEscaped = F.any (nodeEscaped g') targets
                 accumF = augmentingFieldSuc (fromIntegral fieldNo) (getBaseType base) i baseIsEscaped
-                (g'', successors) = mapAccumR accumF g' (S.toList targets)
-            in ((g'', vis'), S.unions successors)
+                ((g'', mod''), successors) = mapAccumR accumF (g', mod') (HS.toList targets)
+            in ((g'', vis', mod''), mconcat successors)
         -- Otherwise this is something really fancy and we can just
         -- treat it as an array
         _ ->
-          let ((g', vis'), targets) = targetNodes' (g, vis) base
-              (g'', successors) = mapAccumR (augmentingArraySuc i) g' (S.toList targets)
-          in ((g'', vis'), S.unions successors)
+          let ((g', vis', mod'), targets) = targetNodes' (g, vis, modified) base
+              ((g'', mod''), successors) = mapAccumR (augmentingArraySuc i) (g', mod') (HS.toList targets)
+          in ((g'', vis', mod''), mconcat successors)
 
 -- Above in gepInstTargets, the crash in baseIsEscaped is because
 -- there is no explicit node in the graph for PHI (or Select)
@@ -519,21 +650,21 @@ getBaseType v = case valueType v of
   TypePointer t _ -> t
   _ -> error $ "Array base value has illegal type: " ++ show v
 
-augmentingFieldSuc :: Int -> Type -> Instruction -> Bool -> PTEGraph -> Node -> (PTEGraph, Set Node)
-augmentingFieldSuc ix ty i baseEscaped g tgt = case fieldSucs of
+augmentingFieldSuc :: Int -> Type -> Instruction -> Bool -> (PTEGraph, Bool) -> Node -> ((PTEGraph, Bool), HashSet Node)
+augmentingFieldSuc ix ty i baseEscaped (g, modified) tgt = case fieldSucs of
   -- FIXME: There are some cases where this should be an OEdge!  If
   -- the base object of the field access is escaped, this should be an
   -- OEdge
   [] -> addVirtual (edgeCon (Field ix ty)) i g tgt
-  _ -> (g, S.fromList fieldSucs)
+  _ -> ((g, modified), HS.fromList fieldSucs)
   where
     edgeCon = if baseEscaped then OEdge else IEdge
     fieldSucs = map fst $ filter (isFieldSuc ix baseEscaped) $ lsuc g tgt
 
-augmentingArraySuc :: Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
-augmentingArraySuc i g tgt = case arraySucs of
+augmentingArraySuc :: Instruction -> (PTEGraph, Bool) -> Node -> ((PTEGraph, Bool), HashSet Node)
+augmentingArraySuc i (g, modified) tgt = case arraySucs of
   [] -> addVirtual (IEdge Array) i g tgt
-  _ -> (g, S.fromList arraySucs)
+  _ -> ((g, modified), HS.fromList arraySucs)
   where
     arraySucs = map fst $ filter isArraySuc $ lsuc g tgt
 
@@ -552,10 +683,10 @@ augmentingArraySuc i g tgt = case arraySucs of
 -- In these unfortunate cases, the successor operation inserts
 -- *virtual* nodes (and edges) to stand in for these unknown
 -- locations.
-augmentingSuc :: Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
-augmentingSuc i g tgt = case directSucs of
+augmentingSuc :: Instruction -> (PTEGraph, Bool) -> Node -> ((PTEGraph, Bool), HashSet Node)
+augmentingSuc i (g, modified) tgt = case directSucs of
   [] -> addVirtual (IEdge Direct) i g tgt
-  _ -> (g, S.fromList directSucs)
+  _ -> ((g, modified), HS.fromList directSucs)
   where
     labeledSucs = lsuc g tgt
     directSucs = map fst $ filter isDirectSuc labeledSucs
@@ -585,9 +716,10 @@ isFieldSuc _ _ _ = False
 -- > addVirtual edgeLabel loadInst g tgt
 --
 -- It returns the modified graph and the singleton set containing the
--- new Node.
-addVirtual :: EscapeEdge -> Instruction -> PTEGraph -> Node -> (PTEGraph, Set Node)
-addVirtual elbl i g tgt = (g'', S.singleton iid)
+-- new Node.  This returns an additional Bool flag to note that it has
+-- modified the graph.
+addVirtual :: EscapeEdge -> Instruction -> PTEGraph -> Node -> ((PTEGraph, Bool), HashSet Node)
+addVirtual elbl i g tgt = ((g'', True), HS.singleton iid)
   where
     iid = instructionUniqueId i
     g' = insNode (iid, IVirtual (Value i)) g
@@ -598,9 +730,15 @@ addVirtual elbl i g tgt = (g'', S.singleton iid)
 -- (hopefully sharing some structure).
 mkInitialGraph :: PTEGraph -> Function -> EscapeGraph
 mkInitialGraph globalGraph f =
-  EG { escapeGraph = g, escapeCalleeMap = M.empty, escapeReturns = S.empty }
+  EG { escapeGraph = g'
+     , escapeGraphId = GrUID (-1)
+     , escapeCalleeMap = M.empty
+     , escapeReturns = HS.empty
+     }
   where
-    g = insEdges (insideEdges ++ paramEdges) $ insNodes nods globalGraph
+    g = length nods `seq` insNodes nods globalGraph
+    g' = length allEdges `seq` insEdges allEdges g
+    allEdges = insideEdges ++ paramEdges
     nods = concat [ paramNodes, returnNodes, insideNodes ]
     insts = concatMap basicBlockInstructions (functionBody f)
     paramNodes = concatMap (mkVarCtxt OParameterNode . Value) (functionParameters f)
@@ -659,6 +797,22 @@ isPointerType = isPointer' . valueType
     isPointer' t = case t of
       TypePointer _ _ -> True
       _ -> False
+
+
+-- | Get the next unique graph id and increment the id counter
+nextGraphId :: EscapeAnalysis EscapeGraphId
+nextGraphId = do
+  s <- get
+  let thisId = graphIdSource s
+--  thisId <- gets graphIdSource
+  let nextId = thisId + 1
+  nextId `seq` return ()
+  put $! s { graphIdSource = nextId }
+  return $! GrUID thisId
+{-  case thisId > 4000 of
+    False -> return $! GrUID thisId
+    True -> return $! GrUID 4000
+-}
 
 -- Debugging and visualization stuff
 
