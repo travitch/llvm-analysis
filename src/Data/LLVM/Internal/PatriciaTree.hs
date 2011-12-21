@@ -21,6 +21,7 @@ module Data.LLVM.Internal.PatriciaTree (
   UGr
   ) where
 
+import Control.DeepSeq
 import           Data.Graph.Inductive.Graph
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as IM
@@ -74,13 +75,22 @@ instance DynGraph Gr where
           in
             Gr g3
 
+instance (NFData a, NFData b) => NFData (Gr a b) where
+  rnf = forceEvalGraph
+
+instance (NFData a, NFData b) => NFData (Context' a b) where
+  rnf = forceContext
+
+forceContext (Context' adj1 l adj2) =
+  adj1 `deepseq` l `deepseq` adj2 `deepseq` ()
+
+forceEvalGraph (Gr g) = g `deepseq` ()
+
 
 matchGr :: Node -> Gr a b -> Decomp Gr a b
 matchGr node (Gr g)
     = case IM.lookup node g of
-        Nothing
-            -> (Nothing, Gr g)
-
+        Nothing -> (Nothing, Gr g)
         Just (Context' p label s)
             -> let !g1 = IM.delete node g
                    !p' = IM.delete node p
@@ -97,7 +107,7 @@ matchGr node (Gr g)
 fastInsNode :: LNode a -> Gr a b -> Gr a b
 fastInsNode (v, l) (Gr g) = g' `seq` Gr g'
     where
-      g' = IM.insert v (Context' IM.empty l IM.empty) g
+      !g' = IM.insert v (Context' IM.empty l IM.empty) g
 
 
 {-# RULES
@@ -106,8 +116,8 @@ fastInsNode (v, l) (Gr g) = g' `seq` Gr g'
 fastInsEdge :: LEdge b -> Gr a b -> Gr a b
 fastInsEdge (v, w, l) (Gr g) = g2 `seq` Gr g2
     where
-      g1 = IM.adjust addSucc' v g
-      g2 = IM.adjust addPred' w g1
+      !g1 = IM.adjust addSucc' v g
+      !g2 = IM.adjust addPred' w g1
 
       addSucc' (Context' ps l' ss) = Context' ps l' (IM.insertWith addLists w [l] ss)
       addPred' (Context' ps l' ss) = Context' (IM.insertWith addLists v [l] ps) l' ss
@@ -121,7 +131,7 @@ fastGMap f (Gr g) = Gr (IM.foldlWithKey' f' IM.empty g)
     where
       f' :: IntMap (Context' c d) -> Node -> Context' a b -> IntMap (Context' c d)
       f' acc k v =
-        let nc = fromContext (f (toContext k v))
+        let !nc = fromContext (f (toContext k v))
         in IM.insert k nc acc
 
 
@@ -156,13 +166,11 @@ fromAdj = IM.fromListWith addLists . map (second return . swap)
 
 
 toContext :: Node -> Context' a b -> Context a b
-toContext v (Context' ps a ss)
-    = (toAdj ps, v, a, toAdj ss)
+toContext v (Context' ps a ss) = (toAdj ps, v, a, toAdj ss)
 
 
 fromContext :: Context a b -> Context' a b
-fromContext (ps, _, a, ss)
-    = Context' (fromAdj ps) a (fromAdj ss)
+fromContext (ps, _, a, ss) = Context' (fromAdj ps) a (fromAdj ss)
 
 
 swap :: (a, b) -> (b, a)
@@ -174,15 +182,21 @@ swap (a, b) = (b, a)
 -- -> [a] -> [a]@ but one of the lists is just going to be a single
 -- element (and it isn't possible to tell which).
 addLists :: [a] -> [a] -> [a]
-addLists [a] as  = a : as
-addLists as  [a] = a : as
-addLists xs  ys  = xs ++ ys
+addLists [a] as  =
+  let newl = a : as
+  in length newl `seq` newl
+addLists as  [a] =
+  let newl = a : as
+  in length newl `seq` newl
+addLists xs  ys  =
+  let newl = xs ++ ys
+  in length newl `seq` newl
 
 addSucc :: GraphRep a b -> Node -> [(b, Node)] -> GraphRep a b
 addSucc g _ []              = g
 addSucc g v ((l, p) : rest) = addSucc g' v rest
     where
-      g' = IM.adjust f p g
+      !g' = IM.adjust f p g
       f (Context' ps l' ss) = Context' ps l' (IM.insertWith addLists v [l] ss)
 
 
@@ -190,7 +204,7 @@ addPred :: GraphRep a b -> Node -> [(b, Node)] -> GraphRep a b
 addPred g _ []              = g
 addPred g v ((l, s) : rest) = addPred g' v rest
     where
-      g' = IM.adjust f s g
+      !g' = IM.adjust f s g
       f (Context' ps l' ss) = Context' (IM.insertWith addLists v [l] ps) l' ss
 
 
@@ -198,7 +212,7 @@ clearSucc :: GraphRep a b -> Node -> [Node] -> GraphRep a b
 clearSucc g _ []       = g
 clearSucc g v (p:rest) = clearSucc g' v rest
     where
-      g' = IM.adjust f p g
+      !g' = IM.adjust f p g
       f (Context' ps l ss) = Context' ps l (IM.delete v ss)
 
 
@@ -206,5 +220,5 @@ clearPred :: GraphRep a b -> Node -> [Node] -> GraphRep a b
 clearPred g _ []       = g
 clearPred g v (s:rest) = clearPred g' v rest
     where
-      g' = IM.adjust f s g
+      !g' = IM.adjust f s g
       f (Context' ps l ss) = Context' (IM.delete v ps) l ss
