@@ -22,17 +22,17 @@ module Data.LLVM.Internal.PatriciaTree (
   ) where
 
 import           Data.Graph.Inductive.Graph
-import           Data.IntMap ( IntMap )
-import qualified Data.IntMap as IM
+import Data.HashMap.Strict ( HashMap )
+import qualified Data.HashMap.Strict as IM
 import           Data.List ( foldl' )
 import           Data.Maybe
 import           Control.Arrow ( second )
 
+type IntMap = HashMap Int
 
 newtype Gr a b = Gr (GraphRep a b)
 
 type GraphRep a b = IntMap (Context' a b)
--- type Context' a b = (IntMap [b], a, IntMap [b])
 data Context' a b = Context' !(IntMap [b]) !a !(IntMap [b])
 
 type UGr = Gr () ()
@@ -59,9 +59,9 @@ instance Graph Gr where
     label <- labels
     return (node, next, label)
 
-nr :: IntMap b -> (IM.Key, IM.Key)
+nr :: IntMap b -> (Int, Int)
 nr g | IM.null g = (0, 0)
-     | otherwise = (ix (IM.minViewWithKey g), ix (IM.maxViewWithKey g))
+     | otherwise = (minimum (IM.keys g), maximum (IM.keys g))
   where
     ix = fst . fst . fromJust
 
@@ -117,10 +117,12 @@ fastInsEdge (v, w, l) (Gr g) = g2 `seq` Gr g2
       "gmap/Data.Graph.Inductive.PatriciaTree"  gmap = fastGMap
   #-}
 fastGMap :: forall a b c d. (Context a b -> Context c d) -> Gr a b -> Gr c d
-fastGMap f (Gr g) = Gr (IM.mapWithKey f' g)
+fastGMap f (Gr g) = Gr (IM.foldlWithKey' f' IM.empty g)
     where
-      f' :: Node -> Context' a b -> Context' c d
-      f' = ((fromContext . f) .) . toContext
+      f' :: IntMap (Context' c d) -> Node -> Context' a b -> IntMap (Context' c d)
+      f' acc k v =
+        let nc = fromContext (f (toContext k v))
+        in IM.insert k nc acc
 
 
 {-# RULES
