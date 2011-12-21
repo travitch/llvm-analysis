@@ -21,6 +21,7 @@ main = testAgainstExpected bcParser testDescriptors
   where
     bcParser = parseLLVMFile defaultParserOptions
 
+testDescriptors :: [TestDescriptor]
 testDescriptors = [ TestDescriptor { testPattern = "tests/escape/proper-escapes/*.c"
                                    , testExpectedMapping = (<.> "expected")
                                    , testResultBuilder = properEscapeSummary
@@ -70,7 +71,7 @@ collectPointsToRelations :: [Value]
                             -> Map String (Set String)
                             -> Map String (Set String)
 collectPointsToRelations globals er f acc =
-  M.fromList $ filter (not . S.null . snd) (zip vnames vtargets)
+  acc `M.union` (M.fromList $ filter (not . S.null . snd) (zip vnames vtargets))
   where
     exitInst = functionExitInstruction f
     eg = escapeGraphAtLocation er exitInst
@@ -87,11 +88,12 @@ isLocal i = case i of
   AllocaInst { instructionName = Just n } -> not (beginsWithDigit n)
   _ -> False
 
+beginsWithDigit :: Identifier -> Bool
 beginsWithDigit n = isDigit (BS.head content)
   where
     content = identifierContent n
 
-
+fromJust' :: String -> Maybe a -> a
 fromJust' msg v = case v of
   Nothing -> error msg
   Just v' -> v'
