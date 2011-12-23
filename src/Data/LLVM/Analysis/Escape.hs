@@ -131,7 +131,6 @@ instance Hashable EscapeNode where
 
 -- | Internal graph equality test that doesn't require sorting lists.
 -- It could be less efficient, but it is at least strict enough.
-{-
 geq :: (Eq a, Eq b, Hashable a, Hashable b, Graph gr1, Graph gr2)
        => gr1 a b -> gr2 a b -> Bool
 geq !g1 !g2 = ns1 == ns2 && es1 == es2
@@ -140,7 +139,7 @@ geq !g1 !g2 = ns1 == ns2 && es1 == es2
     ns2 = HS.fromList (labNodes g2)
     es1 = HS.fromList (labEdges g1)
     es2 = HS.fromList (labEdges g2)
--}
+
 
 -- This instance only forces the graph.  The other components are
 -- sufficiently strict.
@@ -214,7 +213,7 @@ emptyGraphDiff = GD { graphNewEdges = HS.empty
                     }
 
 data EscapeState = EscapeState { graphIdSource :: !Int
-                               , incomingGraphs :: HashMap Instruction EscapeGraphId
+                               , incomingGraphs :: HashMap Instruction PTEGraph
                                , lastOutputGraphs :: HashMap Instruction EscapeGraph
                                , lastGraphDiffs :: HashMap Instruction GraphDiff
                                }
@@ -387,7 +386,7 @@ escapeTransfer :: EscapeGraph
                   -> EscapeAnalysis EscapeGraph
 escapeTransfer eg i _ = do
   s <- get
-  let prevIncGraphId = HM.lookup i (incomingGraphs s)
+  let prevIncGraph = HM.lookup i (incomingGraphs s)
       Just lastOutput = HM.lookup i (lastOutputGraphs s)
       lastDiff = HM.lookup i (lastGraphDiffs s)
 
@@ -406,7 +405,7 @@ escapeTransfer eg i _ = do
         False -> return (eg, emptyGraphDiff)
     _ -> return (eg, emptyGraphDiff)
 
-  let sameAsLastIncomingId = maybe False (escapeGraphId eg==) prevIncGraphId
+  let sameAsLastIncoming = maybe False (escapeGraph eg `geq`) prevIncGraph
       sameAsLastGraphDiff = maybe False (graphDiff==) lastDiff
   -- If there is no change to the graph, we can return the input
   -- graph.  Be sure to update the relevant metadata.  If there is a
@@ -416,13 +415,13 @@ escapeTransfer eg i _ = do
   case emptyGraphDiff == graphDiff of
     True -> do
       s' <- get
-      put s' { incomingGraphs = HM.insert i (escapeGraphId eg) (incomingGraphs s')
+      put s' { incomingGraphs = HM.insert i (escapeGraph eg) (incomingGraphs s')
              , lastOutputGraphs = HM.insert i eg (lastOutputGraphs s')
              , lastGraphDiffs = HM.insert i graphDiff (lastGraphDiffs s')
              }
       return eg
     False ->
-      case ({-sameAsLastIncomingId &&-} sameAsLastGraphDiff) -- `debug`
+      case (sameAsLastIncoming && sameAsLastGraphDiff) -- `debug`
            -- printf "lastID=%s ; incID=%s ; diff = %s\n" (show prevIncGraphId) (show (escapeGraphId eg)) (show graphDiff)
       of
         -- No change, re-use the last output.  The incoming graph and
@@ -433,7 +432,7 @@ escapeTransfer eg i _ = do
           gid <- nextGraphId
           s' <- get
           let newG = newGraph { escapeGraphId = gid }
-          put s' { incomingGraphs = HM.insert i (escapeGraphId eg) (incomingGraphs s')
+          put s' { incomingGraphs = HM.insert i (escapeGraph eg) (incomingGraphs s')
                  , lastOutputGraphs = HM.insert i newG (lastOutputGraphs s')
                  , lastGraphDiffs = HM.insert i graphDiff (lastGraphDiffs s')
                  }
