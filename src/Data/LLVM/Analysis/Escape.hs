@@ -390,20 +390,20 @@ escapeTransfer eg i _ = do
       Just lastOutput = HM.lookup i (lastOutputGraphs s)
       lastDiff = HM.lookup i (lastGraphDiffs s)
 
-  (newGraph, graphDiff) <- case i of
+  (newGraph, graphDiff, passthrough) <- case i of
     StoreInst { storeValue = sv, storeAddress = sa } ->
       case isPointerType sv of
         True -> do
           (eg', gd) <- updatePTEGraph sv sa eg
-          return (force eg', gd)
-        False -> return (eg, emptyGraphDiff)
+          return (force eg', gd, False)
+        False -> return (eg, emptyGraphDiff, True)
     RetInst { retInstValue = Just rv } ->
       case isPointerType rv of
         True -> do
           (eg', targets, gd) <- targetNodes emptyGraphDiff eg rv
-          return $! (eg' { escapeReturns = HS.fromList targets }, gd)
-        False -> return (eg, emptyGraphDiff)
-    _ -> return (eg, emptyGraphDiff)
+          return $! (eg' { escapeReturns = HS.fromList targets }, gd, False)
+        False -> return (eg, emptyGraphDiff, True)
+    _ -> return (eg, emptyGraphDiff, True)
 
   let sameAsLastIncoming = maybe False (escapeGraph eg `geq`) prevIncGraph
       sameAsLastGraphDiff = maybe False (graphDiff==) lastDiff
@@ -412,7 +412,7 @@ escapeTransfer eg i _ = do
   -- change that is the same as the *last* change at this instruction,
   -- AND the input graphs are the same as the last time, then return
   -- the last graph we returned.  Otherwise return the new graph.
-  case emptyGraphDiff == graphDiff of
+  case passthrough of
     True -> do
       s' <- get
       put s' { incomingGraphs = HM.insert i (escapeGraph eg) (incomingGraphs s')
