@@ -665,8 +665,13 @@ targetNodes gd eg val =
       case idxs of
         [] -> error "Escape analysis: GEP with no indexes"
         [_] ->
-          let ((g', vis', gd'), targets) = targetNodes' (g, vis, grDiff) base
-              ((g'', gd''), successors) = mapAccumR (augmentingArraySuc i) (g', gd') (HS.toList targets)
+          -- FIXME: Here, the targets are already following the
+          -- dereference of the load.  Targets are actually virtual
+          -- nodes representing the load.  augmentingArraySuc then
+          -- attempts to take a step from the virtual node, but the
+          -- vnode doesn't seem to be in g' at this point...
+          let ((g', vis', gd'), targets) = targetNodes' (g, vis, grDiff) base `debug` printf "GEP Base: %s" (show base)
+              ((g'', gd''), successors) = mapAccumR (augmentingArraySuc i) (g', gd') (HS.toList targets) `debug` printf "  %s" (show targets)
           in ((g'', vis', gd''), mconcat successors)
         -- For this to be a simple field access, the array indexing
         -- offset must be zero and the field index must be some
