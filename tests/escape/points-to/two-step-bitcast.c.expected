@@ -1,0 +1,3 @@
+fromList [ ("%pa", fromList ["@a"])
+         , ("%p", fromList ["@a"])
+         ]
