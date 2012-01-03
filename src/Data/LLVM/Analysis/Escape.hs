@@ -418,7 +418,7 @@ escapeTransfer eg i _ = do
              }
       return eg
     False ->
-      case (sameAsLastIncoming && sameAsLastGraphDiff) of
+      case sameAsLastIncoming && sameAsLastGraphDiff of
         -- No change, re-use the last output.  The incoming graph and
         -- last diff are the same so we don't need to update any
         -- fields.
@@ -433,16 +433,19 @@ escapeTransfer eg i _ = do
                  }
           return newG
 
+-- isIntToPtrInst :: Value -> Bool
+-- isIntToPtrInst v = case valueContent v of
+--   InstructionC IntToPtrInst {} -> True
+--   _ -> False
+
 -- | Add/Remove edges from the PTE graph due to a store instruction
 updatePTEGraph :: Value -> Value -> EscapeGraph -> EscapeAnalysis (EscapeGraph, GraphDiff)
 updatePTEGraph sv sa !eg = do
-  -- First, find the possible target nodes in the graph.  These
-  -- operations can add virtual nodes, depending on what other nodes
-  -- are dereferenced and what they point to.
   (eg', valueNodes, gd) <- targetNodes emptyGraphDiff eg sv
   (eg'', addrNodes, gd') <- targetNodes gd eg' sa
   (egKilled, gd'') <- killModifiedLocalEdges gd' eg'' addrNodes
   foldM (genEdges valueNodes) (egKilled, gd'') addrNodes
+
 
 -- | Add edges from addrNode to all of the valueNodes.  If
 -- addrNode is global, do NOT kill its current edges.  If it is
@@ -535,17 +538,23 @@ targetNodes gd eg val =
         -- reference.  There are many extras here (beyond just field
         -- sensitivity): select, phi, etc.
         InstructionC AllocaInst {} -> ((g, vis', grDiff), HS.singleton (valueUniqueId v))
+        -- We can't really say anything useful with pointers generated
+        -- from ints (without a huge amount of effort, and only for
+        -- whole programs), Just punt
+        InstructionC IntToPtrInst {} -> ((g, vis', grDiff), HS.empty)
+        ConstantC ConstantValue { constantInstruction = IntToPtrInst {} } ->
+          ((g, vis', grDiff), HS.empty)
         InstructionC LoadInst { loadAddress =
           (valueContent' -> InstructionC i@GetElementPtrInst { getElementPtrValue = base
                                                              , getElementPtrIndices = idxs
                                                              }) } ->
-          gepInstTargets (g, vis', grDiff) i base idxs
+          gepInstTargets (g, vis', grDiff) i (stripBitcasts base) idxs
         InstructionC LoadInst { loadAddress =
           (valueContent' -> ConstantC ConstantValue { constantInstruction =
             i@GetElementPtrInst { getElementPtrValue = base
                                 , getElementPtrIndices = idxs
                                 } }) } ->
-          gepInstTargets (g, vis', grDiff) i base idxs
+          gepInstTargets (g, vis', grDiff) i (stripBitcasts base) idxs
 
         -- Follow chains of loads (dereferences).  If there is no
         -- successor for the current LoadInst, we have a situation like
@@ -575,12 +584,12 @@ targetNodes gd eg val =
         InstructionC i@GetElementPtrInst { getElementPtrValue = base
                                          , getElementPtrIndices = idxs
                                          } ->
-          gepInstTargets (g, vis', grDiff) i base idxs
+          gepInstTargets (g, vis', grDiff) i (stripBitcasts base) idxs
         ConstantC ConstantValue { constantInstruction =
           i@GetElementPtrInst { getElementPtrValue = base
                               , getElementPtrIndices = idxs
                               } } ->
-          gepInstTargets (g, vis', grDiff) i base idxs
+          gepInstTargets (g, vis', grDiff) i (stripBitcasts base) idxs
 
         _ -> error $ "Escape Analysis unmatched: " ++ show v
       where
