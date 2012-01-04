@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiParamTypeClasses, BangPatterns #-}
 -- | This module defines an interface for intra-procedural dataflow
 -- analysis (forward and backward).
 --
@@ -98,7 +98,7 @@ dataflowAnalysis predFunc succFunc analysis f =
 
     -- | If there is nothing left in the worklist, return the facts
     -- associated with the exit node.
-    dataflow work facts = case takeWorkItem work of
+    dataflow !work !facts = case takeWorkItem work of
       EmptyWorklist -> return facts
       inst :< rest -> processNode inst rest facts
 
@@ -109,7 +109,7 @@ dataflowAnalysis predFunc succFunc analysis f =
     -- | Apply the transfer function to this node.  If the result is
     -- different than the current fact, add all successors to the
     -- worklist.
-    processNode inst work outputFacts = do
+    processNode !inst !work !outputFacts = do
       outputFact <- transfer inputFact inst incomingEdges
       -- Updated worklist and facts
       let outputFacts' = M.insert inst outputFact outputFacts
