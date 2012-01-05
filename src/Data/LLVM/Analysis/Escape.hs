@@ -363,6 +363,7 @@ followEscapeEdge eg v at =
 nodeEscaped :: PTEGraph -> Node -> Bool
 nodeEscaped escGr n = isGlobalNode escGr n || nodeProperlyEscaped escGr n
 
+{-
 nodeProperlyEscaped :: PTEGraph -> Node -> Bool
 nodeProperlyEscaped escGr n = any (isGlobalNode g) nodesReachableFrom
   where
@@ -371,6 +372,17 @@ nodeProperlyEscaped escGr n = any (isGlobalNode g) nodesReachableFrom
     -- points to it.
     (_, g) = match (-n) escGr
     nodesReachableFrom = filter (/= n) $ rdfs [n] g
+-}
+nodeProperlyEscaped :: PTEGraph -> Node -> Bool
+nodeProperlyEscaped escGr n = any (isGlobalNode escGr) nodesReachableFrom
+  where
+    -- Remove the variable node corresponding to this node so that we
+    -- don't say that it is escaping because its own variable node
+    -- points to it.
+    -- (_, g) = match (-n) escGr
+    nodesReachableFrom = case match (-n) escGr of
+      (Nothing, _) -> []
+      (Just _, g) -> filter (/= n) $ rdfs [n] g
 
 -- | The transfer function to add/remove edges to the points-to escape
 -- graph for each instruction.
