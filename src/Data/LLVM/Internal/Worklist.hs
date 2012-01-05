@@ -24,29 +24,30 @@ module Data.LLVM.Internal.Worklist (
   addWorkItems
   ) where
 
-import Data.Set ( Set )
-import qualified Data.Set as S
+import Data.Hashable
+import Data.HashSet ( HashSet )
+import qualified Data.HashSet as S
 
 -- | A worklist.
-data Worklist a = Worklist ![a] !(Set a)
+data Worklist a = Worklist ![a] !(HashSet a)
 
 -- | A view of the worklist exposing the next item and the rest of the
 -- worklist
 data WorklistDecomp a = EmptyWorklist
-                      | a :< (Worklist a)
+                      | !a :< !(Worklist a)
 
 -- | Create a new empty worklist
 emptyWorklist :: Worklist a
 emptyWorklist = Worklist [] S.empty
 
 -- | Create a new worklist from an initial list of items
-worklistFromList :: Ord a => [a] -> Worklist a
+worklistFromList :: (Eq a, Hashable a) => [a] -> Worklist a
 worklistFromList itms = Worklist (uniq itms) S.empty
   where
     uniq = S.toList . S.fromList
 
 -- | Take the next work item.
-takeWorkItem :: Ord a => Worklist a -> WorklistDecomp a
+takeWorkItem :: (Hashable a) => Worklist a -> WorklistDecomp a
 takeWorkItem (Worklist lst nxt) = case lst of
   itm : rest -> itm :< (Worklist rest nxt)
   [] -> case S.null nxt of
@@ -54,10 +55,10 @@ takeWorkItem (Worklist lst nxt) = case lst of
     False -> takeWorkItem (Worklist (S.toList nxt) S.empty)
 
 -- | Add a single item to the worklist
-addWorkItem :: Ord a => a -> Worklist a -> Worklist a
+addWorkItem :: (Eq a, Hashable a) => a -> Worklist a -> Worklist a
 addWorkItem itm (Worklist lst nxt) = Worklist lst (S.insert itm nxt)
 
 -- | Add a list of items to the worklist
-addWorkItems :: Ord a => [a] -> Worklist a -> Worklist a
+addWorkItems :: (Eq a, Hashable a) => [a] -> Worklist a -> Worklist a
 addWorkItems itms (Worklist lst nxt) =
   Worklist lst (S.union nxt (S.fromList itms))

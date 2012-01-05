@@ -50,6 +50,7 @@ module Data.LLVM.Analysis.IFDS (
   ) where
 
 import Control.Monad.State
+import Data.Hashable
 import Data.Graph.Inductive hiding ( (><) )
 import Data.Map ( Map )
 import Data.Set ( Set )
@@ -103,6 +104,9 @@ class IFDSAnalysis a domType where
 -- explicitly recorded because it is uniquely determined by n.
 data PathEdge domType = PathEdge !(Maybe domType) !Node !(Maybe domType)
                       deriving (Ord, Eq, Show)
+
+instance (Hashable domType) => Hashable (PathEdge domType) where
+  hash (PathEdge d1 n d2) = hash d1 `combine` hash n `combine` hash d2
 
 -- After the analysis is done, reduce the Set PathEdge -> Map (Node,
 -- domType) [domType] to start answering queries.  Really, only the
@@ -181,7 +185,8 @@ ifdsResultEdgeCount (IFDSResult c _) = c
 -- | Run the IFDS analysis on the given ICFG. Currently it is forward
 -- only.  Support for backwards analysis could be added somewhat
 -- easily.
-ifds :: (IFDSAnalysis a domType, Ord domType, Show domType) => a -> ICFG -> IFDSResult domType
+ifds :: (IFDSAnalysis a domType, Ord domType, Show domType, Hashable domType)
+        => a -> ICFG -> IFDSResult domType
 ifds analysis g = extractSolution finalState
   where
     initialEdges = concatMap (mkInitialEdges analysis (icfgModule g)) (icfgEntryPoints g)
@@ -233,7 +238,8 @@ getICFG = do
 -- algorithm: adding interprocedural edges for call/invoke nodes,
 -- adding interprocedural (and summary) edges for return nodes, and
 -- adding intraprocedural edges for all other instructions.
-tabulate :: (IFDSAnalysis a domType, Ord domType, Show domType) => IFDSM a domType ()
+tabulate :: (IFDSAnalysis a domType, Ord domType, Show domType, Hashable domType)
+            => IFDSM a domType ()
 tabulate = do
   worklist <- gets ifdsWorklist
   case takeWorkItem worklist of
@@ -273,7 +279,7 @@ updateCallReachingValues n d1 = do
 
 -- | Handle adding interprocedural call edges and intraprocedural
 -- call->return edges.
-addCallEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
+addCallEdges :: (IFDSAnalysis a domType, Ord domType, Show domType, Hashable domType)
                 => Instruction
                 -> PathEdge domType
                 -> IFDSM a domType ()
@@ -290,7 +296,7 @@ addCallEdges ci e@(PathEdge d1 n _) = do
 -- single callee of a call site.  The original algorithm assumes that
 -- each call site has a single callee.  This helper just handles all
 -- possible callees.
-addInfoForPotentialCallee :: (IFDSAnalysis a domType, Ord domType, Show domType)
+addInfoForPotentialCallee :: (IFDSAnalysis a domType, Ord domType, Show domType, Hashable domType)
                              => Instruction
                              -> PathEdge domType
                              -> Node
@@ -320,7 +326,8 @@ addInfoForPotentialCallee ci e@(PathEdge _ n d2) calleeEntry = do
 {-# INLINE addInfoForPotentialCallee #-}
 
 -- | Line 18
-extendCallToReturn :: (Ord domType) => PathEdge domType -> Maybe domType -> IFDSM a domType ()
+extendCallToReturn :: (Ord domType, Hashable domType)
+                      => PathEdge domType -> Maybe domType -> IFDSM a domType ()
 extendCallToReturn (PathEdge d1 n _) d3 =
   propagate (PathEdge d1 retNode d3)
   where
@@ -344,7 +351,7 @@ getSummaryEdgeD3s n d2 = do
 {-# INLINE getSummaryEdgeD3s #-}
 
 -- | Inner loop on lines 15-16
-addInterProcAndSummaryEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
+addInterProcAndSummaryEdges :: (IFDSAnalysis a domType, Ord domType, Show domType, Hashable domType)
                                => Instruction
                                -> Node
                                -> PathEdge domType
@@ -416,7 +423,7 @@ isCallToEntry _ = False
 -- additional optimization.
 --
 -- Note: n is e_p in the algorithm
-addExitEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
+addExitEdges :: (IFDSAnalysis a domType, Ord domType, Show domType, Hashable domType)
                 => Either (Maybe ExternalFunction) Instruction
                 -> PathEdge domType
                 -> IFDSM a domType ()
@@ -451,7 +458,7 @@ addExitEdges (Right ri) (PathEdge d1 n d2) = do
   mapM_ (summarizeCallEdge retEdgeF) (S.toList callEdges)
 {-# INLINE addExitEdges #-}
 
-summarizeCallEdge :: (Ord domType, Show domType)
+summarizeCallEdge :: (Ord domType, Show domType, Hashable domType)
                      => (Instruction -> [Maybe domType])
                      -> IFDSNode domType
                      -> IFDSM a domType ()
@@ -517,7 +524,7 @@ instructionFunction i = basicBlockFunction bb
 
 -- | Handle the case of local control flow (extending the
 -- intraprocedural part of the exploded supergraph).
-addIntraEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
+addIntraEdges :: (IFDSAnalysis a domType, Ord domType, Show domType, Hashable domType)
                  => Instruction
                  -> PathEdge domType
                  -> IFDSM a domType ()
@@ -544,7 +551,7 @@ toIntraEdge (_, ie) = e
   where
     IntraEdge e = ie
 
-addReturnNodeEdges :: (IFDSAnalysis a domType, Ord domType, Show domType)
+addReturnNodeEdges :: (IFDSAnalysis a domType, Ord domType, Show domType, Hashable domType)
                       => Instruction
                       -> PathEdge domType
                       -> IFDSM a domType ()
@@ -561,7 +568,7 @@ addReturnNodeEdges i (PathEdge d1 n d2) = do
   mapM_ propagate inducedEdges
 {-# INLINE addReturnNodeEdges #-}
 
-propagate :: (Ord domType) => PathEdge domType -> IFDSM a domType ()
+propagate :: (Ord domType, Hashable domType) => PathEdge domType -> IFDSM a domType ()
 propagate newEdge = do
   s <- get
   case newEdge `S.member` pathEdges s of
