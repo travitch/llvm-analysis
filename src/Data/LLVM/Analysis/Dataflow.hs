@@ -33,14 +33,18 @@ module Data.LLVM.Analysis.Dataflow (
   ) where
 
 import Algebra.Lattice
+import Control.Monad ( foldM )
 import Data.Graph.Inductive hiding ( (><) )
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
+import qualified Data.HashSet as S
 import Text.Printf
 
 import Data.LLVM.CFG
 import Data.LLVM.Types
-import Data.LLVM.Internal.Worklist
+
+import Debug.Trace
+debug = flip trace
 
 -- | A class defining the interface to a dataflow analysis.  The
 -- analysis object itself that is passed to one of the dataflow
@@ -83,24 +87,22 @@ dataflowAnalysis :: (Eq a, DataflowAnalysis m a, HasCFG b)
                     -> (CFGType -> Node -> [(Node, CFGEdge)])
                     -> a -> b -> m (HashMap Instruction a)
 dataflowAnalysis predFunc succFunc analysis f =
-  dataflow initialWorklist initialStates
+  let instructions = map snd $ labNodes cfg
+      initialStates = M.fromList $ zip instructions (repeat analysis)
+      s0 = (initialStates, S.empty) `debug` "Function switch"
+  in dataflow instructions s0
   where
     cfgWrapper = getCFG f
     cfg = cfgGraph cfgWrapper
     -- ^ The control flow graph for this function
 
-    instructions = map snd $ labNodes cfg
-
-    initialWorklist = worklistFromList instructions
-    -- ^ Put all nodes on the worklist
-    initialStates = M.fromList $ zip instructions (repeat analysis)
-    -- ^ Start all nodes with the initial state provided by the user
-
     -- | If there is nothing left in the worklist, return the facts
     -- associated with the exit node.
-    dataflow !work !facts = case takeWorkItem work of
-      EmptyWorklist -> return facts
-      inst :< rest -> processNode inst rest facts
+    dataflow !work !factsAndWork = do
+      (facts', nextWork') <- foldM processNode factsAndWork work
+      case S.null nextWork' of
+        True -> return facts'
+        False -> dataflow (S.toList nextWork') (facts', S.empty) `debug` ("Recursive call to dataflow " ++ show (S.size nextWork'))
 
     lookupFact facts inst = case M.lookup inst facts of
       Just fact -> fact
@@ -109,32 +111,27 @@ dataflowAnalysis predFunc succFunc analysis f =
     -- | Apply the transfer function to this node.  If the result is
     -- different than the current fact, add all successors to the
     -- worklist.
-    processNode !inst !work !outputFacts = do
+    processNode fw@(outputFacts, nextWork) !inst = do
       outputFact <- transfer inputFact inst incomingEdges
-      -- Updated worklist and facts
-      let outputFacts' = M.insert inst outputFact outputFacts
-          succNodes = succFunc cfg (instructionUniqueId inst)
-          justIds = fst $ unzip succNodes
-          work' = addWorkItems (map value justIds) work
-
-
-
       case outputFact == lastOutputFact of
-        -- No change, don't add successors
-        True -> dataflow work outputFacts
-        -- Facts changed, update map and add successors
-        False -> dataflow work' outputFacts'
+        True -> return fw
+        False ->
+          let outputFacts' = M.insert inst outputFact outputFacts
+              succNodes = succFunc cfg (instructionUniqueId inst)
+              justIds = fst $ unzip succNodes
+              nextWork' = S.union nextWork (S.fromList (map (value cfg) justIds))
+          in return (outputFacts', nextWork')
       where
         lastOutputFact = lookupFact outputFacts inst
         (preds, incomingEdges) = unzip $ predFunc cfg (instructionUniqueId inst)
-        inputFact = case map value preds of
+        inputFact = case null preds of
           -- For the entry node, the input facts never change and we
           -- can use the input to the dataflow analysis.
-          [] -> analysis
+          True -> analysis
           -- Otherwise, get all output facts for the predecessor and
           -- join them.
-          predInsts -> meets $ map (lookupFact outputFacts) predInsts
+          False -> meets $ map (lookupFact outputFacts . value cfg) preds
 
-        value nod = case lab cfg nod of
-          Just v -> v
-          Nothing -> error $ printf "No value for CFG node %d" nod
+value cfg nod = case lab cfg nod of
+  Just v -> v
+  Nothing -> error $ printf "No value for CFG node %d" nod
