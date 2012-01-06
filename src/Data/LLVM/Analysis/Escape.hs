@@ -131,29 +131,15 @@ instance Hashable EscapeNode where
   hash (INode v) = 13 `combine` hash v
   hash (IVirtual v) = 17 `combine` hash v
 
--- | Internal graph equality test that doesn't require sorting lists.
--- It could be less efficient, but it is at least strict enough.
--- geq :: (Eq a, Eq b, Hashable a, Hashable b, Graph gr1, Graph gr2)
---        => gr1 a b -> gr2 a b -> Bool
-geq :: PTEGraph -> PTEGraph -> Bool
-geq !g1 !g2 = ns1 == ns2 && es1 == es2
-  where
-    ns1 = HS.fromList (labNodes g1)
-    ns2 = HS.fromList (labNodes g2)
-    es1 = HS.fromList (labEdges g1)
-    es2 = HS.fromList (labEdges g2)
-
-
--- This instance only forces the graph.  The other components are
--- sufficiently strict.
--- instance NFData EscapeGraph where
---   rnf EG { escapeGraph = g } = g `deepseq` ()
-
 instance Eq EscapeGraph where
   (==) !eg1 !eg2 = (escapeGraphId eg1 == escapeGraphId eg2 ||
-                    escapeGraph eg1 `geq` escapeGraph eg2) &&
+                    escapeGraph eg1 `graphEqual` escapeGraph eg2) &&
                    escapeReturns eg1 == escapeReturns eg2 &&
                    escapeCalleeMap eg1 == escapeCalleeMap eg2
+
+instance Monoid EscapeGraphId where
+  mempty = GrUID (-1)
+  mappend = meetGraphId
 
 meetGraphId :: EscapeGraphId -> EscapeGraphId -> EscapeGraphId
 meetGraphId (GrUID i1) (GrUID i2) = GrCompId (HS.fromList [i1, i2])
@@ -161,8 +147,6 @@ meetGraphId (GrUID i1) (GrCompId ids) = GrCompId (HS.insert i1 ids)
 meetGraphId (GrCompId ids) (GrUID i2) = GrCompId (HS.insert i2 ids)
 meetGraphId (GrCompId ids1) (GrCompId ids2) = GrCompId (HS.union ids1 ids2)
 
--- The state isn't available here so we can't really generate a new
--- graph ID.  Just let it be -1...
 instance MeetSemiLattice EscapeGraph where
   meet eg1 eg2 = EG { escapeGraph = g''
                     , escapeGraphId = nid
@@ -170,23 +154,10 @@ instance MeetSemiLattice EscapeGraph where
                     , escapeReturns = er
                     }
     where
-      nid = escapeGraphId eg1 `meetGraphId` escapeGraphId eg2
+      nid = escapeGraphId eg1 `mappend` escapeGraphId eg2
       ecm = M.unionWith HS.union (escapeCalleeMap eg1) (escapeCalleeMap eg2)
       er = escapeReturns eg1 `HS.union` escapeReturns eg2
-      newEs = newFeatures eg1 eg2 labEdges
-      newNs = newFeatures eg1 eg2 labNodes
-
-      -- Insert new edges from eg2 into eg1
-      g' = insNodes newNs (escapeGraph eg1)
-      g'' = insEdges newEs g'
-
-newFeatures :: (Eq a, Hashable a) => EscapeGraph -> EscapeGraph -> (PTEGraph -> [a]) -> [a]
-newFeatures eg1 eg2 selector = HS.toList $ f2 `HS.difference` f1
-  where
-    l1 = selector (escapeGraph eg1)
-    l2 = selector (escapeGraph eg2)
-    f1 = HS.fromList l1
-    f2 = HS.fromList l2
+      g'' = (escapeGraph eg1) `mappend` (escapeGraph eg2)
 
 instance BoundedMeetSemiLattice EscapeGraph where
   top = EG { escapeGraph = mkGraph [] []
@@ -195,8 +166,7 @@ instance BoundedMeetSemiLattice EscapeGraph where
            , escapeReturns = HS.empty
            }
 
-data EscapeState = EscapeState { graphIdSource :: !Int
-                               }
+data EscapeState = EscapeState { graphIdSource :: !Int }
 type EscapeAnalysis = RWS EscapeData () EscapeState
 
 
