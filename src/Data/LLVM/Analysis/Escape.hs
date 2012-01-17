@@ -259,7 +259,7 @@ localPointsTo eg v = S.fromList (map (lab' . fromJust . context g) succs)
     succs = suc g locid
 
     errMsg = "localPointsTo: expected context not found"
-    fromJust = maybe (error errMsg) id
+    fromJust = maybe ($err' errMsg) id
 
 -- | Determine whether or not the value has a representation in the
 -- escape graph.
@@ -314,7 +314,7 @@ followEscapeEdge eg v at =
     targetSucs = filter ((\x -> x==IEdge at || x==OEdge at) . snd) ss
 
     errMsg = "followEscapeEdge: expected context not found"
-    fromJust = maybe ($err' errMsg) id
+    fromJust = maybe (error errMsg) id
 
 -- Internal stuff
 
