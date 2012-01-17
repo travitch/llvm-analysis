@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification, TemplateHaskell #-}
 -- | Various functions to help test this library and analyses based on
 -- it.
 --
@@ -42,17 +42,16 @@ module Data.LLVM.Testing (
   readInputAndExpected
   ) where
 
-import Control.Exception ( bracket )
 import Control.Monad ( when )
 
-import System.Directory
+import FileLocation
+
 import System.Exit ( ExitCode(ExitSuccess) )
 import System.FilePath
 import System.FilePath.Glob
-import System.IO
+import System.IO.Temp
 import System.Process
 
-import Text.Printf
 import Test.Framework ( defaultMain, Test )
 import Test.Framework.Providers.HUnit
 
@@ -70,16 +69,17 @@ data TestDescriptor =
 -- | An intermediate helper to turn input files into modules and
 -- return the expected output.
 readInputAndExpected :: (Read a)
-                        => (FilePath -> IO (Either String Module)) -- ^ A function to parse bitcode files
+                        => [String] -- ^ Arguments for opt
+                        -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file bytestring into a Module
                         -> (FilePath -> FilePath) -- ^ The function to map an input file name to the expected output file
                         -> FilePath -- ^ The input file
                         -> IO (FilePath, Module, a)
-readInputAndExpected parseBitcode expectedFunc inputFile = do
+readInputAndExpected optOpts parseFile expectedFunc inputFile = do
   let exFile = expectedFunc inputFile
   exContent <- readFile exFile
   -- use seq here to force the full evaluation of the read file.
   let expected = length exContent `seq` read exContent
-  m <- buildModule parseBitcode inputFile
+  m <- buildModule optOpts parseFile inputFile
   return (inputFile, m, expected)
 
 -- | This is the main test suite entry point.  It takes a bitcode
@@ -87,10 +87,11 @@ readInputAndExpected parseBitcode expectedFunc inputFile = do
 --
 -- The bitcode parser is taken as an input so that this library does
 -- not have a direct dependency on any FFI code.
-testAgainstExpected :: (FilePath -> IO (Either String Module)) -- ^ A bitcode parsing function
-                        -> [TestDescriptor] -- ^ The list of test suites to run
-                        -> IO ()
-testAgainstExpected parseBitcode testDescriptors = do
+testAgainstExpected :: [String] -- ^ Options for opt
+                       -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file bytestring into a Module
+                       -> [TestDescriptor] -- ^ The list of test suites to run
+                       -> IO ()
+testAgainstExpected optOpts parseFile testDescriptors = do
   caseSets <- mapM mkDescriptorSet testDescriptors
   defaultMain $ concat caseSets
   where
@@ -104,7 +105,7 @@ testAgainstExpected parseBitcode testDescriptors = do
       -- Glob up all of the files in the test directory with the target extension
       testInputFiles <- namesMatching pat
       -- Read in the expected results and corresponding modules
-      inputsAndExpecteds <- mapM (readInputAndExpected parseBitcode mapping) testInputFiles
+      inputsAndExpecteds <- mapM (readInputAndExpected optOpts parseFile mapping) testInputFiles
       -- Build actual test cases by applying the result builder
       mapM (mkTest br cmp) inputsAndExpecteds
 
@@ -112,54 +113,51 @@ testAgainstExpected parseBitcode testDescriptors = do
       let actual = br m
       return $ testCase file $ cmp file expected actual
 
--- | Build a 'Module' from a C or C++ file using clang.  The binary
--- must be in PATH.  This function also supports LLVM bitcode and LLVM
--- assembly files.
---
--- It will raise an error if passed an unrecognized input file type.
-buildModule :: (FilePath -> IO (Either String Module)) -> FilePath -> IO Module
-buildModule parseFile inputFilePath =
+-- | Optimize the bitcode in the given bytestring using opt with the provided options
+optify :: [String] -> FilePath -> FilePath -> IO ()
+optify args inp optFile = do
+  let cmd = proc "opt" ("-o" : optFile : inp : args)
+  (_, _, _, p) <- createProcess cmd
+  rc <- waitForProcess p
+  when (rc /= ExitSuccess) ($err' ("Could not optimize " ++ inp))
+
+buildModule ::  [String] -- ^ Optimization options (passed to opt) for the module.  opt is not run if the list is empty
+                -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file into a Module
+                -> FilePath -- ^ The input file (either bitcode or C/C++)
+                -> IO Module
+buildModule optOpts parseFile inputFilePath =
   case takeExtension inputFilePath of
     ".ll" -> simpleBuilder inputFilePath
     ".bc" -> simpleBuilder inputFilePath
-    ".c" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang")
-    ".C" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang++")
-    ".cxx" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang++")
-    ".cpp" -> bracket (openTempBitcodeFile inputFilePath) disposeTempBitcode (buildModule' "clang++")
-    _ -> error ("TestSuite: No build method for test input " ++ inputFilePath)
+    ".c" -> clangBuilder inputFilePath "clang"
+    ".C" -> clangBuilder inputFilePath "clang++"
+    ".cxx" -> clangBuilder inputFilePath "clang++"
+    ".cpp" -> clangBuilder inputFilePath "clang++"
+    _ -> $err' ("No build method for test input " ++ inputFilePath)
   where
-    -- | Parse a bitcode or llvm assembly file into a Module.
-    simpleBuilder infile = do
-      parseResult <- parseFile infile
-      either error return parseResult
-    -- | Turn a source file into a bitcode file with clang and then
-    -- parse the result into a Module.
-    buildModule' compileDriver (fp, h) = do
-      -- If we are optimizing, wire opt into the process pipeline.
-      -- Otherwise, just have clang write directly to the output file.
-      (clangHandle, mOptProc) <- return (h, Nothing)
-      let baseCmd = proc compileDriver [ "-emit-llvm", "-o", "-", "-c", inputFilePath ]
-          clangCmd = baseCmd { std_out = UseHandle clangHandle }
-      (_, _, _, clangProc) <- createProcess clangCmd
-      clangrc <- waitForProcess clangProc
-      optrc <- maybe (return ExitSuccess) waitForProcess mOptProc
-      when (clangrc /= ExitSuccess) (error $ printf "Failed to compile %s" inputFilePath)
-      when (optrc /= ExitSuccess) (error $ printf "Failed to optimize %s" inputFilePath)
+    simpleBuilder inp =
+      case null optOpts of
+        True -> do
+          parseResult <- parseFile inp
+          either $err' return parseResult
+        False ->
+          withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
+            optify optOpts inp optFname
+            parseResult <- parseFile optFname
+            either $err' return parseResult
 
-      parseResult <- parseFile fp
-      either error return parseResult
-
--- | Clean up after a temporary bitcode file
-disposeTempBitcode :: (FilePath, Handle) -> IO ()
-disposeTempBitcode (fp, h) = do
-  hClose h
-  removeFile fp
-
--- | Create a temporary bitcode file
-openTempBitcodeFile :: FilePath -> IO (FilePath, Handle)
-openTempBitcodeFile inputFilePath = do
-  let fname = inputFilePath <.> "bc"
-  tmpDir <- getTemporaryDirectory
-  -- The filename has leading directory components (or can) - drop
-  -- them when opening the temp file
-  openBinaryTempFile tmpDir (takeFileName fname)
+    clangBuilder inp driver =
+      withSystemTempFile ("base_" ++ takeFileName inp) $ \baseFname _ -> do
+        let baseCmd = proc driver ["-emit-llvm", "-o" , baseFname, "-c", inp]
+        (_, _, _, p) <- createProcess baseCmd
+        rc <- waitForProcess p
+        when (rc /= ExitSuccess) ($err' ("Could not compile input to bitcode: " ++ inp))
+        case null optOpts of
+          True -> do
+            parseResult <- parseFile baseFname
+            either $err' return parseResult
+          False ->
+            withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
+              optify optOpts baseFname optFname
+              parseResult <- parseFile optFname
+              either $err' return parseResult

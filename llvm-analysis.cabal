@@ -18,7 +18,7 @@ library
                  fgl, mtl > 2, filemanip >= 0.3.5.2,
                  graphviz >= 2999.12.0.3, data-default >= 0.3,
                  hashable >= 1.1.2.0, unordered-containers,
-                 file-location,
+                 file-location, temporary >= 1.0,
                  lattices, failure >= 0.1, hashtables,
                  data-lens == 2.0.*, data-lens-template >= 2.1.3,
                  HUnit, test-framework, test-framework-hunit,
