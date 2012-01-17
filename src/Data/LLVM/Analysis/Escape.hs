@@ -52,11 +52,9 @@ import qualified Data.Map as M
 import Data.Set ( Set )
 import qualified Data.Set as S
 import Data.Hashable
-import Data.HashMap.Strict ( HashMap )
-import qualified Data.HashMap.Strict as HM
-import FileLocation
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as HS
+import FileLocation
 
 import Data.LLVM
 import Data.LLVM.CFG
@@ -68,11 +66,12 @@ import Data.TransitiveClosure
 
 import Data.Graph.Interface
 import Data.Graph.PatriciaTree
-import Data.Graph.Algorithms.DFS
+import Data.Graph.Algorithms.Matching.DFS
+-- import qualified Data.Graph.Inductive as FGL
 
-import Text.Printf
-import Debug.Trace
-debug = flip trace
+-- import Text.Printf
+-- import Debug.Trace
+-- debug = flip trace
 
 -- | The types of nodes in the graph
 data EscapeNode = VariableNode { escapeNodeValue :: !Value }
@@ -100,13 +99,17 @@ data EscapeEdge = IEdge !AccessType
 instance NFData EscapeEdge
 
 -- | A type synonym for the underlying points-to escape graph
-type PTEGraph = HSGraph EscapeNode EscapeEdge
+type PTEGraph = SLGraph EscapeNode EscapeEdge
 
 data EscapeGraphId = GrUID !Int -- ^ A unique ID generated for a
                                 -- specific graph after it is modified
                                 -- by the transfer function
                    | GrCompId !(HashSet Int) -- ^ A composite ID created by meeting graphs
                    deriving (Eq, Show)
+
+instance NFData EscapeGraphId where
+  rnf (GrUID i) = ()
+  rnf (GrCompId hs) = hs `deepseq` ()
 
 -- | The escape graph that is constructed for each program point.
 -- They should all share considerable structure.
@@ -115,6 +118,10 @@ data EscapeGraph = EG { escapeGraph :: !PTEGraph
                       , escapeCalleeMap :: !(Map (Node PTEGraph) (HashSet Instruction))
                       , escapeReturns :: !(HashSet (Node PTEGraph))
                       }
+
+instance NFData EscapeGraph where
+  rnf eg@(EG g gid cm rs) =
+    g `deepseq` gid `deepseq` cm `deepseq` rs `deepseq` eg `seq` ()
 
 instance Hashable EscapeEdge where
   hash (IEdge at) = 3 `combine` hash at
@@ -159,7 +166,7 @@ instance MeetSemiLattice EscapeGraph where
       nid = escapeGraphId eg1 `mappend` escapeGraphId eg2
       ecm = M.unionWith HS.union (escapeCalleeMap eg1) (escapeCalleeMap eg2)
       er = escapeReturns eg1 `HS.union` escapeReturns eg2
-      g'' = (escapeGraph eg1) `mappend` (escapeGraph eg2)
+      g'' = escapeGraph eg1 `mappend` escapeGraph eg2
 
 instance BoundedMeetSemiLattice EscapeGraph where
   top = EG { escapeGraph = mkGraph [] []
@@ -180,24 +187,40 @@ instance DataflowAnalysis EscapeAnalysis EscapeGraph where
 -- saves us from having to waste extra space in the dataflow fact,
 -- since the dataflow analysis engine can just hand it off in constant
 -- space.
-data EscapeData = EscapeData { externalP :: ExternalFunction -> Int -> Bool
-                             , escapeSummary :: Map Function (HashMap Instruction EscapeGraph)
-                             }
+data EscapeData =
+  EscapeData { externalP :: ExternalFunction -> Int -> Bool
+             , escapeSummary :: Map Function (DataflowResult EscapeGraph)
+             }
 
 -- | An opaque result type for the analysis.  Use
 -- @escapeGraphAtLocation@ to access it.
-newtype EscapeResult = ER (Map Function (HashMap Instruction EscapeGraph))
-                     deriving (Eq)
+data EscapeResult =
+  ER { escapeResultMapping :: Map Function (DataflowResult EscapeGraph)
+     , escapeExternalSummary :: ExternalFunction -> Int -> Bool
+     }
+
+instance NFData EscapeResult where
+  rnf (ER m _) = m `deepseq` ()
+
+instance Eq EscapeResult where
+  (ER e1 _) == (ER e2 _) = e1 == e2
 
 -- | An accessor to retrieve the @EscapeGraph@ for any program point.
 escapeGraphAtLocation :: EscapeResult -> Instruction -> EscapeGraph
-escapeGraphAtLocation (ER er) i = case HM.lookup i funcMapping of
-  Nothing -> error ("No escape result for instruction " ++ show i)
-  Just eg -> eg
+escapeGraphAtLocation ER { escapeResultMapping = er
+                         , escapeExternalSummary = extSumm
+                         } i =
+  let (eg, ()) = evalRWS (dataflowResult funcRes i) ed es
+  in eg
+  -- case HM.lookup i funcRes of
+  -- Nothing -> error ("No escape result for instruction " ++ show i)
+  -- Just eg -> eg
   where
+    es = EscapeState 1
+    ed = EscapeData { externalP = extSumm, escapeSummary = er }
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
-    funcMapping = M.findWithDefault (error "No escape result for function") f er
+    funcRes = M.findWithDefault (error "No escape result for function") f er
 
 -- | Run the Whaley-Rinard escape analysis on a Module.  This returns
 -- an opaque result that can be accessed via @escapeGraphAtLocation@.
@@ -215,26 +238,31 @@ runEscapeAnalysis m cg = runEscapeAnalysis' m cg (\_ _ -> True)
 -- The function @externP@ will be called for each argument of each
 -- external function.  The @externP ef ix@ should return @True@ if the
 -- @ix@th argument of @ef@ causes the argument to escape.
-runEscapeAnalysis' :: Module -> CallGraph -> (ExternalFunction -> Int -> Bool) -> EscapeResult
+--
+-- FIXME: After a function is fully analyzed, convert its graphs into a more
+-- compact form (based on vectors?)
+runEscapeAnalysis' :: Module
+                      -> CallGraph
+                      -> (ExternalFunction -> Int -> Bool)
+                      -> EscapeResult
 runEscapeAnalysis' m cg externP =
-  let analysis = callGraphSCCTraversal cg summarizeFunction (ER M.empty)
+  let analysis = callGraphSCCTraversal cg summarizeFunction (ER M.empty externP)
   in runIdentity analysis
   where
     globalGraph = buildBaseGlobalGraph m
 
-    moduleSummary = callGraphSCCTraversal cg summarizeFunction (ER M.empty)
     -- | This is the sub-analysis applied to each function
     -- individually.  Note that each instance of the sub-analysis gets
     -- a new EscapeData and EscapeState.  The state is fresh each time
     -- because the analyses are separate and the data is separate
     -- because the summaries are updated each invocation.
     summarizeFunction :: Function -> EscapeResult -> Identity EscapeResult
-    summarizeFunction f (ER summ) =
+    summarizeFunction f (ER summ _) =
       let s0 = mkInitialGraph globalGraph f
           ed = EscapeData externP summ
           es = EscapeState 1
-          (perInstLookupTable, ()) = evalRWS (forwardDataflow s0 f) ed es
-      in return $ ER $ M.insert f perInstLookupTable summ
+          (perInstLookupTable, ()) = evalRWS (forwardBlockDataflow s0 f) ed es
+      in return $! ER (M.insert f perInstLookupTable summ) externP
 
 -- | Provide local points-to information for a value @v@:
 --
@@ -799,4 +827,5 @@ viewEscapeGraph e f = do
     fname = show (functionName f)
     exitFact = escapeGraphAtLocation e (functionExitInstruction f)
     exitGraph = escapeGraph exitFact
+    g = FGL.mkGraph (labNodes exitGraph) (labEdges exitGraph)
 -}

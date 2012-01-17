@@ -34,11 +34,11 @@ module Data.LLVM.Analysis.Dataflow (
   ) where
 
 import Algebra.Lattice
+import Control.DeepSeq
 import Control.Monad ( foldM )
 import Data.Graph.Inductive hiding ( (><) )
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
-import Data.List ( foldl' )
 import qualified Data.Set as S
 import Text.Printf
 
@@ -46,38 +46,67 @@ import Data.LLVM.CFG
 import Data.LLVM.Types
 
 -- | The opaque result of a dataflow analysis
-data DataflowResult a = DataflowInstructionResult (HashMap Instruction a)
-                      | DataflowBlockResult { blockEndResults :: HashMap BasicBlock a
-                                            , dataflowPredBlocks :: BasicBlock -> [BasicBlock]
-                                            , dataflowInitial :: a
-                                            }
+data DataflowResult a =
+    DataflowInstructionResult (HashMap Instruction a)
+  | DataflowBlockResult { blockEndResults :: HashMap BasicBlock a
+                        , dataflowPredBlocks :: BasicBlock -> [BasicBlock]
+                        , dataflowIncomingEdges :: BasicBlock -> [CFGEdge]
+                        , dataflowInitial :: a
+                        }
+
+instance (Eq a) => Eq (DataflowResult a) where
+  (DataflowInstructionResult m1) == (DataflowInstructionResult m2) = m1 == m2
+  DataflowBlockResult { blockEndResults = m1 } == DataflowBlockResult { blockEndResults = m2} = m1 == m2
+  _ == _ = False
+
+instance (NFData a) => NFData (DataflowResult a) where
+  rnf (DataflowInstructionResult m1) = m1 `deepseq` ()
+  rnf DataflowBlockResult { blockEndResults = m1 } = m1 `deepseq` ()
 
 -- | Get the result of a dataflow analysis at the given instruction.
 -- Will throw an error if the instruction is not in the function for
 -- which this analysis was run.
-dataflowResult :: DataflowResult a -> Instruction -> a
+dataflowResult :: (DataflowAnalysis m a)
+                  => DataflowResult a
+                  -> Instruction -> m a
 dataflowResult (DataflowInstructionResult m) i =
   case M.lookup i m of
     Nothing -> error ("Instruction " ++ show i ++ " has no dataflow result")
-dataflowResult (DataflowBlockResult m preds s0) i =
+    Just r -> return r
+dataflowResult DataflowBlockResult { blockEndResults = m
+                                   , dataflowPredBlocks = preds
+                                   , dataflowIncomingEdges = incEdges
+                                   , dataflowInitial = s0
+                                   } i = do
   let Just bb = instructionBasicBlock i
-      pblocks = preds bb
-      predRes = map blockRes pblocks
-      initialState = case null predRes of
+      predBlocks = preds bb
+      predResults = map blockRes predBlocks
+      initialInputState = case null predResults of
         True -> s0
-        False -> meets predRes
-      initialIncomingEdges = undefined
+        False -> meets predResults
+      initialIncomingEdges = incEdges bb
       predInsts = takeWhile (/=i) (basicBlockInstructions bb)
+      -- The first instruction in the block has incoming edges decided
+      -- by the CFG.  The rest of the instructions have default
+      -- internal edges only.
       incomingEdges = initialIncomingEdges : repeat [DefaultEdge]
-      incomingState = foldl' transfer' initialState (zip predInsts incomingEdges)
-  in case null predInsts of
+      -- This is the input state for the requested instruction
+      -- (obtained by applying the transfer function to all of the
+      -- instructions in the block before it).
+  incomingState <- foldM transfer' initialInputState (zip predInsts incomingEdges)
+  -- Now apply the transfer function one more time to get the dataflow
+  -- fact for this instruction.
+  case null predInsts of
     -- This is the first instruction in the block, use the
     -- incoming edges from the CFG
-    True -> transfer incomingState i incomingEdges
+    True -> transfer incomingState i initialIncomingEdges
     -- Otherwise, there is just an internal incoming edge
     False -> transfer incomingState i [DefaultEdge]
   where
-    transfer' s (i, es) = transfer s i es
+    transfer' s (inst, es) = transfer s inst es
+    blockRes bb = case M.lookup bb m of
+      Nothing -> error ("Basic block " ++ show (Value bb) ++ " has no dataflow result")
+      Just r -> r
 
 -- | A class defining the interface to a dataflow analysis.  The
 -- analysis object itself that is passed to one of the dataflow
@@ -171,6 +200,7 @@ dataflowAnalysis predFunc succFunc analysis f = do
           True -> analysis
           False -> meets $ map (lookupFact outputFacts . value cfg) preds
 
+{-# INLINE value #-}
 value :: CFGType -> Int -> Instruction
 value cfg nod = case lab cfg nod of
   Just v -> v
@@ -198,30 +228,47 @@ basicBlockPredecessors cfg bb = map (toBlock cfg) ps
     firstInst : _ = basicBlockInstructions bb
     ps = pre cfg (instructionUniqueId firstInst)
 
+basicBlockPredEdges :: CFGType -> BasicBlock -> [CFGEdge]
+basicBlockPredEdges cfg bb =
+  map (\(_, _, l) -> l) $ inn cfg (instructionUniqueId startInst)
+  where
+    startInst : _ = basicBlockInstructions bb
+
+basicBlockSuccEdges :: CFGType -> BasicBlock -> [CFGEdge]
+basicBlockSuccEdges cfg bb =
+  map (\(_, _, l) -> l) $ out cfg (instructionUniqueId exitInst)
+  where
+    exitInst = basicBlockTerminatorInstruction bb
+
 forwardBlockDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
-                        => (CFGType -> Node -> [(Node, CFGEdge)])
-                        -> a -> b -> m (DataflowResult a)
+                        => a -> b -> m (DataflowResult a)
 forwardBlockDataflow =
-  blockDataflowAnalysis basicBlockInstructions basicBlockPredecessors basicBlockSuccessors
+  blockDataflowAnalysis basicBlockInstructions basicBlockPredEdges
+      basicBlockPredecessors basicBlockSuccessors lpre
 
 backwardBlockDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
-                         => (CFGType -> Node -> [(Node, CFGEdge)])
-                         -> a -> b -> m (DataflowResult a)
+                         => a -> b -> m (DataflowResult a)
 backwardBlockDataflow =
-  blockDataflowAnalysis (reverse . basicBlockInstructions) basicBlockSuccessors basicBlockPredecessors
+  blockDataflowAnalysis (reverse . basicBlockInstructions) basicBlockSuccEdges
+      basicBlockSuccessors basicBlockPredecessors lsuc
 
 blockDataflowAnalysis :: (Eq a, DataflowAnalysis m a, HasCFG b)
                          => (BasicBlock -> [Instruction])
+                         -> (CFGType -> BasicBlock -> [CFGEdge])
                          -> (CFGType -> BasicBlock -> [BasicBlock])
                          -> (CFGType -> BasicBlock -> [BasicBlock])
                          -> (CFGType -> Node -> [(Node, CFGEdge)])
                          -> a -> b -> m (DataflowResult a)
-blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis f = do
+blockDataflowAnalysis orderedBlockInsts blockIncomingEdges blockPreds blockSuccs predFunc analysis f = do
   let blocks = functionBody func
       initialStates = M.fromList $ zip blocks (repeat analysis)
       s0 = (initialStates, S.empty)
   res <- dataflow blocks s0
-  return (DataflowBlockResult res (blockPreds cfg) analysis)
+  return DataflowBlockResult { blockEndResults = res
+                             , dataflowPredBlocks = blockPreds cfg
+                             , dataflowIncomingEdges = blockIncomingEdges cfg
+                             , dataflowInitial = analysis
+                             }
   where
     cfgWrapper = getCFG f
     cfg = cfgGraph cfgWrapper
@@ -248,6 +295,9 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
       Nothing -> error $ printf "No facts for block %s" (show (Value block))
 
     processBlock fw@(outputFacts, nextWork) block = do
+      let inputFact = case null preds of
+            True -> analysis
+            False -> meets $ map (lookupFact outputFacts) preds
       outputFact <- foldM processNode inputFact (orderedBlockInsts block)
       case outputFact == lastOutputFact of
         True -> return fw
@@ -260,9 +310,6 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
           in return (outputFacts', S.size nextWork' `seq` nextWork')
       where
         lastOutputFact = lookupFact outputFacts block
-        inputFact = case null preds of
-          True -> analysis
-          False -> meets $ map (lookupFact outputFacts) preds
         preds = blockPreds cfg block
 
     -- | Apply the transfer function to each instruction in this
