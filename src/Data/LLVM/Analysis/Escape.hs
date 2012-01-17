@@ -1,4 +1,5 @@
 {-# LANGUAGE ViewPatterns, BangPatterns, TypeSynonymInstances, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE TemplateHaskell #-}
 -- | This module implements the compositional pointer/escape analysis
 -- described by Whaley and Rinard (http://doi.acm.org/10.1145/320384.320400).
 --
@@ -53,6 +54,7 @@ import qualified Data.Set as S
 import Data.Hashable
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
+import FileLocation
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as HS
 
@@ -312,7 +314,7 @@ followEscapeEdge eg v at =
     targetSucs = filter ((\x -> x==IEdge at || x==OEdge at) . snd) ss
 
     errMsg = "followEscapeEdge: expected context not found"
-    fromJust = maybe (error errMsg) id
+    fromJust = maybe ($err' errMsg) id
 
 -- Internal stuff
 
