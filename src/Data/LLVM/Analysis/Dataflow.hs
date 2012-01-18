@@ -150,7 +150,7 @@ dataflowAnalysis :: (Eq a, DataflowAnalysis m a, HasCFG b)
                     -> a -> b -> m (DataflowResult a)
 dataflowAnalysis predFunc succFunc analysis f = do
   let instructions = map snd $ labNodes cfg
-      initialStates = M.fromList $ zip instructions (repeat analysis)
+      initialStates = M.fromList $ zip instructions (repeat top)
       s0 = (initialStates, S.empty)
   res <- dataflow instructions s0
   return (DataflowInstructionResult res)
@@ -261,7 +261,7 @@ blockDataflowAnalysis :: (Eq a, DataflowAnalysis m a, HasCFG b)
                          -> a -> b -> m (DataflowResult a)
 blockDataflowAnalysis orderedBlockInsts blockIncomingEdges blockPreds blockSuccs predFunc analysis f = do
   let blocks = functionBody func
-      initialStates = M.fromList $ zip blocks (repeat analysis)
+      initialStates = M.fromList $ zip blocks (repeat top)
       s0 = (initialStates, S.empty)
   res <- dataflow blocks s0
   return DataflowBlockResult { blockEndResults = res
