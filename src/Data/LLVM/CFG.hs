@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification, TemplateHaskell #-}
 -- | This module defines control flow graphs over the LLVM IR.
 module Data.LLVM.CFG (
   -- * Types
@@ -8,11 +8,21 @@ module Data.LLVM.CFG (
   HasCFG(..),
   -- * Constructors
   mkCFG,
-  buildLocalGraph
+  buildLocalGraph,
+  -- * Accessors
+  basicBlockPredecessors,
+  basicBlockSuccessors,
+  basicBlockPredecessorEdges,
+  basicBlockSuccessorEdges,
+  basicBlockLabeledPredecessors,
+  basicBlockLabeledSuccessors,
+  instructionLabeledPredecessors,
+  instructionLabeledSuccessors
   ) where
 
 import Data.Graph.Inductive
 import Data.GraphViz
+import FileLocation
 import Text.Printf
 
 import Data.LLVM.Types
@@ -226,3 +236,82 @@ caseEdge thisNodeId cond (val, dest) =
 indirectEdge :: Node -> Value -> BasicBlock -> LEdge CFGEdge
 indirectEdge thisNodeId addr target =
   (thisNodeId, jumpTargetId target, IndirectEdge addr)
+
+{-# INLINE toBlock #-}
+toBlock :: CFGType -> Node -> BasicBlock
+toBlock cfg n =
+  case lab cfg n of
+    Nothing -> $err' ("Instruction missing from CFG: " ++ show n)
+    Just i ->
+      case instructionBasicBlock i of
+        Nothing -> $err' ("Instruction in CFG should have a basic block: " ++ show i)
+        Just b -> b
+
+{-# INLINE toInstruction #-}
+toInstruction :: CFG -> Node -> Instruction
+toInstruction cfg nod =
+  case lab (cfgGraph cfg) nod of
+    Just v -> v
+    Nothing -> $err' ("No value for cfg node: " ++ show nod)
+
+-- | Get all of the predecessor blocks for basic block @bb@
+--
+-- > basicBlockPredecessors cfg bb
+basicBlockPredecessors :: CFG -> BasicBlock -> [BasicBlock]
+basicBlockPredecessors cfg bb = map (toBlock cfg') ps
+  where
+    cfg' = cfgGraph cfg
+    firstInst : _ = basicBlockInstructions bb
+    ps = pre cfg' (instructionUniqueId firstInst)
+
+-- | Get all of the successor blocks for basic block @bb@
+--
+-- > basicBlockSuccessors cfg bb
+basicBlockSuccessors :: CFG -> BasicBlock -> [BasicBlock]
+basicBlockSuccessors cfg bb = map (toBlock cfg') ss
+  where
+    cfg' = cfgGraph cfg
+    exitInst = basicBlockTerminatorInstruction bb
+    ss = suc cfg' (instructionUniqueId exitInst)
+
+basicBlockPredecessorEdges :: CFG -> BasicBlock -> [CFGEdge]
+basicBlockPredecessorEdges cfg bb =
+  map (\(_, _, l) -> l) $ inn (cfgGraph cfg) (instructionUniqueId startInst)
+  where
+    startInst : _ = basicBlockInstructions bb
+
+basicBlockSuccessorEdges :: CFG -> BasicBlock -> [CFGEdge]
+basicBlockSuccessorEdges cfg bb =
+  map (\(_, _, l) -> l) $ out (cfgGraph cfg) (instructionUniqueId exitInst)
+  where
+    exitInst = basicBlockTerminatorInstruction bb
+
+basicBlockLabeledSuccessors :: CFG -> BasicBlock -> [(BasicBlock, CFGEdge)]
+basicBlockLabeledSuccessors cfg bb =
+  map (\(n, l) -> (toBlock cfg' n, l)) ss
+  where
+    cfg' = cfgGraph cfg
+    exitInst = basicBlockTerminatorInstruction bb
+    ss = lsuc cfg' (instructionUniqueId exitInst)
+
+basicBlockLabeledPredecessors :: CFG -> BasicBlock -> [(BasicBlock, CFGEdge)]
+basicBlockLabeledPredecessors cfg bb =
+  map (\(n, l) -> (toBlock cfg' n, l)) ps
+  where
+    cfg' = cfgGraph cfg
+    startInst : _ = basicBlockInstructions bb
+    ps = lpre cfg' (instructionUniqueId startInst)
+
+instructionLabeledPredecessors :: CFG -> Instruction -> [(Instruction, CFGEdge)]
+instructionLabeledPredecessors cfg i =
+  map (\(n, l) -> (toInstruction cfg n, l)) (lpre cfg' uid)
+  where
+    uid = instructionUniqueId i
+    cfg' = cfgGraph cfg
+
+instructionLabeledSuccessors :: CFG -> Instruction -> [(Instruction, CFGEdge)]
+instructionLabeledSuccessors cfg i =
+  map (\(n, l) -> (toInstruction cfg n, l)) (lsuc cfg' uid)
+  where
+    uid = instructionUniqueId i
+    cfg' = cfgGraph cfg

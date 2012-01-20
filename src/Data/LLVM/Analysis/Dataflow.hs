@@ -37,7 +37,6 @@ module Data.LLVM.Analysis.Dataflow (
 import Algebra.Lattice
 import Control.DeepSeq
 import Control.Monad ( foldM )
-import Data.Graph.Inductive hiding ( (><) )
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
 import qualified Data.Set as S
@@ -51,8 +50,7 @@ import Data.LLVM.Types
 data DataflowResult a =
     DataflowInstructionResult (HashMap Instruction a)
   | DataflowBlockResult { blockEndResults :: HashMap BasicBlock a
-                        , dataflowPredBlocks :: BasicBlock -> [BasicBlock]
-                        , dataflowIncomingEdges :: BasicBlock -> [CFGEdge]
+                        , dataflowPredBlocks :: BasicBlock -> [(BasicBlock, CFGEdge)]
                         , dataflowPhiInput :: (BasicBlock -> a) -> BasicBlock -> [(BasicBlock, a, CFGEdge)]
                         , dataflowInitial :: a
                         }
@@ -78,19 +76,19 @@ dataflowResult (DataflowInstructionResult m) i =
     Just r -> return r
 dataflowResult DataflowBlockResult { blockEndResults = m
                                    , dataflowPredBlocks = preds
-                                   , dataflowIncomingEdges = incEdges
                                    , dataflowPhiInput = toPhiInput
                                    , dataflowInitial = s0
                                    } i = do
   let blockLookup x = M.lookupDefault ($err' "No block entry") x m
   let Just bb = instructionBasicBlock i
       phiPreds = toPhiInput blockLookup bb
-      predBlocks = preds bb
+      predBlocksAndEdges = preds bb
+      predBlocks = map fst predBlocksAndEdges
       predResults = map blockRes predBlocks
       initialInputState = case null predResults of
         True -> s0
         False -> meets predResults
-      initialIncomingEdges = incEdges bb
+      initialIncomingEdges = map snd $ preds bb
       predInsts = takeWhile (/=i) (basicBlockInstructions bb)
       -- The first instruction in the block has incoming edges decided
       -- by the CFG.  The rest of the instructions have default
@@ -151,7 +149,13 @@ forwardDataflow :: (Eq a, DataflowAnalysis m a, HasCFG b)
                    => a -- ^ The initial state of the analysis to run
                    -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
                    -> m (DataflowResult a)
-forwardDataflow = dataflowAnalysis lpre lsuc basicBlockPredecessors
+forwardDataflow analysis f =
+  dataflowAnalysis (instructionLabeledPredecessors cfg)
+    (instructionLabeledSuccessors cfg)
+    (basicBlockLabeledPredecessors cfg)
+    analysis cfg
+  where
+    cfg = getCFG f
 
 -- | Perform a backward dataflow analysis of the given type over a
 -- function or CFG.
@@ -159,23 +163,27 @@ backwardDataflow :: (Eq a, DataflowAnalysis m a, HasCFG b)
                     => a -- ^ The initial state of the analysis to run
                     -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
                     -> m (DataflowResult a)
-backwardDataflow = dataflowAnalysis lsuc lpre basicBlockSuccessors
+backwardDataflow analysis f =
+  dataflowAnalysis (instructionLabeledSuccessors cfg)
+    (instructionLabeledPredecessors cfg)
+    (basicBlockLabeledSuccessors cfg)
+    analysis cfg
+  where
+    cfg = getCFG f
 
-dataflowAnalysis :: (Eq a, DataflowAnalysis m a, HasCFG b)
-                    => (CFGType -> Node -> [(Node, CFGEdge)])
-                    -> (CFGType -> Node -> [(Node, CFGEdge)])
-                    -> (CFGType -> BasicBlock -> [BasicBlock])
-                    -> a -> b -> m (DataflowResult a)
-dataflowAnalysis predFunc succFunc blockPreds analysis f = do
-  let instructions = map snd $ labNodes cfg
+dataflowAnalysis :: (Eq a, DataflowAnalysis m a)
+                    => (Instruction -> [(Instruction, CFGEdge)])
+                    -> (Instruction -> [(Instruction, CFGEdge)])
+                    -> (BasicBlock -> [(BasicBlock, CFGEdge)])
+                    -> a -> CFG -> m (DataflowResult a)
+dataflowAnalysis predFunc succFunc blockPreds analysis cfg = do
+  let instructions = concatMap basicBlockInstructions (functionBody func)
       initialStates = M.fromList $ zip instructions (repeat top)
       s0 = (initialStates, S.empty)
   res <- dataflow instructions s0
   return (DataflowInstructionResult res)
   where
-    cfgWrapper = getCFG f
-    cfg = cfgGraph cfgWrapper
-    -- ^ The control flow graph for this function
+    func = cfgFunction cfg
 
     -- | If there is nothing left in the worklist, return the facts
     -- associated with the exit node.
@@ -200,15 +208,15 @@ dataflowAnalysis predFunc succFunc blockPreds analysis f = do
     -- different than the current fact, add all successors to the
     -- worklist.
     processNode fw@(outputFacts, nextWork) inst = do
-      let Just bb = instructionBasicBlock inst
-          blockLookup = lookupFact outputFacts . basicBlockTerminatorInstruction
-          phiPreds = buildPhiPreds (predFunc cfg) (toBlock cfg) blockLookup bb
+      let blockLookup = lookupFact outputFacts . basicBlockTerminatorInstruction
+          phiPreds = buildPhiPredsInst blockPreds blockLookup inst
           inputFact = case null preds of
             True -> analysis
-            False -> meets $ map (lookupFact outputFacts . value cfg) preds
+            False -> meets $ map (lookupFact outputFacts) preds
+          Just bb = instructionBasicBlock inst
       outputFact <- case inst of
         PhiNode {} ->
-          let phiFact = meets $ map blockLookup (blockPreds cfg bb)
+          let phiFact = meets $ map (blockLookup . fst) (blockPreds bb)
           in phiTransfer phiFact inst phiPreds
         _ -> transfer inputFact inst incomingEdges
       case outputFact == lastOutputFact of
@@ -216,90 +224,55 @@ dataflowAnalysis predFunc succFunc blockPreds analysis f = do
         False ->
           -- Updated worklist and facts
           let outputFacts' = M.insert inst outputFact outputFacts
-              succNodes = succFunc cfg (instructionUniqueId inst)
+              succNodes = succFunc inst
               justIds = fst $ unzip succNodes
-              q = S.fromList (map (value cfg) justIds)
+              q = S.fromList justIds
               nextWork' = S.union nextWork q
           in return (outputFacts', S.size nextWork' `seq` nextWork')
       where
         lastOutputFact = lookupFact outputFacts inst
-        (preds, incomingEdges) = unzip $ predFunc cfg (instructionUniqueId inst)
-
-{-# INLINE value #-}
-value :: CFGType -> Int -> Instruction
-value cfg nod = case lab cfg nod of
-  Just v -> v
-  Nothing -> error $ printf "No value for CFG node %d" nod
-
-basicBlockSuccessors :: CFGType -> BasicBlock -> [BasicBlock]
-basicBlockSuccessors cfg bb = map (toBlock cfg) ss
-  where
-    exitInst = basicBlockTerminatorInstruction bb
-    ss = suc cfg (instructionUniqueId exitInst)
-
-{-# INLINE toBlock #-}
-toBlock :: CFGType -> Int -> BasicBlock
-toBlock cfg n =
-  case lab cfg n of
-    Nothing -> error "Instruction missing from CFG"
-    Just i ->
-      case instructionBasicBlock i of
-        Nothing -> error "Instruction in CFG should have a basic block"
-        Just b -> b
-
-basicBlockPredecessors :: CFGType -> BasicBlock -> [BasicBlock]
-basicBlockPredecessors cfg bb = map (toBlock cfg) ps
-  where
-    firstInst : _ = basicBlockInstructions bb
-    ps = pre cfg (instructionUniqueId firstInst)
-
-basicBlockPredEdges :: CFGType -> BasicBlock -> [CFGEdge]
-basicBlockPredEdges cfg bb =
-  map (\(_, _, l) -> l) $ inn cfg (instructionUniqueId startInst)
-  where
-    startInst : _ = basicBlockInstructions bb
-
-basicBlockSuccEdges :: CFGType -> BasicBlock -> [CFGEdge]
-basicBlockSuccEdges cfg bb =
-  map (\(_, _, l) -> l) $ out cfg (instructionUniqueId exitInst)
-  where
-    exitInst = basicBlockTerminatorInstruction bb
+        (preds, incomingEdges) = unzip $ predFunc inst
 
 forwardBlockDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
                         => a -> b -> m (DataflowResult a)
-forwardBlockDataflow =
-  blockDataflowAnalysis basicBlockInstructions basicBlockPredEdges
-      basicBlockPredecessors basicBlockSuccessors lpre
+forwardBlockDataflow analysis f =
+  blockDataflowAnalysis basicBlockInstructions
+    (basicBlockLabeledPredecessors cfg)
+    (basicBlockLabeledSuccessors cfg)
+    (instructionLabeledPredecessors cfg)
+    analysis cfg
+  where
+    cfg = getCFG f
 
 backwardBlockDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
                          => a -> b -> m (DataflowResult a)
-backwardBlockDataflow =
-  blockDataflowAnalysis (reverse . basicBlockInstructions) basicBlockSuccEdges
-      basicBlockSuccessors basicBlockPredecessors lsuc
+backwardBlockDataflow analysis f =
+  blockDataflowAnalysis (reverse . basicBlockInstructions)
+    (basicBlockLabeledSuccessors cfg)
+    (basicBlockLabeledPredecessors cfg)
+    (instructionLabeledSuccessors cfg)
+    analysis cfg
+  where
+    cfg = getCFG f
 
-blockDataflowAnalysis :: (Eq a, DataflowAnalysis m a, HasCFG b)
+blockDataflowAnalysis :: (Eq a, DataflowAnalysis m a)
                          => (BasicBlock -> [Instruction])
-                         -> (CFGType -> BasicBlock -> [CFGEdge])
-                         -> (CFGType -> BasicBlock -> [BasicBlock])
-                         -> (CFGType -> BasicBlock -> [BasicBlock])
-                         -> (CFGType -> Node -> [(Node, CFGEdge)])
-                         -> a -> b -> m (DataflowResult a)
-blockDataflowAnalysis orderedBlockInsts blockIncomingEdges blockPreds blockSuccs predFunc analysis f = do
+                         -> (BasicBlock -> [(BasicBlock, CFGEdge)])
+                         -> (BasicBlock -> [(BasicBlock, CFGEdge)])
+                         -> (Instruction -> [(Instruction, CFGEdge)])
+                         -> a -> CFG -> m (DataflowResult a)
+blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis cfg = do
   let blocks = functionBody func
       initialStates = M.fromList $ zip blocks (repeat top)
       s0 = (initialStates, S.empty)
   res <- dataflow blocks s0
   return DataflowBlockResult { blockEndResults = res
-                             , dataflowPredBlocks = blockPreds cfg
-                             , dataflowIncomingEdges = blockIncomingEdges cfg
-                             , dataflowPhiInput = buildPhiPreds (predFunc cfg) (toBlock cfg)
+                             , dataflowPredBlocks = blockPreds
+                             , dataflowPhiInput = buildPhiPreds blockPreds
                              , dataflowInitial = analysis
                              }
   where
-    cfgWrapper = getCFG f
-    cfg = cfgGraph cfgWrapper
-    -- ^ The control flow graph for this function
-    func = cfgFunction cfgWrapper
+    func = cfgFunction cfg
 
     -- | If there is nothing left in the worklist, return the facts
     -- associated with the exit node.
@@ -316,13 +289,14 @@ blockDataflowAnalysis orderedBlockInsts blockIncomingEdges blockPreds blockSuccs
         True -> return facts'
         False -> dataflow (S.toList nextWork') (facts', S.empty)
 
-    lookupFact facts block = case M.lookup block facts of
-      Just fact -> fact
-      Nothing -> error $ printf "No facts for block %s" (show (Value block))
+    lookupFact facts block =
+      case M.lookup block facts of
+        Just fact -> fact
+        Nothing -> error $ printf "No facts for block %s" (show (Value block))
 
     processBlock fw@(outputFacts, nextWork) block = do
-      let phiPreds = buildPhiPreds (predFunc cfg) (toBlock cfg) (lookupFact outputFacts) block
-          predFacts = map (lookupFact outputFacts) preds
+      let phiPreds = buildPhiPreds blockPreds (lookupFact outputFacts) block
+          predFacts = map (lookupFact outputFacts . fst) preds
           inputFact = case null preds of
             True -> analysis
             False -> meets predFacts
@@ -333,31 +307,34 @@ blockDataflowAnalysis orderedBlockInsts blockIncomingEdges blockPreds blockSuccs
           -- Update the worklist with the successors of this block
           -- and the facts with what we just computed
           let outputFacts' = M.insert block outputFact outputFacts
-              succBlocks = blockSuccs cfg block
+              succBlocks = map fst $ blockSuccs block
               nextWork' = S.union nextWork (S.fromList succBlocks)
           in return (outputFacts', S.size nextWork' `seq` nextWork')
       where
         lastOutputFact = lookupFact outputFacts block
-        preds = blockPreds cfg block
+        preds = blockPreds block
 
     -- | Apply the transfer function to each instruction in this
     -- block.  If the result is different than the current fact, add
     -- all successors to the worklist.
     processNode phiPreds inputFact inst =
-      let incomingEdges = snd $ unzip $ predFunc cfg (instructionUniqueId inst)
+      let incomingEdges = snd $ unzip $ predFunc inst
       in case inst of
         PhiNode {} -> phiTransfer inputFact inst phiPreds
         _ -> transfer inputFact inst incomingEdges
 
-buildPhiPreds :: (Node -> [(Node, CFGEdge)])
-                 -> (Node -> BasicBlock)
+buildPhiPreds :: (BasicBlock -> [(BasicBlock, CFGEdge)])
                  -> (BasicBlock -> a)
                  -> BasicBlock
                  -> [(BasicBlock, a, CFGEdge)]
-buildPhiPreds predFunc toB lookupFact block =
-  map (\(b, e) -> (b, lookupFact b, e)) blockEdges
+buildPhiPreds predFunc lookupFact block =
+  map (\(b, e) -> (b, lookupFact b, e)) (predFunc block)
+
+buildPhiPredsInst :: (BasicBlock -> [(BasicBlock, CFGEdge)])
+                 -> (BasicBlock -> a)
+                 -> Instruction
+                 -> [(BasicBlock, a, CFGEdge)]
+buildPhiPredsInst predFunc lookupFact i =
+  buildPhiPreds predFunc lookupFact bb
   where
-    (entryInst : _) = basicBlockInstructions block
-    predEdges = predFunc (instructionUniqueId entryInst)
-    -- Pairs of basic blocks and the edge connecting them to this block
-    blockEdges = map (\(n, e) -> (toB n, e)) predEdges
+    Just bb = instructionBasicBlock i
