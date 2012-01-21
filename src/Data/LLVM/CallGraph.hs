@@ -100,26 +100,21 @@ callGraphRepr (CallGraph g _) = g
 -- Passing a non-call/invoke instruction will trigger a noisy pattern
 -- matching failure.
 callInstructionTargets :: CallGraph -> Instruction -> [Value]
-callInstructionTargets (CallGraph _ pta) (CallInst { callFunction = f }) =
-  case valueContent' f of
-    FunctionC _ -> [f]
-    ExternalFunctionC _ -> [f]
-    _ -> S.toList $ pointsToValues pta f
-callInstructionTargets (CallGraph _ pta) (InvokeInst { invokeFunction = f}) =
-  case valueContent' f of
-    FunctionC _ -> [f]
-    ExternalFunctionC _ -> [f]
-    _ -> S.toList $ pointsToValues pta f
+callInstructionTargets cg (CallInst { callFunction = f }) =
+  callValueTargets cg f
+callInstructionTargets cg (InvokeInst { invokeFunction = f}) =
+  callValueTargets cg f
 
 -- | Given the value called by a Call or Invoke instruction, return
 -- all of the possible Functions or ExternalFunctions that it could
 -- be.
 callValueTargets :: CallGraph -> Value -> [Value]
 callValueTargets (CallGraph _ pta) v =
-  case valueContent' v of
-    FunctionC _ -> [v]
-    ExternalFunctionC _ -> [v]
-    _ -> S.toList $ pointsToValues pta v
+  let v' = stripBitcasts v
+  in case valueContent v' of
+    FunctionC _ -> [v']
+    ExternalFunctionC _ -> [v']
+    _ -> S.toList $ pointsToValues pta v'
 
 -- | Build a call graph for the given 'Module' using a pre-computed
 -- points-to analysis.  The String parameter identifies the program
@@ -188,16 +183,17 @@ buildCallEdges pta caller callInst = build' (getCallee callInst)
   where
     callerId = valueUniqueId caller
     build' calledFunc =
-      case valueContent calledFunc of
-        FunctionC _ ->
-          [(callerId, valueUniqueId calledFunc, DirectCall)]
+      case valueContent' calledFunc of
+        FunctionC f ->
+          [(callerId, valueUniqueId f, DirectCall)]
         GlobalAliasC GlobalAlias { globalAliasTarget = aliasee } ->
           [(callerId, valueUniqueId aliasee, DirectCall)]
-        ExternalFunctionC _ -> [(callerId, valueUniqueId calledFunc, DirectCall)]
+        ExternalFunctionC ef -> [(callerId, valueUniqueId ef, DirectCall)]
         -- Functions can be bitcasted before being called - trace
         -- through those to find the underlying function
         InstructionC BitcastInst { castedValue = bcv } -> build' bcv
-        _ -> let targets = S.toList $ pointsToValues pta calledFunc
-                 indirectEdges = map (\t -> (callerId, valueUniqueId t, IndirectCall)) targets
-                 unknownEdge = (callerId, unknownNodeId, UnknownCall)
-             in unknownEdge : indirectEdges
+        _ ->
+          let targets = S.toList $ pointsToValues pta (stripBitcasts calledFunc)
+              indirectEdges = map (\t -> (callerId, valueUniqueId t, IndirectCall)) targets
+              unknownEdge = (callerId, unknownNodeId, UnknownCall)
+          in unknownEdge : indirectEdges
