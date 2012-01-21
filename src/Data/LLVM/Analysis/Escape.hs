@@ -181,7 +181,6 @@ type EscapeAnalysis = RWS EscapeData () EscapeState
 
 instance DataflowAnalysis EscapeAnalysis EscapeGraph where
   transfer = escapeTransfer
-  phiTransfer er _ _ = return er
 
 -- | This is a module-internal datatype to represent information that
 -- is constant throughout the analysis of a single function.  This

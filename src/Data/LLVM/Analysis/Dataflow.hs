@@ -46,6 +46,31 @@ import Text.Printf
 import Data.LLVM.CFG
 import Data.LLVM.Types
 
+-- | A class defining the interface to a dataflow analysis.  The
+-- analysis object itself that is passed to one of the dataflow
+-- functions acts as the initial state.
+--
+-- Note that the second type parameter, @c@, can be used to pass
+-- information that is global and constant for the analysis of a
+-- function.  This can save space by not requiring the information to
+-- be stored redundantly in every dataflow fact.  If this parameter is
+-- not needed, it can safely be instantiated as () (and subsequently
+-- ignored).
+class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
+  transfer :: a -- ^ The incoming analysis state
+              -> Instruction -- ^ The instruction being analyzed
+              -> [CFGEdge] -- ^ Incoming CFG edges
+              -> m a
+  -- ^ The transfer function of this analysis.  It is given any global
+  -- constant data, the current set of facts, the current instruction,
+  -- and a list of incoming edges.
+  phiTransfer ::  [Instruction] -- ^ The instruction being analyzed
+                 -> [(BasicBlock, a, CFGEdge)] -- ^ Incoming CFG edges
+                 -> m a
+  phiTransfer _ = return . meets . map (\(_, e, _) -> e)
+  -- ^ The transfer function that will process all Phi nodes in
+  -- parallel.
+
 -- | The opaque result of a dataflow analysis
 data DataflowResult a =
     DataflowInstructionResult (HashMap Instruction a)
@@ -67,6 +92,9 @@ instance (NFData a) => NFData (DataflowResult a) where
 -- | Get the result of a dataflow analysis at the given instruction.
 -- Will throw an error if the instruction is not in the function for
 -- which this analysis was run.
+--
+-- FIXME: The block result here needs to be able to reverse the instruction
+-- list if doing a backwards analysis
 dataflowResult :: (DataflowAnalysis m a)
                   => DataflowResult a
                   -> Instruction -> m a
@@ -80,16 +108,18 @@ dataflowResult DataflowBlockResult { blockEndResults = m
                                    , dataflowInitial = s0
                                    } i = do
   let blockLookup x = M.lookupDefault ($err' "No block entry") x m
+
   let Just bb = instructionBasicBlock i
+      (phiNodes, otherInsts) = basicBlockSplitPhiNodes bb
       phiPreds = toPhiInput blockLookup bb
       predBlocksAndEdges = preds bb
       predBlocks = map fst predBlocksAndEdges
       predResults = map blockRes predBlocks
-      initialInputState = case null predResults of
-        True -> s0
-        False -> meets predResults
+      -- initialInputState = case null predResults of
+      --   True -> s0
+      --   False -> meets predResults
       initialIncomingEdges = map snd $ preds bb
-      predInsts = takeWhile (/=i) (basicBlockInstructions bb)
+      predInsts = takeWhile (/=i) otherInsts -- FIXME: need to reverse for backwards analysis
       -- The first instruction in the block has incoming edges decided
       -- by the CFG.  The rest of the instructions have default
       -- internal edges only.
@@ -97,10 +127,25 @@ dataflowResult DataflowBlockResult { blockEndResults = m
       -- This is the input state for the requested instruction
       -- (obtained by applying the transfer function to all of the
       -- instructions in the block before it).
-  incomingState <- foldM (transfer' phiPreds) initialInputState (zip predInsts incomingEdges)
+
+  -- This is the state coming into the basic block (possibly after
+  -- processing all phi nodes in parallel)
+  initialInputState <- case null predResults of
+    True -> return s0
+    False -> case null phiNodes of
+      True -> return $! meets predResults
+      False -> phiTransfer phiNodes phiPreds
+
+  -- FIXME: If there are phi nodes and a phi transfer function, that
+  -- will be processing the incoming edges.... we might not want to
+  -- re-process them here
+  incomingState <- foldM transfer' initialInputState (zip predInsts incomingEdges)
   -- Now apply the transfer function one more time to get the dataflow
   -- fact for this instruction.
   case null predInsts of
+    True -> transfer incomingState i initialIncomingEdges
+    False -> transfer incomingState i [DefaultEdge]
+    {-
     -- This is the first instruction in the block, use the
     -- incoming edges from the CFG
     True -> case i of
@@ -110,37 +155,16 @@ dataflowResult DataflowBlockResult { blockEndResults = m
     False -> case i of
       PhiNode {} -> phiTransfer incomingState i phiPreds
       _ -> transfer incomingState i [DefaultEdge]
+-}
   where
-    transfer' phiPreds s (inst, es) =
+    transfer' s (inst, es) = {-
       case inst of
         PhiNode {} -> phiTransfer s inst phiPreds
-        _ -> transfer s inst es
+
+        _ -> -} transfer s inst es
     blockRes bb = case M.lookup bb m of
       Nothing -> error ("Basic block " ++ show (Value bb) ++ " has no dataflow result")
       Just r -> r
-
--- | A class defining the interface to a dataflow analysis.  The
--- analysis object itself that is passed to one of the dataflow
--- functions acts as the initial state.
---
--- Note that the second type parameter, @c@, can be used to pass
--- information that is global and constant for the analysis of a
--- function.  This can save space by not requiring the information to
--- be stored redundantly in every dataflow fact.  If this parameter is
--- not needed, it can safely be instantiated as () (and subsequently
--- ignored).
-class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
-  transfer :: a -- ^ The incoming analysis state
-              -> Instruction -- ^ The instruction being analyzed
-              -> [CFGEdge] -- ^ Incoming CFG edges
-              -> m a
-  -- ^ The transfer function of this analysis.  It is given any global
-  -- constant data, the current set of facts, the current instruction,
-  -- and a list of incoming edges.
-  phiTransfer :: a -- ^ The incoming analysis state
-                 -> Instruction -- ^ The instruction being analyzed
-                 -> [(BasicBlock, a, CFGEdge)] -- ^ Incoming CFG edges
-                 -> m a
 
 
 -- | Perform a forward dataflow analysis of the given type over a
@@ -209,16 +233,32 @@ dataflowAnalysis predFunc succFunc blockPreds analysis cfg = do
     -- worklist.
     processNode fw@(outputFacts, nextWork) inst = do
       let blockLookup = lookupFact outputFacts . basicBlockTerminatorInstruction
+
+      inputFact <- case null preds of
+        True -> return analysis
+        False -> case isFirstNonPhiInstruction inst of
+          False -> return $! meets $ map (lookupFact outputFacts) preds
+          True ->
+            let (phiNodes, _) = basicBlockSplitPhiNodes bb
+                phiPreds = buildPhiPredsInst blockPreds blockLookup inst
+--            let phiFact = meets $ map (blockLookup . fst) (blockPreds bb)
+            in phiTransfer phiNodes phiPreds
+
+      outputFact <- transfer inputFact inst incomingEdges
+      {-
+      let blockLookup = lookupFact outputFacts . basicBlockTerminatorInstruction
           phiPreds = buildPhiPredsInst blockPreds blockLookup inst
+
           inputFact = case null preds of
             True -> analysis
             False -> meets $ map (lookupFact outputFacts) preds
-          Just bb = instructionBasicBlock inst
+--          Just bb = instructionBasicBlock inst
       outputFact <- case inst of
         PhiNode {} ->
           let phiFact = meets $ map (blockLookup . fst) (blockPreds bb)
           in phiTransfer phiFact inst phiPreds
         _ -> transfer inputFact inst incomingEdges
+-}
       case outputFact == lastOutputFact of
         True -> return fw
         False ->
@@ -230,13 +270,14 @@ dataflowAnalysis predFunc succFunc blockPreds analysis cfg = do
               nextWork' = S.union nextWork q
           in return (outputFacts', S.size nextWork' `seq` nextWork')
       where
+        Just bb = instructionBasicBlock inst
         lastOutputFact = lookupFact outputFacts inst
         (preds, incomingEdges) = unzip $ predFunc inst
 
 forwardBlockDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
                         => a -> b -> m (DataflowResult a)
 forwardBlockDataflow analysis f =
-  blockDataflowAnalysis basicBlockInstructions
+  blockDataflowAnalysis id
     (basicBlockLabeledPredecessors cfg)
     (basicBlockLabeledSuccessors cfg)
     (instructionLabeledPredecessors cfg)
@@ -247,7 +288,7 @@ forwardBlockDataflow analysis f =
 backwardBlockDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
                          => a -> b -> m (DataflowResult a)
 backwardBlockDataflow analysis f =
-  blockDataflowAnalysis (reverse . basicBlockInstructions)
+  blockDataflowAnalysis reverse
     (basicBlockLabeledSuccessors cfg)
     (basicBlockLabeledPredecessors cfg)
     (instructionLabeledSuccessors cfg)
@@ -256,7 +297,7 @@ backwardBlockDataflow analysis f =
     cfg = getCFG f
 
 blockDataflowAnalysis :: (Eq a, DataflowAnalysis m a)
-                         => (BasicBlock -> [Instruction])
+                         => ([Instruction] -> [Instruction])
                          -> (BasicBlock -> [(BasicBlock, CFGEdge)])
                          -> (BasicBlock -> [(BasicBlock, CFGEdge)])
                          -> (Instruction -> [(Instruction, CFGEdge)])
@@ -295,12 +336,21 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
         Nothing -> error $ printf "No facts for block %s" (show (Value block))
 
     processBlock fw@(outputFacts, nextWork) block = do
-      let phiPreds = buildPhiPreds blockPreds (lookupFact outputFacts) block
+      let (phiNodes, otherInsts) = basicBlockSplitPhiNodes block
+          phiPreds = buildPhiPreds blockPreds (lookupFact outputFacts) block
+      inputFact <- case null preds of
+        True -> return analysis
+        False -> case null phiNodes of
+          True -> return $! meets (map (lookupFact outputFacts . fst) preds) -- predFacts
+          False -> phiTransfer phiNodes phiPreds
+      outputFact <- foldM processNode inputFact (orderedBlockInsts otherInsts)
+{-
           predFacts = map (lookupFact outputFacts . fst) preds
           inputFact = case null preds of
             True -> analysis
             False -> meets predFacts
       outputFact <- foldM (processNode phiPreds) inputFact (orderedBlockInsts block)
+-}
       case outputFact == lastOutputFact of
         True -> return fw
         False ->
@@ -317,11 +367,12 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
     -- | Apply the transfer function to each instruction in this
     -- block.  If the result is different than the current fact, add
     -- all successors to the worklist.
-    processNode phiPreds inputFact inst =
+    processNode inputFact inst =
       let incomingEdges = snd $ unzip $ predFunc inst
-      in case inst of
-        PhiNode {} -> phiTransfer inputFact inst phiPreds
-        _ -> transfer inputFact inst incomingEdges
+      in transfer inputFact inst incomingEdges
+      -- in case inst of
+      --   PhiNode {} -> phiTransfer inputFact inst phiPreds
+      --   _ -> transfer inputFact inst incomingEdges
 
 buildPhiPreds :: (BasicBlock -> [(BasicBlock, CFGEdge)])
                  -> (BasicBlock -> a)
