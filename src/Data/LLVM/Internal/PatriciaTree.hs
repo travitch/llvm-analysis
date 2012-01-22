@@ -26,7 +26,6 @@ import           Data.Graph.Inductive.Graph
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as IM
 import           Data.List ( foldl' )
-import           Data.Maybe
 import           Control.Arrow ( second )
 
 type IntMap = HashMap Int
@@ -63,9 +62,6 @@ instance Graph Gr where
 nr :: IntMap b -> (Int, Int)
 nr g | IM.null g = (0, 0)
      | otherwise = (minimum (IM.keys g), maximum (IM.keys g))
-  where
-    ix = fst . fst . fromJust
-
 
 instance DynGraph Gr where
     (p, v, l, s) & (Gr g)
@@ -81,9 +77,11 @@ instance (NFData a, NFData b) => NFData (Gr a b) where
 instance (NFData a, NFData b) => NFData (Context' a b) where
   rnf = forceContext
 
+forceContext :: (NFData a, NFData b) => Context' a b -> ()
 forceContext (Context' adj1 l adj2) =
   adj1 `deepseq` l `deepseq` adj2 `deepseq` ()
 
+forceEvalGraph :: (NFData a, NFData b) => Gr a b -> ()
 forceEvalGraph (Gr g) = g `deepseq` ()
 
 

@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Data.LLVM.Analysis.CallGraphSCCTraversal (
   callGraphSCCTraversal,
   basicCallGraphSCCTraversal
@@ -5,6 +6,7 @@ module Data.LLVM.Analysis.CallGraphSCCTraversal (
 
 import Control.Monad ( foldM )
 import Data.Graph.Inductive
+import FileLocation
 
 import Data.LLVM.CallGraph
 import Data.LLVM.Types
@@ -66,6 +68,7 @@ projectDefinedFunctions :: Gr CallNode b -> Gr Function b
 projectDefinedFunctions g = nmap unwrap g'
   where
     unwrap (DefinedFunction f) = f
+    unwrap _ = $err' "Expected a defined function"
     g' = delNodes undefinedNodes $ delEdges edgesToUndefined g
     (undefinedNodes, edgesToUndefined) =
       foldr (extractUndefined g) ([], []) (nodes g)

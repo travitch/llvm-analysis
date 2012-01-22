@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification, TemplateHaskell #-}
 -- | This module defines a call graph and related functions.  The call
 -- graph is a static view of the calls between functions in a
 -- 'Module'.  The nodes of the graph are global functions and the
@@ -40,6 +40,7 @@ import Control.Arrow ( (&&&) )
 import Data.Graph.Inductive
 import Data.GraphViz
 import qualified Data.Set as S
+import FileLocation
 
 import Data.LLVM.Types
 import Data.LLVM.Analysis.PointsTo
@@ -104,6 +105,8 @@ callInstructionTargets cg (CallInst { callFunction = f }) =
   callValueTargets cg f
 callInstructionTargets cg (InvokeInst { invokeFunction = f}) =
   callValueTargets cg f
+callInstructionTargets _ i =
+  $err' ("Expected a Call or Invoke instruction: " ++ show i)
 
 -- | Given the value called by a Call or Invoke instruction, return
 -- all of the possible Functions or ExternalFunctions that it could
@@ -176,7 +179,7 @@ buildFuncEdges pta f = concat es
 getCallee :: Instruction -> Value
 getCallee CallInst { callFunction = f } = f
 getCallee InvokeInst { invokeFunction = f } = f
-getCallee _ = error "Not a function in getCallee"
+getCallee i = $err' ("Expected a function in getCallee: " ++ show i)
 
 buildCallEdges :: (PointsToAnalysis a) => a -> Function -> Instruction -> [LEdge CallEdge]
 buildCallEdges pta caller callInst = build' (getCallee callInst)

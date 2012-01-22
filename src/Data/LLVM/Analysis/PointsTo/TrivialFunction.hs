@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 -- | This module implements a trivial points-to analysis that is
 -- intended only for fast conservative callgraph construction.  All
 -- function pointers can point to all functions with compatible types.
@@ -16,6 +17,7 @@ import Data.HashMap.Strict ( HashMap )
 import Data.Set ( Set )
 import qualified Data.HashMap.Strict as M
 import qualified Data.Set as S
+import FileLocation
 
 import Data.LLVM.Types
 import Data.LLVM.Analysis.PointsTo
@@ -64,4 +66,4 @@ trivialPointsTo p@(TrivialFunction m) v =
 derefPointer :: Value -> Type
 derefPointer v = case valueType v of
   TypePointer p _ -> p
-  _ -> error "TrivialFunction PTA: Non-pointer type given to trivalPointsTo"
+  _ -> $err' ("Non-pointer type given to trivalPointsTo: " ++ show v)

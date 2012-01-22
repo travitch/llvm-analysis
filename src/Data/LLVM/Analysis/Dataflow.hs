@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses, BangPatterns, NoMonomorphismRestriction #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 -- | This module defines an interface for intra-procedural dataflow
 -- analysis (forward and backward).
@@ -39,6 +40,7 @@ import Control.DeepSeq
 import Control.Monad ( foldM )
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
+import Data.Set ( Set )
 import qualified Data.Set as S
 import FileLocation
 import Text.Printf
@@ -100,7 +102,7 @@ dataflowResult :: (DataflowAnalysis m a)
                   -> Instruction -> m a
 dataflowResult (DataflowInstructionResult m) i =
   case M.lookup i m of
-    Nothing -> error ("Instruction " ++ show i ++ " has no dataflow result")
+    Nothing -> $err' ("Instruction " ++ show i ++ " has no dataflow result")
     Just r -> return r
 dataflowResult DataflowBlockResult { blockEndResults = m
                                    , dataflowPredBlocks = preds
@@ -145,25 +147,10 @@ dataflowResult DataflowBlockResult { blockEndResults = m
   case null predInsts of
     True -> transfer incomingState i initialIncomingEdges
     False -> transfer incomingState i [DefaultEdge]
-    {-
-    -- This is the first instruction in the block, use the
-    -- incoming edges from the CFG
-    True -> case i of
-      PhiNode {} -> phiTransfer incomingState i phiPreds
-      _ -> transfer incomingState i initialIncomingEdges
-    -- Otherwise, there is just an internal incoming edge
-    False -> case i of
-      PhiNode {} -> phiTransfer incomingState i phiPreds
-      _ -> transfer incomingState i [DefaultEdge]
--}
   where
-    transfer' s (inst, es) = {-
-      case inst of
-        PhiNode {} -> phiTransfer s inst phiPreds
-
-        _ -> -} transfer s inst es
+    transfer' s (inst, es) = transfer s inst es
     blockRes bb = case M.lookup bb m of
-      Nothing -> error ("Basic block " ++ show (Value bb) ++ " has no dataflow result")
+      Nothing -> $err' ("Basic block " ++ show (Value bb) ++ " has no dataflow result")
       Just r -> r
 
 
@@ -195,7 +182,7 @@ backwardDataflow analysis f =
   where
     cfg = getCFG f
 
-dataflowAnalysis :: (Eq a, DataflowAnalysis m a)
+dataflowAnalysis :: forall a m . (Eq a, DataflowAnalysis m a)
                     => (Instruction -> [(Instruction, CFGEdge)])
                     -> (Instruction -> [(Instruction, CFGEdge)])
                     -> (BasicBlock -> [(BasicBlock, CFGEdge)])
@@ -224,13 +211,18 @@ dataflowAnalysis predFunc succFunc blockPreds analysis cfg = do
         True -> return facts'
         False -> dataflow (S.toList nextWork') (facts', S.empty)
 
+    lookupFact :: (DataflowAnalysis m a) => HashMap Instruction a -> Instruction -> a
     lookupFact facts inst = case M.lookup inst facts of
       Just fact -> fact
-      Nothing -> error $ printf "No facts for CFG node %s" (show inst)
+      Nothing -> $err' $ printf "No facts for CFG node %s" (show inst)
 
     -- | Apply the transfer function to this node.  If the result is
     -- different than the current fact, add all successors to the
     -- worklist.
+    processNode :: (DataflowAnalysis m a)
+                   => (HashMap Instruction a, Set Instruction)
+                   -> Instruction
+                   -> m (HashMap Instruction a, Set Instruction)
     processNode fw@(outputFacts, nextWork) inst = do
       let blockLookup = lookupFact outputFacts . basicBlockTerminatorInstruction
 
@@ -241,24 +233,9 @@ dataflowAnalysis predFunc succFunc blockPreds analysis cfg = do
           True ->
             let (phiNodes, _) = basicBlockSplitPhiNodes bb
                 phiPreds = buildPhiPredsInst blockPreds blockLookup inst
---            let phiFact = meets $ map (blockLookup . fst) (blockPreds bb)
             in phiTransfer phiNodes phiPreds
 
       outputFact <- transfer inputFact inst incomingEdges
-      {-
-      let blockLookup = lookupFact outputFacts . basicBlockTerminatorInstruction
-          phiPreds = buildPhiPredsInst blockPreds blockLookup inst
-
-          inputFact = case null preds of
-            True -> analysis
-            False -> meets $ map (lookupFact outputFacts) preds
---          Just bb = instructionBasicBlock inst
-      outputFact <- case inst of
-        PhiNode {} ->
-          let phiFact = meets $ map (blockLookup . fst) (blockPreds bb)
-          in phiTransfer phiFact inst phiPreds
-        _ -> transfer inputFact inst incomingEdges
--}
       case outputFact == lastOutputFact of
         True -> return fw
         False ->
@@ -296,7 +273,7 @@ backwardBlockDataflow analysis f =
   where
     cfg = getCFG f
 
-blockDataflowAnalysis :: (Eq a, DataflowAnalysis m a)
+blockDataflowAnalysis :: forall a m . (Eq a, DataflowAnalysis m a)
                          => ([Instruction] -> [Instruction])
                          -> (BasicBlock -> [(BasicBlock, CFGEdge)])
                          -> (BasicBlock -> [(BasicBlock, CFGEdge)])
@@ -330,27 +307,26 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
         True -> return facts'
         False -> dataflow (S.toList nextWork') (facts', S.empty)
 
+    lookupFact :: (DataflowAnalysis m a) => HashMap BasicBlock a -> BasicBlock -> a
     lookupFact facts block =
       case M.lookup block facts of
         Just fact -> fact
-        Nothing -> error $ printf "No facts for block %s" (show (Value block))
+        Nothing -> $err' $ printf "No facts for block %s" (show (Value block))
 
+    processBlock :: (DataflowAnalysis m a)
+                    => (HashMap BasicBlock a, Set BasicBlock)
+                    -> BasicBlock
+                    -> m (HashMap BasicBlock a, Set BasicBlock)
     processBlock fw@(outputFacts, nextWork) block = do
       let (phiNodes, otherInsts) = basicBlockSplitPhiNodes block
           phiPreds = buildPhiPreds blockPreds (lookupFact outputFacts) block
       inputFact <- case null preds of
         True -> return analysis
         False -> case null phiNodes of
-          True -> return $! meets (map (lookupFact outputFacts . fst) preds) -- predFacts
+          True -> return $! meets (map (lookupFact outputFacts . fst) preds)
           False -> phiTransfer phiNodes phiPreds
       outputFact <- foldM processNode inputFact (orderedBlockInsts otherInsts)
-{-
-          predFacts = map (lookupFact outputFacts . fst) preds
-          inputFact = case null preds of
-            True -> analysis
-            False -> meets predFacts
-      outputFact <- foldM (processNode phiPreds) inputFact (orderedBlockInsts block)
--}
+
       case outputFact == lastOutputFact of
         True -> return fw
         False ->
@@ -370,9 +346,6 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
     processNode inputFact inst =
       let incomingEdges = snd $ unzip $ predFunc inst
       in transfer inputFact inst incomingEdges
-      -- in case inst of
-      --   PhiNode {} -> phiTransfer inputFact inst phiPreds
-      --   _ -> transfer inputFact inst incomingEdges
 
 buildPhiPreds :: (BasicBlock -> [(BasicBlock, CFGEdge)])
                  -> (BasicBlock -> a)

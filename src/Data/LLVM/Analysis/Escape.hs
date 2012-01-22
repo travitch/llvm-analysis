@@ -108,7 +108,7 @@ data EscapeGraphId = GrUID !Int -- ^ A unique ID generated for a
                    deriving (Eq, Show)
 
 instance NFData EscapeGraphId where
-  rnf (GrUID i) = ()
+  rnf (GrUID _) = ()
   rnf (GrCompId hs) = hs `deepseq` ()
 
 -- | The escape graph that is constructed for each program point.
@@ -212,15 +212,13 @@ escapeGraphAtLocation ER { escapeResultMapping = er
                          } i =
   let (eg, ()) = evalRWS (dataflowResult funcRes i) ed es
   in eg
-  -- case HM.lookup i funcRes of
-  -- Nothing -> error ("No escape result for instruction " ++ show i)
-  -- Just eg -> eg
   where
     es = EscapeState 1
     ed = EscapeData { externalP = extSumm, escapeSummary = er }
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
-    funcRes = M.findWithDefault (error "No escape result for function") f er
+    errMsg = $err' ("No escape result for function" ++ show (functionName f))
+    funcRes = M.findWithDefault errMsg f er
 
 -- | Run the Whaley-Rinard escape analysis on a Module.  This returns
 -- an opaque result that can be accessed via @escapeGraphAtLocation@.
@@ -336,13 +334,14 @@ followEscapeEdge eg v at =
   case targetSucs of
     [] -> Nothing
     [ts] -> Just $ (escapeNodeValue . lab' . fromJust . context g . fst) ts
+    _ -> $err' ("Expected zero or one target successor: " ++ show targetSucs)
   where
     g = escapeGraph eg
     ss = lsuc g (valueUniqueId v)
     targetSucs = filter ((\x -> x==IEdge at || x==OEdge at) . snd) ss
 
-    errMsg = "followEscapeEdge: expected context not found"
-    fromJust = maybe (error errMsg) id
+    errMsg = $err' "followEscapeEdge: expected context not found"
+    fromJust = maybe errMsg id
 
 -- Internal stuff
 
@@ -525,7 +524,7 @@ targetNodes eg val =
               (g'', successors) = mapAccumR (augmentingSuc i) g' (HS.toList targets)
           in ((g'', vis''), mconcat successors)
         InstructionC i@CallInst { } -> case gelem (valueUniqueId i) g of
-          False -> error "Escape analysis: result of void return used"
+          False -> $err' "Result of void return used"
           True -> ((g, vis'), HS.singleton (valueUniqueId i))
         InstructionC SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
           let ((g', vis''), tTargets) = targetNodes' (g, vis') tv
@@ -547,7 +546,7 @@ targetNodes eg val =
                               } } ->
           gepInstTargets (g, vis') i (stripBitcasts base) idxs
 
-        _ -> error $ "Escape Analysis unmatched: " ++ show v
+        _ -> $err' $ "Escape Analysis unmatched: " ++ show v
       where
         vis' = HS.insert v visited
 
@@ -555,7 +554,7 @@ targetNodes eg val =
                       -> ((PTEGraph, HashSet Value), HashSet (Node PTEGraph))
     gepInstTargets (g, vis) i base idxs =
       case idxs of
-        [] -> error "Escape analysis: GEP with no indexes"
+        [] -> $err' ("Escape analysis: GEP with no indexes: " ++ show i)
         [_] ->
           let ((g', vis'), targets) = targetNodes' (g, vis) base -- `debug` printf "GEP Base: %s" (show base)
               (g'', successors) = mapAccumR (augmentingArraySuc i) g' (HS.toList targets) -- `debug` printf "  %s // %s" (show targets) (show (fst (match (head (HS.toList targets)) g')))
@@ -610,7 +609,7 @@ possibleValues = filter notMultiInst . markVisited pvs . (:[])
 getBaseType :: Value -> Type
 getBaseType v = case valueType v of
   TypePointer t _ -> t
-  _ -> error $ "Array base value has illegal type: " ++ show v
+  _ -> $err' $ "Array base value has illegal type: " ++ show v
 
 augmentingFieldSuc :: Int -> Type -> Instruction -> Bool -> PTEGraph -> Node PTEGraph
                       -> (PTEGraph, HashSet (Node PTEGraph))
@@ -816,6 +815,7 @@ fieldAccessToLabel ix t initSet = case t of
   TypeStruct Nothing _ _ ->
     let accessStr = "<anon>." ++ show ix
     in toLabel accessStr : initSet
+  _ -> $err' ("Only struct types are expected in fieldAccessToLabel: " ++ show t)
 
 {-
 viewEscapeGraph :: EscapeResult -> Function -> IO ()

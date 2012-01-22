@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 -- | This module defines the interface to points-to analysis in this
 -- analysis framework.  Each points-to analysis returns a result
 -- object that is an instance of the 'PointsToAnalysis' typeclass; the
@@ -23,6 +24,7 @@ module Data.LLVM.Analysis.PointsTo (
 import Data.Set ( Set )
 import qualified Data.Set as S
 import Data.LLVM.Types
+import FileLocation
 
 -- | A data type to describe complex points-to relationships.
 data PTRel = Direct !Value
@@ -49,7 +51,7 @@ data ExternFunctionDescriptor = EFD { argumentEffects :: [ExternPointerDescripto
 showRel :: PTRel -> String
 showRel (Direct v) = case valueName v of
   Just n -> show n
-  Nothing -> error "Value has no name in points-to request"
+  Nothing -> $err' ("Value has no name in points-to request: " ++ show v)
 showRel (ArrayElt p) = show p ++ "[*]"
 showRel (FieldAccess ix p) = concat [show p, ".<", show ix, ">"]
 

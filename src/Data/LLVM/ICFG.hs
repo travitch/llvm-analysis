@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Data.LLVM.ICFG (
   -- * Types
   ICFG(..),
@@ -12,6 +13,7 @@ module Data.LLVM.ICFG (
 import Data.Graph.Inductive hiding ( Gr, UGr )
 import Data.GraphViz
 import qualified Data.Set as S
+import FileLocation
 
 import Text.Printf
 
@@ -156,11 +158,13 @@ buildCallEdges pta unknownCallNode inst =
           in (instid, calleeEntryId, CallToEntry inst) :
              (calleeEntryId, -instid, ReturnToCall inst) : acc
         GlobalAliasC GlobalAlias { globalAliasTarget = t } -> mkCallEdge t acc
+        _ -> $err' ("Expected a function value: " ++ show cf)
 
 -- | Get the value called by a Call or Invoke instruction
 calledValue :: Instruction -> Value
 calledValue CallInst { callFunction = v } = v
 calledValue InvokeInst { invokeFunction = v } = v
+calledValue i = $err' ("Expected Call or Invoke instruction: " ++ show i)
 
 -- | Return True if the given call (or invoke) instruction is a call
 -- to a statically known function (rather than a function pointer).

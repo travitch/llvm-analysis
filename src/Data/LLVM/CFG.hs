@@ -209,7 +209,7 @@ buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (inst, Nothing) (nodeAcc, e
       -- handler in the same function could pick it up...  Resolving
       -- that might require some more sophisticated analysis.
       ResumeInst {} -> []
-      _ -> error ("Last instruction in a block should be a terminator: " ++ show (Value inst))
+      _ -> $err' ("Last instruction in a block should be a terminator: " ++ show (Value inst))
 buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (inst, Just successor) (nodeAcc, edgeAcc) =
   case (callEdgeN inst, inst) of
     (Just en, CallInst { }) -> (nodeF thisNode : en : nodeAcc, theseEdges ++ edgeAcc)
