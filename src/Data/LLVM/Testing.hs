@@ -56,6 +56,7 @@ import Test.Framework ( defaultMain, Test )
 import Test.Framework.Providers.HUnit
 
 import Data.LLVM
+import Data.LLVM.Environment
 
 -- | A description of a set of tests.
 data TestDescriptor =
@@ -116,7 +117,8 @@ testAgainstExpected optOpts parseFile testDescriptors = do
 -- | Optimize the bitcode in the given bytestring using opt with the provided options
 optify :: [String] -> FilePath -> FilePath -> IO ()
 optify args inp optFile = do
-  let cmd = proc "opt" ("-o" : optFile : inp : args)
+  opt <- findOpt
+  let cmd = proc opt ("-o" : optFile : inp : args)
   (_, _, _, p) <- createProcess cmd
   rc <- waitForProcess p
   when (rc /= ExitSuccess) ($err' ("Could not optimize " ++ inp))

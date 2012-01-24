@@ -36,6 +36,7 @@ library
                    Data.LLVM.CallGraph,
                    Data.LLVM.CFG,
                    Data.LLVM.ICFG,
+                   Data.LLVM.Environment,
                    Data.LLVM.Testing,
                    Data.LLVM.Visualization,
                    Data.TransitiveClosure
