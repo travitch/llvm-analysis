@@ -2,13 +2,15 @@
 -- | This module defines control flow graphs over the LLVM IR.
 module Data.LLVM.CFG (
   -- * Types
-  CFG(cfgEntryValue, cfgExitValue, cfgFunction),
+  CFG(..),
+  RCFG(..),
   CFGEdge(..),
   CFGType,
   HasCFG(..),
   -- * Constructors
   mkCFG,
   buildLocalGraph,
+  reverseCFG,
   -- * Accessors
   basicBlockPredecessors,
   basicBlockSuccessors,
@@ -42,6 +44,15 @@ data CFG = CFG { cfgGraph :: CFGType
                , cfgExitNode :: Node
                , cfgFunction :: Function
                }
+
+-- | The control flow graph with the edges reversed
+data RCFG = RCFG { rcfgGraph :: CFGType
+                 , rcfgEntryValue :: Instruction
+                 , rcfgEntryNode :: Node
+                 , rcfgExitValue :: Instruction
+                 , rcfgExitNode :: Node
+                 , rcfgFunction :: Function
+                 }
 
 -- | The types of edges that appear in the 'CFG'
 data CFGEdge =
@@ -107,6 +118,15 @@ mkCFG func = CFG { cfgGraph = g
     g = mkGraph cfgNodes cfgEdges
 
     (cfgNodes, cfgEdges) = buildLocalGraph id id callEdgeNStub id (const []) func ([], [])
+
+reverseCFG :: CFG -> RCFG
+reverseCFG g = RCFG { rcfgGraph = grev (cfgGraph g)
+                    , rcfgFunction = cfgFunction g
+                    , rcfgEntryValue = cfgExitValue g
+                    , rcfgEntryNode = cfgExitNode g
+                    , rcfgExitValue = cfgEntryValue g
+                    , rcfgExitNode = cfgEntryNode g
+                    }
 
 callEdgeNStub :: a -> Maybe b
 callEdgeNStub _ = Nothing
