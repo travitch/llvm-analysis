@@ -1,23 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans -funbox-strict-fields #-}
-module Data.LLVM.Visualization ( viewCFG, viewCG, viewICFG, icfgParams ) where
+module Data.LLVM.Visualization ( viewCG, viewICFG, icfgParams ) where
 
 import Data.GraphViz
 import Data.Graph.Inductive.Graph ( Node )
 
 import Data.LLVM
-import Data.LLVM.CFG
 import Data.LLVM.CallGraph
 import Data.LLVM.ICFG
 
-viewCFG :: CFG -> IO ()
-viewCFG cfg = do
-  let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
-                                  , fmtEdge = \(_,_,l) -> [toLabel (l)]
-                                  }
-      dg = graphToDot params (cfgGraph cfg)
-  _ <- runGraphvizCanvas' dg Gtk
-  return ()
 
 data ICFGCluster = CUnknown
                  | CExternalFunction !ExternalFunction

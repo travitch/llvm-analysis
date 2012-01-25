@@ -2,7 +2,7 @@
 -- | This module defines control flow graphs over the LLVM IR.
 module Data.LLVM.CFG (
   -- * Types
-  CFG(..),
+  CFG(cfgEntryValue, cfgExitValue, cfgFunction),
   CFGEdge(..),
   CFGType,
   HasCFG(..),
@@ -17,7 +17,9 @@ module Data.LLVM.CFG (
   basicBlockLabeledPredecessors,
   basicBlockLabeledSuccessors,
   instructionLabeledPredecessors,
-  instructionLabeledSuccessors
+  instructionLabeledSuccessors,
+  -- * Visualization
+  viewCFG
   ) where
 
 import Data.Graph.Inductive
@@ -315,3 +317,14 @@ instructionLabeledSuccessors cfg i =
   where
     uid = instructionUniqueId i
     cfg' = cfgGraph cfg
+
+
+-- Visualization
+viewCFG :: CFG -> IO ()
+viewCFG cfg = do
+  let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
+                                  , fmtEdge = \(_,_,l) -> [toLabel (l)]
+                                  }
+      dg = graphToDot params (cfgGraph cfg)
+  _ <- runGraphvizCanvas' dg Gtk
+  return ()
