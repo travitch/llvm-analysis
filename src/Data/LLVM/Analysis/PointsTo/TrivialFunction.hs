@@ -54,13 +54,22 @@ buildMap v m = case M.lookup vtype m of
 trivialMayAlias :: TrivialFunction -> Value -> Value -> Bool
 trivialMayAlias _ v1 v2 = valueType v1 == valueType v2
 
+-- Note, don't use the bitcast stripping functions here since we need
+-- the surface types of functions.  This affects cases where function
+-- pointers are stored generically in a struct and then taken out and
+-- casted back to their original type.
 trivialPointsTo :: TrivialFunction -> Value -> PTResult PTRel
 trivialPointsTo p@(TrivialFunction m) v =
   case valueContent v of
-    FunctionC _ -> PTSet $ S.singleton (Direct v)
-    ExternalFunctionC _ -> PTSet $ S.singleton (Direct v)
+    FunctionC f -> PTSet $ S.singleton (Direct (Value f))
+    ExternalFunctionC ef -> PTSet $ S.singleton (Direct (Value ef))
     GlobalAliasC ga -> trivialPointsTo p (Value ga)
-    InstructionC BitcastInst { castedValue = c } -> trivialPointsTo p c
+    InstructionC BitcastInst { castedValue = c } ->
+      case valueContent c of
+        FunctionC _ -> trivialPointsTo p c
+        ExternalFunctionC _ -> trivialPointsTo p c
+        GlobalAliasC _ -> trivialPointsTo p c
+        _ -> PTSet $ S.map Direct $ M.lookupDefault S.empty (derefPointer v) m
     _ -> PTSet $ S.map Direct $ M.lookupDefault S.empty (derefPointer v) m
 
 derefPointer :: Value -> Type
