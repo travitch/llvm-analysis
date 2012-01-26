@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Data.LLVM.Analysis.Dominance (
   -- * Types
   DominatorTree,
@@ -11,12 +12,20 @@ module Data.LLVM.Analysis.Dominance (
   postdominatorTree,
   -- * Queries
   dominates,
-  postdominates
+  postdominates,
+  nearestCommonPostdominator,
+  instructionPostdominators,
+  -- * Visualization
+  domTreeGraphvizRepr,
+  postdomTreeGraphvizRepr
   ) where
 
 import Control.Arrow
 import Data.Graph.Inductive.Graph
+import Data.Graph.Inductive.Query.DFS
 import Data.Graph.Inductive.Query.Dominators
+import Data.GraphViz
+import FileLocation
 
 import Data.LLVM
 import Data.LLVM.Internal.PatriciaTree
@@ -49,7 +58,7 @@ postdominators :: RCFG -> [(Instruction, [Instruction])]
 postdominators RCFG { rcfgGraph = g, rcfgEntryNode = root } =
   map (toInst g *** map (toInst g)) (dom g root)
 
-toInst :: CFGType -> Node -> Instruction
+toInst :: (Graph gr) => gr Instruction a -> Node -> Instruction
 toInst gr n =
   let (_, _, i, _) = context gr n
   in i
@@ -84,8 +93,51 @@ dominates = undefined
 -- | Check whether n postdominates m
 --
 -- > postdominates pdt n m
+--
+-- n postdominates m if there is a path from n to m in the
+-- postdominator tree.
 postdominates :: PostdominatorTree -> Instruction -> Instruction -> Bool
-postdominates = undefined
+postdominates (PDT t _) n m =
+  instructionUniqueId n `elem` rdfs [instructionUniqueId m] t
 
+-- | Given two instructions, find their nearest common postdominator.
+-- This uses a reverse DFS search from both instructions for
+-- efficiency (since the graph is a tree, this will be a smaller set
+-- than a forward DFS).
 nearestCommonPostdominator :: PostdominatorTree -> Instruction -> Instruction -> Instruction
-nearestCommonPostdominator = undefined
+nearestCommonPostdominator (PDT t _) n m =
+  case commonPrefix (reverse npdoms) (reverse mpdoms) of
+    -- This case should really be impossible since this is a tree
+    [] -> $err' ("No common postdominator for " ++ show n ++ " and " ++ show m)
+    commonPostdom : _ -> toInst t commonPostdom
+  where
+    npdoms = rdfs [instructionUniqueId n] t
+    mpdoms = rdfs [instructionUniqueId m] t
+
+-- | Compute the transitive postdominators of a single Instruction.
+-- Instructions postdominate themselves, and the list of
+-- postdominators begins with the input instruction and ends with the
+-- root of the postdominator tree (usually the ret node).
+instructionPostdominators :: PostdominatorTree -> Instruction -> [Instruction]
+instructionPostdominators (PDT t _) i =
+  map (toInst t) $ rdfs [instructionUniqueId i] t
+
+-- | Returns the common prefix of two lists (reversed - the last
+-- common element appears first)
+commonPrefix :: (Eq a) => [a] -> [a] -> [a]
+commonPrefix [] _ = []
+commonPrefix _ [] = []
+commonPrefix (e1:rest1) (e2:rest2) =
+  case e1 == e2 of
+    True -> e1 : commonPrefix rest1 rest2
+    False -> []
+
+domTreeParams :: GraphvizParams n Instruction el () Instruction
+domTreeParams =
+  nonClusteredParams { fmtNode = \(_, l) -> [ toLabel (Value l) ] }
+
+domTreeGraphvizRepr :: DominatorTree -> DotGraph Node
+domTreeGraphvizRepr dt = graphToDot domTreeParams (dtTree dt)
+
+postdomTreeGraphvizRepr :: PostdominatorTree -> DotGraph Node
+postdomTreeGraphvizRepr dt = graphToDot domTreeParams (pdtTree dt)
