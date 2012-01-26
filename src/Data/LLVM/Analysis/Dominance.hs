@@ -98,7 +98,7 @@ dominates = undefined
 -- postdominator tree.
 postdominates :: PostdominatorTree -> Instruction -> Instruction -> Bool
 postdominates (PDT t _) n m =
-  instructionUniqueId n `elem` rdfs [instructionUniqueId m] t
+  instructionUniqueId n `elem` dfs [instructionUniqueId m] t
 
 -- | Given two instructions, find their nearest common postdominator.
 -- This uses a reverse DFS search from both instructions for
@@ -111,8 +111,8 @@ nearestCommonPostdominator (PDT t _) n m =
     [] -> $err' ("No common postdominator for " ++ show n ++ " and " ++ show m)
     commonPostdom : _ -> toInst t commonPostdom
   where
-    npdoms = rdfs [instructionUniqueId n] t
-    mpdoms = rdfs [instructionUniqueId m] t
+    npdoms = dfs [instructionUniqueId n] t
+    mpdoms = dfs [instructionUniqueId m] t
 
 -- | Compute the transitive postdominators of a single Instruction.
 -- Instructions postdominate themselves, and the list of
@@ -120,7 +120,7 @@ nearestCommonPostdominator (PDT t _) n m =
 -- root of the postdominator tree (usually the ret node).
 instructionPostdominators :: PostdominatorTree -> Instruction -> [Instruction]
 instructionPostdominators (PDT t _) i =
-  map (toInst t) $ rdfs [instructionUniqueId i] t
+  map (toInst t) $ dfs [instructionUniqueId i] t
 
 -- | Returns the common prefix of two lists (reversed - the last
 -- common element appears first)
