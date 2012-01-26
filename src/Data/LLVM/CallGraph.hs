@@ -33,7 +33,9 @@ module Data.LLVM.CallGraph (
   -- * Accessors
   callGraphRepr,
   callValueTargets,
-  callInstructionTargets
+  callInstructionTargets,
+  -- * Visualization
+  cgGraphvizRepr
   ) where
 
 import Control.Arrow ( (&&&) )
@@ -200,3 +202,12 @@ buildCallEdges pta caller callInst = build' (getCallee callInst)
               indirectEdges = map (\t -> (callerId, valueUniqueId t, IndirectCall)) targets
               unknownEdge = (callerId, unknownNodeId, UnknownCall)
           in unknownEdge : indirectEdges
+
+cgGraphvizParams :: GraphvizParams n CallNode CallEdge () CallNode
+cgGraphvizParams =
+  nonClusteredParams { fmtNode = \(_,l) -> [toLabel (l)]
+                     , fmtEdge = \(_,_,l) -> [toLabel (l)]
+                     }
+
+cgGraphvizRepr :: CallGraph -> DotGraph Node
+cgGraphvizRepr = graphToDot cgGraphvizParams . callGraphRepr

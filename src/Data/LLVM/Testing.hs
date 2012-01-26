@@ -123,6 +123,9 @@ optify args inp optFile = do
   rc <- waitForProcess p
   when (rc /= ExitSuccess) ($err' ("Could not optimize " ++ inp))
 
+-- | Given an input file, bitcode parsing function, and options to
+-- pass to opt, return a Module.  The input file can be C, C++, or
+-- LLVM bitcode.
 buildModule ::  [String] -- ^ Optimization options (passed to opt) for the module.  opt is not run if the list is empty
                 -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file into a Module
                 -> FilePath -- ^ The input file (either bitcode or C/C++)

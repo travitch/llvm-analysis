@@ -21,7 +21,7 @@ module Data.LLVM.CFG (
   instructionLabeledPredecessors,
   instructionLabeledSuccessors,
   -- * Visualization
-  viewCFG
+  cfgGraphvizRepr
   ) where
 
 import Data.Graph.Inductive
@@ -340,11 +340,20 @@ instructionLabeledSuccessors cfg i =
 
 
 -- Visualization
-viewCFG :: CFG -> IO ()
-viewCFG cfg = do
-  let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
-                                  , fmtEdge = \(_,_,l) -> [toLabel (l)]
-                                  }
-      dg = graphToDot params (cfgGraph cfg)
-  _ <- runGraphvizCanvas' dg Gtk
-  return ()
+
+cfgGraphvizParams :: GraphvizParams n Instruction CFGEdge () Instruction
+cfgGraphvizParams =
+  nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
+                     , fmtEdge = \(_,_,l) -> [toLabel (l)]
+                     }
+
+cfgGraphvizRepr :: CFG -> DotGraph Node
+cfgGraphvizRepr = graphToDot cfgGraphvizParams . cfgGraph
+-- viewCFG :: CFG -> IO ()
+-- viewCFG cfg = do
+--   let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
+--                                   , fmtEdge = \(_,_,l) -> [toLabel (l)]
+--                                   }
+--       dg = graphToDot params (cfgGraph cfg)
+--   _ <- runGraphvizCanvas' dg Gtk
+--   return ()
