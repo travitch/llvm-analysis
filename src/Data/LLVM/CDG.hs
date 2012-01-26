@@ -96,7 +96,7 @@ addDep :: Instruction
 addDep m deps n =
   case M.lookup n deps of
     Nothing -> M.insert n m deps
-    Just _ -> $err' ("Already have a control dep mapping for " ++ show n)
+    Just exMap -> $err' ("Already have a control dep mapping for " ++ show n ++ " [" ++ show exMap ++ "] (adding " ++ show m ++ ")")
 
 -- toInst :: CFGType -> Node -> Instruction
 -- toInst gr n =
