@@ -26,10 +26,14 @@ import Data.Graph.Inductive.Query.DFS
 import Data.Graph.Inductive.Query.Dominators
 import Data.GraphViz
 import FileLocation
+import Text.Printf
 
 import Data.LLVM
 import Data.LLVM.Internal.PatriciaTree
 import Data.LLVM.CFG
+
+import Debug.Trace
+debug' = flip trace
 
 data DominatorTree = DT { dtTree :: Gr Instruction ()
                         , dtRoot :: Instruction
@@ -101,15 +105,15 @@ postdominates (PDT t _) n m =
   instructionUniqueId n `elem` dfs [instructionUniqueId m] t
 
 -- | Given two instructions, find their nearest common postdominator.
--- This uses a reverse DFS search from both instructions for
--- efficiency (since the graph is a tree, this will be a smaller set
--- than a forward DFS).
+-- This uses a DFS search from each instruction to the root.
 nearestCommonPostdominator :: PostdominatorTree -> Instruction -> Instruction -> Instruction
 nearestCommonPostdominator (PDT t _) n m =
   case commonPrefix (reverse npdoms) (reverse mpdoms) of
     -- This case should really be impossible since this is a tree
-    [] -> $err' ("No common postdominator for " ++ show n ++ " and " ++ show m)
-    commonPostdom : _ -> toInst t commonPostdom
+    [] -> $err' $ printf "No common postdominator for [%s] and [%s]" (show n) (show m)
+    commonPostdom : _ ->
+      let i = toInst t commonPostdom
+      in i `debug'` printf "Common postdom of [%s] and [%s] -> [%s]" (show n) (show m) (show i)
   where
     npdoms = dfs [instructionUniqueId n] t
     mpdoms = dfs [instructionUniqueId m] t
@@ -125,12 +129,14 @@ instructionPostdominators (PDT t _) i =
 -- | Returns the common prefix of two lists (reversed - the last
 -- common element appears first)
 commonPrefix :: (Eq a) => [a] -> [a] -> [a]
-commonPrefix [] _ = []
-commonPrefix _ [] = []
-commonPrefix (e1:rest1) (e2:rest2) =
-  case e1 == e2 of
-    True -> e1 : commonPrefix rest1 rest2
-    False -> []
+commonPrefix l1 l2 = reverse $ go l1 l2
+  where
+    go [] _ = []
+    go _ [] = []
+    go (e1:rest1) (e2:rest2) =
+      case e1 == e2 of
+        True -> e1 : go rest1 rest2
+        False -> []
 
 domTreeParams :: GraphvizParams n Instruction el () Instruction
 domTreeParams =
