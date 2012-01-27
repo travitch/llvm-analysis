@@ -14,6 +14,11 @@
 --    every node *after* X on p.
 --
 --  * The node Y does not strictly postdominate the node X.
+--
+-- This CDG formulation does not insert a dummy Start node to link
+-- together all of the top-level nodes.  This just means that the set
+-- of control dependencies can be empty if code will be executed
+-- unconditionally.
 module Data.LLVM.CDG (
   -- * Types
   CDG,
@@ -31,86 +36,131 @@ import Data.Graph.Inductive
 import Data.GraphViz
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
+import Data.HashSet ( HashSet )
+import qualified Data.HashSet as S
 import Data.List ( foldl' )
 import FileLocation
-import Text.Printf
 
 import Data.LLVM
 import Data.LLVM.CFG
 import Data.LLVM.Analysis.Dominance
-
-import Debug.Trace
-debug' = flip trace
 
 -- | The internal representation of the CDG.  Instructions are
 -- control-dependent on other instructions, so they are the nodes in
 -- the graph.
 type CDGType = Gr Instruction ()
 
+-- | A control depenence graph
 data CDG = CDG { cdgGraph :: CDGType
                }
 
+-- | Return True if @n@ is control dependent on @m@.
+--
+-- > controlDependentOn cdg m n
 controlDependentOn :: CDG -> Instruction -> Instruction -> Bool
-controlDependentOn = undefined
+controlDependentOn cdg m n = m `elem` controlDependencies cdg n
 
+-- | Get the list of instructions that @i@ is control dependent upon.
+-- This list does not include @i@.  As noted above, the list will be
+-- empty if @i@ is executed unconditionally.
+--
+-- > controlDependences cdg i
 controlDependencies :: CDG -> Instruction -> [Instruction]
-controlDependencies = undefined
+controlDependencies (CDG g) i =
+  case deps of
+    self : rest -> rest
+    _ -> $err' $ "Instruction should at least be reachable from itself: " ++ show i
+  where
+    deps = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
 
--- | The typical construction augments the CFG with a fake start node.
--- Doing that here would be a bit complicated, so the graph just isn't
--- connected by a fake Start node.
+-- | Construct the control dependence graph for a function (from its
+-- CFG).  This follows the construction from chapter 9 of the
+-- Munchnick Compiler Design and Implementation book.
+--
+-- For an input function F:
+--
+-- 1) Construct the CFG G for F
+--
+-- 2) Construct the postdominator tree PT for F
+--
+-- 3) Let S be the set of edges m->n in G such that n does not
+--    postdominate m
+--
+-- 4) For each edge m->n in S, find the lowest common ancestor l of m
+--    and n in the postdominator tree.  All nodes on the path from
+--    l->n (not including l) in PT are control dependent on m.
+--
+-- Note: the typical construction augments the CFG with a fake start
+-- node.  Doing that here would be a bit complicated, so the graph
+-- just isn't connected by a fake Start node.
 controlDependenceGraph :: CFG -> CDG
 controlDependenceGraph cfg = CDG $ mkGraph ns es
   where
     ns = labNodes g
     es = M.foldlWithKey' toEdge [] controlDeps
+
     g = cfgGraph cfg
     pdt = postdominatorTree (reverseCFG cfg)
     cfgEdges = map (($fromJst . lab g) *** ($fromJst . lab g)) (edges g)
     -- | All of the edges in the CFG m->n such that n does not
     -- postdominate m
     s = filter (isNotPostdomEdge pdt) cfgEdges
-    controlDeps = foldr (extractDeps pdt) M.empty s `debug'` printf "S = (%s)" (show s)
+    controlDeps = foldr (extractDeps pdt) M.empty s
 
 -- | Determine if an edge belongs in the set S
 isNotPostdomEdge :: PostdominatorTree -> (Instruction, Instruction) -> Bool
 isNotPostdomEdge pdt (m, n) = not (postdominates pdt n m)
 
--- | n is control dependent on m, so add an edge from n->m
-toEdge :: [LEdge ()] -> Instruction -> Instruction -> [LEdge ()]
-toEdge acc n m = (instructionUniqueId n,
-                  instructionUniqueId m,
-                  ()) : acc
+-- | Add an edge from @dependent@ to each @m@ it is control dependent on
+toEdge :: [LEdge ()] -> Instruction -> HashSet Instruction -> [LEdge ()]
+toEdge acc dependent ms = S.foldr (toE dependent) acc ms
+  where
+    toE n m a = (instructionUniqueId n, instructionUniqueId m, ()) : a
+
+-- | A private type to describe what instructions the keys of the map
+-- are control dependent upon.
+type DepMap = HashMap Instruction (HashSet Instruction)
 
 -- | Record control dependencies into a map (based on edges in S and
 -- the postdominator tree).  The map is from instructions to the
 -- nearest instruction that they are control dependent on.
 extractDeps :: PostdominatorTree
                -> (Instruction, Instruction)
-               -> HashMap Instruction Instruction
-               -> HashMap Instruction Instruction
+               -> DepMap
+               -> DepMap
 extractDeps pdt (m, n) cdeps =
   foldl' (addDep m) cdeps dependOnM
   where
     l = nearestCommonPostdominator pdt m n
     npdoms = instructionPostdominators pdt n
-    -- All of the nodes from n to l in the postdominator tree
+    -- All of the nodes from n to l in the postdominator tree,
+    -- ignoring l
     dependOnM = takeWhile (/=l) npdoms
 
-addDep :: Instruction
-          -> HashMap Instruction Instruction
-          -> Instruction
-          -> HashMap Instruction Instruction
-addDep m deps n =
-  case M.lookup n deps of
-    Nothing -> M.insert n m deps
-    Just exMap -> $err' $
-      printf "Already have a control dep mapping for [%s] -> [%s] (adding %s)" (show n) (show exMap) (show m)
+-- | Multiple predecessors *ARE* allowed.  Consider
+--
+-- > void acl_create_entry(int *other_p, int *entry_p) {
+-- >   if(!other_p || !entry_p) {
+-- >     if(entry_p)
+-- >       *entry_p = 5;
+--
+-- >     return;
+-- >   }
+--
+-- >   *entry_p = 6;
+-- > }
+--
+-- The second comparison of entry_p against NULL directly depends on
+-- both conditions above it.  If !other_p is true, that is the
+-- immediate dependency.  Otherwise, if !entry_p is true (but !other_p
+-- is false), it is also a direct dependency.
+addDep :: Instruction -> DepMap -> Instruction -> DepMap
+addDep m deps n = M.insertWith S.union n (S.singleton m) deps
 
--- toInst :: CFGType -> Node -> Instruction
--- toInst gr n =
---   let (_, _, i, _) = context gr n
---   in i
+
+
+-- Visualization
+
 
 cdgGraphvizParams :: GraphvizParams n Instruction el () Instruction
 cdgGraphvizParams =
