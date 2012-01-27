@@ -22,7 +22,7 @@
 --   dlopen or similar call
 --
 -- Again, the more sophisticated callgraph is still pending.
-module Data.LLVM.CallGraph (
+module Data.LLVM.Analysis.CallGraph (
   -- * Types
   CallGraph,
   CG,

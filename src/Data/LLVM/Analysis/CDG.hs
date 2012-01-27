@@ -19,7 +19,7 @@
 -- together all of the top-level nodes.  This just means that the set
 -- of control dependencies can be empty if code will be executed
 -- unconditionally.
-module Data.LLVM.CDG (
+module Data.LLVM.Analysis.CDG (
   -- * Types
   CDG,
   -- * Constructor
@@ -32,7 +32,8 @@ module Data.LLVM.CDG (
   ) where
 
 import Control.Arrow
-import Data.Graph.Inductive
+import Data.Graph.Inductive.Graph
+import Data.Graph.Inductive.Query.DFS
 import Data.GraphViz
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
@@ -42,8 +43,9 @@ import Data.List ( foldl' )
 import FileLocation
 
 import Data.LLVM
-import Data.LLVM.CFG
+import Data.LLVM.Analysis.CFG
 import Data.LLVM.Analysis.Dominance
+import Data.LLVM.Internal.PatriciaTree
 
 -- | The internal representation of the CDG.  Instructions are
 -- control-dependent on other instructions, so they are the nodes in

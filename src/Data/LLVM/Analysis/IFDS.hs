@@ -59,8 +59,8 @@ import FileLocation
 import Text.Printf
 
 import Data.LLVM
-import Data.LLVM.CFG
-import Data.LLVM.ICFG
+import Data.LLVM.Analysis.CFG
+import Data.LLVM.Analysis.ICFG
 import Data.LLVM.Internal.Worklist
 
 -- | The interface to define an IFDS analysis.  There are variants of

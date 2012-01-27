@@ -8,7 +8,7 @@ import Control.Monad ( foldM )
 import Data.Graph.Inductive
 import FileLocation
 
-import Data.LLVM.CallGraph
+import Data.LLVM.Analysis.CallGraph
 import Data.LLVM.Types
 
 import Data.LLVM.Internal.Condense

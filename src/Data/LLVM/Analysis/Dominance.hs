@@ -1,4 +1,14 @@
 {-# LANGUAGE TemplateHaskell #-}
+-- | Tools to compute dominance information for functions.  Includes
+-- postdominators.
+--
+-- A node @m@ postdominates a node @n@ iff every path from @n@ to
+-- @exit@ passes through @m@.
+--
+-- This implementation is based on the dominator implementation in fgl,
+-- which is based on the algorithm from Cooper, Harvey, and Kennedy:
+--
+--   http://www.cs.rice.edu/~keith/Embed/dom.pdf
 module Data.LLVM.Analysis.Dominance (
   -- * Types
   DominatorTree,
@@ -11,7 +21,7 @@ module Data.LLVM.Analysis.Dominance (
   dominatorTree,
   postdominatorTree,
   -- * Queries
-  dominates,
+  -- dominates,
   postdominates,
   nearestCommonPostdominator,
   instructionPostdominators,
@@ -29,16 +39,15 @@ import FileLocation
 import Text.Printf
 
 import Data.LLVM
+import Data.LLVM.Analysis.CFG
 import Data.LLVM.Internal.PatriciaTree
-import Data.LLVM.CFG
 
-import Debug.Trace
-debug' = flip trace
-
+-- | The standard dominator tree
 data DominatorTree = DT { dtTree :: Gr Instruction ()
                         , dtRoot :: Instruction
                         }
 
+-- | The dominator tree of the reversed CFG.
 data PostdominatorTree = PDT { pdtTree :: Gr Instruction ()
                              , pdtRoot :: Instruction
                              }
@@ -91,8 +100,8 @@ buildEdges :: [(Instruction, Instruction)] -> [LEdge ()]
 buildEdges =
   map (\(a,b) -> (a, b, ())) . map (instructionUniqueId *** instructionUniqueId)
 
-dominates :: DominatorTree -> Instruction -> Instruction -> Bool
-dominates = undefined
+-- dominates :: DominatorTree -> Instruction -> Instruction -> Bool
+-- dominates = undefined
 
 -- | Check whether n postdominates m
 --
@@ -111,9 +120,7 @@ nearestCommonPostdominator (PDT t _) n m =
   case commonPrefix (reverse npdoms) (reverse mpdoms) of
     -- This case should really be impossible since this is a tree
     [] -> $err' $ printf "No common postdominator for [%s] and [%s]" (show n) (show m)
-    commonPostdom : _ ->
-      let i = toInst t commonPostdom
-      in i `debug'` printf "Common postdom of [%s] and [%s] -> [%s]" (show n) (show m) (show i)
+    commonPostdom : _ -> toInst t commonPostdom
   where
     npdoms = dfs [instructionUniqueId n] t
     mpdoms = dfs [instructionUniqueId m] t
@@ -141,6 +148,8 @@ commonPrefix l1 l2 = reverse $ go l1 l2
 domTreeParams :: GraphvizParams n Instruction el () Instruction
 domTreeParams =
   nonClusteredParams { fmtNode = \(_, l) -> [ toLabel (Value l) ] }
+
+-- Visualization
 
 domTreeGraphvizRepr :: DominatorTree -> DotGraph Node
 domTreeGraphvizRepr dt = graphToDot domTreeParams (dtTree dt)

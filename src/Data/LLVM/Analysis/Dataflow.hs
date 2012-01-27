@@ -45,7 +45,7 @@ import qualified Data.Set as S
 import FileLocation
 import Text.Printf
 
-import Data.LLVM.CFG
+import Data.LLVM.Analysis.CFG
 import Data.LLVM.Types
 
 -- | A class defining the interface to a dataflow analysis.  The
