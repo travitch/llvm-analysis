@@ -70,7 +70,7 @@ controlDependentOn cdg m n = m `elem` controlDependencies cdg n
 controlDependencies :: CDG -> Instruction -> [Instruction]
 controlDependencies (CDG g) i =
   case deps of
-    self : rest -> rest
+    _ : rest -> rest
     _ -> $err' $ "Instruction should at least be reachable from itself: " ++ show i
   where
     deps = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
