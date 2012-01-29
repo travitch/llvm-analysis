@@ -163,11 +163,18 @@ addDep m deps n = M.insertWith S.union n (S.singleton m) deps
 
 -- Visualization
 
-
-cdgGraphvizParams :: GraphvizParams n Instruction el () Instruction
+cdgGraphvizParams :: GraphvizParams n Instruction el BasicBlock Instruction
 cdgGraphvizParams =
   nonClusteredParams { fmtNode = \(_,l) -> [ toLabel (Value l) ]
+                     , clusterID = Int . basicBlockUniqueId
+                     , clusterBy = nodeCluster
+                     , fmtCluster = formatCluster
                      }
+  where
+    nodeCluster l@(_, i) =
+      let Just bb = instructionBasicBlock i
+      in C bb (N l)
+    formatCluster bb = [GraphAttrs [toLabel (show (basicBlockName bb))]]
 
 cdgGraphvizRepr :: CDG -> DotGraph Node
 cdgGraphvizRepr = graphToDot cdgGraphvizParams . cdgGraph
