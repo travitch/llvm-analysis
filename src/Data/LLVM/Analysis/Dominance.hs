@@ -35,8 +35,6 @@ import Data.Graph.Inductive.Graph
 import Data.Graph.Inductive.Query.DFS
 import Data.Graph.Inductive.Query.Dominators
 import Data.GraphViz
-import FileLocation
-import Text.Printf
 
 import Data.LLVM
 import Data.LLVM.Analysis.CFG
@@ -49,7 +47,7 @@ data DominatorTree = DT { dtTree :: Gr Instruction ()
 
 -- | The dominator tree of the reversed CFG.
 data PostdominatorTree = PDT { pdtTree :: Gr Instruction ()
-                             , pdtRoot :: Instruction
+                             , pdtRoots :: [Instruction]
                              }
 
 -- | Compute the immediate dominators for a given CFG
@@ -63,13 +61,19 @@ dominators CFG { cfgGraph = g, cfgEntryNode = root } =
   map (toInst g *** map (toInst g)) (dom g root)
 
 immediatePostdominators :: RCFG -> [(Instruction, Instruction)]
-immediatePostdominators RCFG { rcfgGraph = g, rcfgEntryNode = root } =
-  map (toInst g *** toInst g) (iDom g root)
+immediatePostdominators RCFG { rcfgGraph = g, rcfgFunction = f } =
+  map (toInst g *** toInst g) (concat gs) -- (iDom g root)
+  where
+    roots = functionExitInstructions f
+    gs = map (\r -> iDom g (instructionUniqueId r)) roots
 
 -- | Get a mapping from Instructions to each of their postdominators
 postdominators :: RCFG -> [(Instruction, [Instruction])]
-postdominators RCFG { rcfgGraph = g, rcfgEntryNode = root } =
-  map (toInst g *** map (toInst g)) (dom g root)
+postdominators RCFG { rcfgGraph = g, rcfgFunction = f } =
+  map (toInst g *** map (toInst g)) (concat gs) -- (dom g root)
+  where
+    roots = functionExitInstructions f
+    gs = map (\r -> dom g (instructionUniqueId r)) roots
 
 toInst :: (Graph gr) => gr Instruction a -> Node -> Instruction
 toInst gr n =
@@ -90,7 +94,7 @@ dominatorTree cfg =
 postdominatorTree :: RCFG -> PostdominatorTree
 postdominatorTree cfg =
   PDT { pdtTree = mkGraph (labNodes g) (buildEdges idoms)
-      , pdtRoot = rcfgEntryValue cfg
+      , pdtRoots = functionExitInstructions (rcfgFunction cfg)
       }
   where
     idoms = immediatePostdominators cfg
@@ -115,12 +119,13 @@ postdominates (PDT t _) n m =
 
 -- | Given two instructions, find their nearest common postdominator.
 -- This uses a DFS search from each instruction to the root.
-nearestCommonPostdominator :: PostdominatorTree -> Instruction -> Instruction -> Instruction
+nearestCommonPostdominator :: PostdominatorTree -> Instruction -> Instruction -> Maybe Instruction
 nearestCommonPostdominator (PDT t _) n m =
   case commonPrefix (reverse npdoms) (reverse mpdoms) of
     -- This case should really be impossible since this is a tree
-    [] -> $err' $ printf "No common postdominator for [%s] and [%s]" (show n) (show m)
-    commonPostdom : _ -> toInst t commonPostdom
+    [] -> Nothing
+      -- $err' $ printf "No common postdominator for [%s] and [%s]" (show n) (show m)
+    commonPostdom : _ -> Just $! toInst t commonPostdom
   where
     npdoms = dfs [instructionUniqueId n] t
     mpdoms = dfs [instructionUniqueId m] t

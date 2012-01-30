@@ -136,8 +136,12 @@ extractDeps pdt (m, n) cdeps =
     l = nearestCommonPostdominator pdt m n
     npdoms = instructionPostdominators pdt n
     -- All of the nodes from n to l in the postdominator tree,
-    -- ignoring l
-    dependOnM = takeWhile (/=l) npdoms
+    -- ignoring l.  If there was no common ancestor (e.g., there were
+    -- multiple exit instructions), take all of the postdominators of
+    -- n.
+    dependOnM = case l of
+      Just l' -> takeWhile (/=l') npdoms
+      Nothing -> npdoms
 
 -- | Multiple predecessors *ARE* allowed.  Consider
 --
