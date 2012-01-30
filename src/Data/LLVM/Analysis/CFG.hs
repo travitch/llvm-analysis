@@ -224,7 +224,7 @@ buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (inst, Nothing) (nodeAcc, e
         [ (thisNodeId, jumpTargetId n, NormalEdge inst)
         , (thisNodeId, jumpTargetId u, UnwindEdge inst)
         ]
-        -- No edges from the unreachable instruction, either
+      -- No code after unreachable instructions is executed
       UnreachableInst {} -> []
       -- The resume instruction resumes propagating exceptions, so
       -- control will transfer to the caller.  In theory, another
