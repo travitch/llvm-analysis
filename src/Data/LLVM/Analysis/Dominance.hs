@@ -21,7 +21,7 @@ module Data.LLVM.Analysis.Dominance (
   dominatorTree,
   postdominatorTree,
   -- * Queries
-  -- dominates,
+  dominates,
   postdominates,
   nearestCommonPostdominator,
   instructionPostdominators,
@@ -104,8 +104,10 @@ buildEdges :: [(Instruction, Instruction)] -> [LEdge ()]
 buildEdges =
   map (\(a,b) -> (a, b, ())) . map (instructionUniqueId *** instructionUniqueId)
 
--- dominates :: DominatorTree -> Instruction -> Instruction -> Bool
--- dominates = undefined
+-- | Check whether n dominates m
+dominates :: DominatorTree -> Instruction -> Instruction -> Bool
+dominates  (DT t _) n m =
+  instructionUniqueId n `elem` dfs [instructionUniqueId m] t
 
 -- | Check whether n postdominates m
 --

@@ -21,7 +21,7 @@
 -- unconditionally.
 module Data.LLVM.Analysis.CDG (
   -- * Types
-  CDG,
+  CDG(cdgCFG),
   -- * Constructor
   controlDependenceGraph,
   -- * Queries
@@ -54,6 +54,7 @@ type CDGType = Gr Instruction ()
 
 -- | A control depenence graph
 data CDG = CDG { cdgGraph :: CDGType
+               , cdgCFG :: CFG
                }
 
 -- | Return True if @n@ is control dependent on @m@.
@@ -68,7 +69,7 @@ controlDependentOn cdg m n = m `elem` controlDependencies cdg n
 --
 -- > controlDependences cdg i
 controlDependencies :: CDG -> Instruction -> [Instruction]
-controlDependencies (CDG g) i =
+controlDependencies (CDG g _) i =
   case deps of
     _ : rest -> rest
     _ -> $err' $ "Instruction should at least be reachable from itself: " ++ show i
@@ -96,7 +97,7 @@ controlDependencies (CDG g) i =
 -- node.  Doing that here would be a bit complicated, so the graph
 -- just isn't connected by a fake Start node.
 controlDependenceGraph :: CFG -> CDG
-controlDependenceGraph cfg = CDG $ mkGraph ns es
+controlDependenceGraph cfg = CDG (mkGraph ns es) cfg
   where
     ns = labNodes g
     es = M.foldlWithKey' toEdge [] controlDeps
