@@ -341,19 +341,19 @@ instructionLabeledSuccessors cfg i =
 
 -- Visualization
 
-cfgGraphvizParams :: GraphvizParams n Instruction CFGEdge () Instruction
+cfgGraphvizParams :: GraphvizParams n Instruction CFGEdge BasicBlock Instruction
 cfgGraphvizParams =
   nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
                      , fmtEdge = \(_,_,l) -> [toLabel (l)]
+                     , clusterID = Int . basicBlockUniqueId
+                     , fmtCluster = formatCluster
+                     , clusterBy = nodeCluster
                      }
+  where
+    nodeCluster l@(_, i) =
+      let Just bb = instructionBasicBlock i
+      in C bb (N l)
+    formatCluster bb = [GraphAttrs [toLabel (show (basicBlockName bb))]]
 
 cfgGraphvizRepr :: CFG -> DotGraph Node
 cfgGraphvizRepr = graphToDot cfgGraphvizParams . cfgGraph
--- viewCFG :: CFG -> IO ()
--- viewCFG cfg = do
---   let params = nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
---                                   , fmtEdge = \(_,_,l) -> [toLabel (l)]
---                                   }
---       dg = graphToDot params (cfgGraph cfg)
---   _ <- runGraphvizCanvas' dg Gtk
---   return ()
