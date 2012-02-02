@@ -344,7 +344,7 @@ instructionLabeledSuccessors cfg i =
 cfgGraphvizParams :: GraphvizParams n Instruction CFGEdge BasicBlock Instruction
 cfgGraphvizParams =
   nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
-                     , fmtEdge = \(_,_,l) -> [toLabel (l)]
+                     , fmtEdge = formatEdge
                      , clusterID = Int . basicBlockUniqueId
                      , fmtCluster = formatCluster
                      , clusterBy = nodeCluster
@@ -354,6 +354,15 @@ cfgGraphvizParams =
       let Just bb = instructionBasicBlock i
       in C bb (N l)
     formatCluster bb = [GraphAttrs [toLabel (show (basicBlockName bb))]]
+    formatEdge (_, _, l) =
+      let lbl = toLabel l
+      in case l of
+        TrueEdge _ -> [lbl, color ForestGreen]
+        FalseEdge _ -> [lbl, color Crimson]
+        EqualityEdge _ _ -> [lbl, color DeepSkyBlue]
+        IndirectEdge _ -> [lbl, color Indigo, style dashed]
+        UnwindEdge _ -> [lbl, color Tomato4, style dotted]
+        _ -> [lbl]
 
 cfgGraphvizRepr :: CFG -> DotGraph Node
 cfgGraphvizRepr = graphToDot cfgGraphvizParams . cfgGraph
