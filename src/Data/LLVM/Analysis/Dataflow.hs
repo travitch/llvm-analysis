@@ -133,7 +133,9 @@ dataflowResult DataflowBlockResult { blockEndResults = m
   -- This is the state coming into the basic block (possibly after
   -- processing all phi nodes in parallel)
   initialInputState <- case null predResults of
-    True -> return s0
+    True -> case firstInst i of
+      True -> return s0
+      False -> return top
     False -> case null phiNodes of
       True -> return $! meets predResults
       False -> phiTransfer phiNodes phiPreds
@@ -227,7 +229,9 @@ dataflowAnalysis predFunc succFunc blockPreds analysis cfg = do
       let blockLookup = lookupFact outputFacts . basicBlockTerminatorInstruction
 
       inputFact <- case null preds of
-        True -> return analysis
+        True -> case firstInst inst of
+          True -> return analysis
+          False -> return top
         False -> case isFirstNonPhiInstruction inst of
           False -> return $! meets $ map (lookupFact outputFacts) preds
           True ->
@@ -250,6 +254,11 @@ dataflowAnalysis predFunc succFunc blockPreds analysis cfg = do
         Just bb = instructionBasicBlock inst
         lastOutputFact = lookupFact outputFacts inst
         (preds, incomingEdges) = unzip $ predFunc inst
+
+firstInst :: Instruction -> Bool
+firstInst i = firstBlock bb
+  where
+    Just bb = instructionBasicBlock i
 
 forwardBlockDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
                         => a -> b -> m (DataflowResult a)
@@ -321,7 +330,9 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
       let (phiNodes, otherInsts) = basicBlockSplitPhiNodes block
           phiPreds = buildPhiPreds blockPreds (lookupFact outputFacts) block
       inputFact <- case null preds of
-        True -> return analysis
+        True -> case firstBlock block of
+          True -> return analysis
+          False -> return top
         False -> case null phiNodes of
           True -> return $! meets (map (lookupFact outputFacts . fst) preds)
           False -> phiTransfer phiNodes phiPreds
@@ -346,6 +357,12 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
     processNode inputFact inst =
       let incomingEdges = snd $ unzip $ predFunc inst
       in transfer inputFact inst incomingEdges
+
+firstBlock :: BasicBlock -> Bool
+firstBlock bb = bb == fb
+  where
+    f = basicBlockFunction bb
+    fb : _ = functionBody f
 
 buildPhiPreds :: (BasicBlock -> [(BasicBlock, CFGEdge)])
                  -> (BasicBlock -> a)
