@@ -25,6 +25,7 @@ module Data.LLVM.Analysis.CDG (
   -- * Constructor
   controlDependenceGraph,
   -- * Queries
+  directControlDependencies,
   controlDependencies,
   controlDependentOn,
   -- * Visualization
@@ -75,6 +76,12 @@ controlDependencies (CDG g _) i =
     _ -> $err' $ "Instruction should at least be reachable from itself: " ++ show i
   where
     deps = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
+
+-- | Get the list of instructions that @i@ is directly control
+-- dependent upon.
+directControlDependencies :: CDG -> Instruction -> [Instruction]
+directControlDependencies (CDG g _) i =
+  map ($fromJst . lab g) $ suc g (instructionUniqueId i)
 
 -- | Construct the control dependence graph for a function (from its
 -- CFG).  This follows the construction from chapter 9 of the
