@@ -187,6 +187,11 @@ backwardDataflow analysis f =
   where
     cfg = getCFG f
 
+-- | FIXME: Remove phis from the instruction stream (they are handled
+-- separately).
+--
+-- FIXME: This is actually broken.. successors to individual
+-- instructions must also be fixed up (to skip phis)
 dataflowAnalysis :: forall a m . (Eq a, DataflowAnalysis m a)
                     => (Instruction -> [(Instruction, CFGEdge)])
                     -> (Instruction -> [(Instruction, CFGEdge)])

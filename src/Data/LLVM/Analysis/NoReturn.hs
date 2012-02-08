@@ -32,11 +32,13 @@ noReturnAnalysis cg extSummary = S.toList res
 
 -- | The dataflow fact represents the fact that the "Function does not
 -- return".  It is a simple wrapper around Bool
-data ReturnInfo = RI !Bool
-                deriving (Eq, Ord, Show)
+data ReturnInfo = RI { unRI :: !Bool }
+                deriving (Show)
+instance Eq ReturnInfo where
+  (RI r1) == (RI r2) = r1 == r2
 
 instance MeetSemiLattice ReturnInfo where
-  meet (RI r1) (RI r2) = RI (r1 || r2)
+  meet (RI r1) (RI r2) = RI (r1 && r2)
 
 instance BoundedMeetSemiLattice ReturnInfo where
   top = RI False
@@ -58,14 +60,15 @@ noRetAnalysis :: (Monad m)
                  -> HashSet Function
                  -> m (HashSet Function)
 noRetAnalysis extSummary f summ =
-  let env = AE extSummary summ
-      localRes = runReader (forwardDataflow top f) env
-      -- FIXME filter out unreachable exit instructions
-      exitInsts = functionExitInstructions f
+  let cfg = mkCFG f
+      env = AE extSummary summ
+      localRes = runReader (forwardBlockDataflow top cfg) env
+      exitInsts = filter (instructionReachable cfg) (functionExitInstructions f)
       exitInfos = runReader (mapM (dataflowResult localRes) exitInsts) env
-  in case meets exitInfos of
-    RI False -> return summ
-    RI True -> return $! S.insert f summ
+      exitVal = foldr ((&&) . unRI) True exitInfos
+  in case exitVal of
+    False -> return summ
+    True -> return $! S.insert f summ
 
 returnTransfer :: ReturnInfo -> Instruction -> [CFGEdge] -> AnalysisMonad ReturnInfo
 returnTransfer ri i _ =
@@ -90,3 +93,15 @@ dispatchCall ri v =
         True -> return $! RI True
         False -> return ri
     _ -> return ri
+
+-- | An instruction is reachable if its basic block has predecessors
+-- *OR* (if there are no predecessors) it is the first basic block.
+instructionReachable :: CFG -> Instruction -> Bool
+instructionReachable cfg i =
+  case null (basicBlockPredecessors cfg bb) of
+    True -> bb == firstBlock
+    False -> True
+  where
+    Just bb = instructionBasicBlock i
+    f = basicBlockFunction bb
+    firstBlock : _ = functionBody f
