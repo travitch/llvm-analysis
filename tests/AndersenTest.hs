@@ -53,4 +53,4 @@ testDescriptors = [ TestDescriptor { testPattern = ptPattern
                   ]
 
 main :: IO ()
-main = testAgainstExpected bcParser testDescriptors
+main = testAgainstExpected [] bcParser testDescriptors

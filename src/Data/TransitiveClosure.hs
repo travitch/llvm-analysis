@@ -22,7 +22,8 @@ import qualified Data.HashSet as S
 -- that explode eventually.  Lists, HashSets, and Sequences fare
 -- better.  A strict Set would be fine, but there is not yet one in
 -- the standard library.
-markVisited :: forall a t . (Hashable a, Eq a, Foldable t, Monoid (t a)) => (a -> t a) -> t a -> t a
+markVisited :: forall a t . (Hashable a, Eq a, Foldable t, Monoid (t a))
+               => (a -> t a) -> t a -> t a
 markVisited f as = mappend as $ snd $ (foldMap (mark' S.empty) as)
   where
     mark' :: HashSet a -> a -> (HashSet a, t a)

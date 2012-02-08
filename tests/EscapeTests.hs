@@ -10,14 +10,14 @@ import System.FilePath
 import Test.HUnit ( assertEqual )
 
 import Data.LLVM
-import Data.LLVM.CallGraph
+import Data.LLVM.Analysis.CallGraph
 import Data.LLVM.Analysis.Escape
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.Parse
 import Data.LLVM.Testing
 
 main :: IO ()
-main = testAgainstExpected bcParser testDescriptors
+main = testAgainstExpected ["-mem2reg", "-basicaa"] bcParser testDescriptors
   where
     bcParser = parseLLVMFile defaultParserOptions
 

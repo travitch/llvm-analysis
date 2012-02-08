@@ -11,7 +11,7 @@ import Text.Regex.TDFA
 import Test.HUnit
 
 import Data.LLVM
-import Data.LLVM.ICFG
+import Data.LLVM.Analysis.ICFG
 import Data.LLVM.Analysis.IFDS
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 
@@ -240,7 +240,7 @@ main = do
                                          , testResultComparator = assertEqual
                                          }
                         ]
-  testAgainstExpected (parseLLVMFile defaultParserOptions) testDescriptors
+  testAgainstExpected [] (parseLLVMFile defaultParserOptions) testDescriptors
 
 isArgument :: Value -> Bool
 isArgument v = case valueContent v of
