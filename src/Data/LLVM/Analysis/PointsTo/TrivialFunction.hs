@@ -45,9 +45,8 @@ runPointsToAnalysis m = TrivialFunction finalMap
 
 -- | Add function-typed values to the result map.
 buildMap :: (IsValue a) => a -> HashMap Type (Set Value) -> HashMap Type (Set Value)
-buildMap v m = case M.lookup vtype m of
-  Nothing -> M.insert vtype (S.singleton (Value v)) m
-  Just s -> M.insert vtype (S.insert (Value v) s) m
+buildMap v =
+  M.insertWith S.union vtype (S.singleton (Value v))
   where
     vtype = valueType v
 
