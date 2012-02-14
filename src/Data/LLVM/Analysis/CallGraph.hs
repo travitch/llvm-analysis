@@ -119,7 +119,7 @@ callValueTargets (CallGraph _ pta) v =
   in case valueContent v' of
     FunctionC _ -> [v']
     ExternalFunctionC _ -> [v']
-    _ -> S.toList $ pointsToValues pta v'
+    _ -> S.toList $ pointsToValues pta v
 
 -- | Build a call graph for the given 'Module' using a pre-computed
 -- points-to analysis.  The String parameter identifies the program
