@@ -76,6 +76,31 @@ class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
   -- ^ The transfer function that will process all Phi nodes in
   -- parallel.
 
+  -- | This is a hook to perform some analysis on an _edge_ before the
+  -- normal transfer functions run on the next instruction.
+  --
+  -- This is a convenient separation of edge and instruction
+  -- processing, but it also improves precision in cases like:
+  --
+  -- > define void @f(i8* %p) nounwind uwtable {
+  -- >   %1 = icmp ne i8* %p, null
+  -- >   br i1 %1, label %2, label %3
+  -- >
+  -- > ; <label>:2                                       ; preds = %0
+  -- >   call void @free(i8* %p) nounwind
+  -- >   br label %3
+  -- >
+  -- > ; <label>:3                                       ; preds = %2, %0
+  -- >   ret void
+  -- > }
+  --
+  -- Without separate edge processing, the join at the return
+  -- statement executes before we can use information about %p being
+  -- NULL on one edge of the branch.
+  edgeTransfer :: a -> CFGEdge -> m a
+  edgeTransfer e _ = return e
+
+
 -- | The opaque result of a dataflow analysis
 data DataflowResult a =
     DataflowInstructionResult (HashMap Instruction a)
@@ -133,6 +158,13 @@ dataflowResult DataflowBlockResult { blockEndResults = m
       -- (obtained by applying the transfer function to all of the
       -- instructions in the block before it).
 
+  let predsWithFacts = map (\(b, e) -> (b, blockRes b, e)) predBlocksAndEdges
+      applyEdgeTransfer (b, f, e) = do
+        f' <- edgeTransfer f e
+        return (b, f', e)
+
+  predsWithEdgeFacts <- mapM applyEdgeTransfer predsWithFacts
+
   -- This is the state coming into the basic block (possibly after
   -- processing all phi nodes in parallel)
   initialInputState <- case null predResults of
@@ -140,8 +172,8 @@ dataflowResult DataflowBlockResult { blockEndResults = m
       True -> return s0
       False -> return top
     False -> case null phiNodes of
-      True -> return $! meets predResults
-      False -> phiTransfer phiNodes phiPreds
+      True -> return $! meets (map (\(_, f, _) -> f) predsWithEdgeFacts) -- return $! meets predResults
+      False -> phiTransfer phiNodes predsWithEdgeFacts -- phiPreds
 
   -- FIXME: If there are phi nodes and a phi transfer function, that
   -- will be processing the incoming edges.... we might not want to
@@ -335,15 +367,24 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
                     -> BasicBlock
                     -> m (HashMap BasicBlock a, Set BasicBlock)
     processBlock fw@(outputFacts, nextWork) block = do
+      let predsWithFacts = map (\(b, e) -> (b, lookupFact outputFacts b, e)) preds
+          applyEdgeTransfer (b, f, e) = do
+            f' <- edgeTransfer f e
+            return (b, f', e)
+
+      predsWithEdgeFacts <- mapM applyEdgeTransfer predsWithFacts
       let (phiNodes, otherInsts) = basicBlockSplitPhiNodes block
+      {-
           phiPreds = buildPhiPreds blockPreds (lookupFact outputFacts) block
+-}
       inputFact <- case null preds of
         True -> case firstBlock block of
           True -> return analysis
           False -> return top
         False -> case null phiNodes of
-          True -> return $! meets (map (lookupFact outputFacts . fst) preds)
-          False -> phiTransfer phiNodes phiPreds
+          True -> return $! meets (map (\(_, f, _) -> f) predsWithEdgeFacts)
+--          True -> return $! meets (map (lookupFact outputFacts . fst) preds)
+          False -> phiTransfer phiNodes  predsWithEdgeFacts -- phiPreds
       outputFact <- foldM processNode inputFact (orderedBlockInsts otherInsts)
 
       case outputFact == lastOutputFact of
