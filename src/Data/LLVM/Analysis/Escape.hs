@@ -210,11 +210,8 @@ escapeGraphAtLocation :: EscapeResult -> Instruction -> EscapeGraph
 escapeGraphAtLocation ER { escapeResultMapping = er
                          , escapeExternalSummary = extSumm
                          } i =
-  let (eg, ()) = evalRWS (dataflowResult funcRes i) ed es
-  in eg
+  dataflowResult funcRes i
   where
-    es = EscapeState 1
-    ed = EscapeData { externalP = extSumm, escapeSummary = er }
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
     errMsg = $err' ("No escape result for function" ++ show (functionName f))
@@ -259,7 +256,7 @@ runEscapeAnalysis' m cg externP =
       let s0 = mkInitialGraph globalGraph f
           ed = EscapeData externP summ
           es = EscapeState 1
-          (perInstLookupTable, ()) = evalRWS (forwardBlockDataflow s0 f) ed es
+          (perInstLookupTable, ()) = evalRWS (forwardDataflow s0 f) ed es
       in return $! ER (M.insert f perInstLookupTable summ) externP
 
 -- | Provide local points-to information for a value @v@:

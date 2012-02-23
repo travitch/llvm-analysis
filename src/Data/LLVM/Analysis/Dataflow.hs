@@ -31,8 +31,6 @@ module Data.LLVM.Analysis.Dataflow (
   HasCFG(..),
   forwardDataflow,
   backwardDataflow,
-  forwardBlockDataflow,
-  backwardBlockDataflow,
   -- * Dataflow results
   DataflowResult,
   dataflowResult
@@ -97,27 +95,23 @@ class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
   -- Without separate edge processing, the join at the return
   -- statement executes before we can use information about %p being
   -- NULL on one edge of the branch.
+  --
+  -- NOTE: This transfer function is only appleid to edges between
+  -- basic blocks.  Within a basic block, the edge is always an
+  -- unconditional edge and there is no merging anyway.
   edgeTransfer :: a -> CFGEdge -> m a
   edgeTransfer e _ = return e
 
 
 -- | The opaque result of a dataflow analysis
 data DataflowResult a =
-    DataflowInstructionResult (HashMap Instruction a)
-  | DataflowBlockResult { blockEndResults :: HashMap BasicBlock a
-                        , dataflowPredBlocks :: BasicBlock -> [(BasicBlock, CFGEdge)]
-                        , dataflowPhiInput :: (BasicBlock -> a) -> BasicBlock -> [(BasicBlock, a, CFGEdge)]
-                        , dataflowInitial :: a
-                        }
+  DataflowResult (HashMap Instruction a)
 
 instance (Eq a) => Eq (DataflowResult a) where
-  (DataflowInstructionResult m1) == (DataflowInstructionResult m2) = m1 == m2
-  DataflowBlockResult { blockEndResults = m1 } == DataflowBlockResult { blockEndResults = m2} = m1 == m2
-  _ == _ = False
+  (DataflowResult m1) == (DataflowResult m2) = m1 == m2
 
 instance (NFData a) => NFData (DataflowResult a) where
-  rnf (DataflowInstructionResult m1) = m1 `deepseq` ()
-  rnf DataflowBlockResult { blockEndResults = m1 } = m1 `deepseq` ()
+  rnf (DataflowResult m) = m `deepseq` ()
 
 -- | Get the result of a dataflow analysis at the given instruction.
 -- Will throw an error if the instruction is not in the function for
@@ -125,185 +119,21 @@ instance (NFData a) => NFData (DataflowResult a) where
 --
 -- FIXME: The block result here needs to be able to reverse the instruction
 -- list if doing a backwards analysis
-dataflowResult :: (DataflowAnalysis m a)
-                  => DataflowResult a
-                  -> Instruction -> m a
-dataflowResult (DataflowInstructionResult m) i =
+dataflowResult :: DataflowResult a -> Instruction -> a
+dataflowResult (DataflowResult m) i =
   case M.lookup i m of
     Nothing -> $err' ("Instruction " ++ show i ++ " has no dataflow result")
-    Just r -> return r
-dataflowResult DataflowBlockResult { blockEndResults = m
-                                   , dataflowPredBlocks = preds
-                                   , dataflowPhiInput = toPhiInput
-                                   , dataflowInitial = s0
-                                   } i = do
-  let blockLookup x = M.lookupDefault ($err' "No block entry") x m
-
-  let Just bb = instructionBasicBlock i
-      (phiNodes, otherInsts) = basicBlockSplitPhiNodes bb
-      phiPreds = toPhiInput blockLookup bb
-      predBlocksAndEdges = preds bb
-      predBlocks = map fst predBlocksAndEdges
-      predResults = map blockRes predBlocks
-      -- initialInputState = case null predResults of
-      --   True -> s0
-      --   False -> meets predResults
-      initialIncomingEdges = map snd $ preds bb
-      predInsts = takeWhile (/=i) otherInsts -- FIXME: need to reverse for backwards analysis
-      -- The first instruction in the block has incoming edges decided
-      -- by the CFG.  The rest of the instructions have default
-      -- internal edges only.
-      incomingEdges = initialIncomingEdges : repeat [DefaultEdge]
-      -- This is the input state for the requested instruction
-      -- (obtained by applying the transfer function to all of the
-      -- instructions in the block before it).
-
-  let predsWithFacts = map (\(b, e) -> (b, blockRes b, e)) predBlocksAndEdges
-      applyEdgeTransfer (b, f, e) = do
-        f' <- edgeTransfer f e
-        return (b, f', e)
-
-  predsWithEdgeFacts <- mapM applyEdgeTransfer predsWithFacts
-
-  -- This is the state coming into the basic block (possibly after
-  -- processing all phi nodes in parallel)
-  initialInputState <- case null predResults of
-    True -> case firstInst i of
-      True -> return s0
-      False -> return top
-    False -> case null phiNodes of
-      True -> return $! meets (map (\(_, f, _) -> f) predsWithEdgeFacts) -- return $! meets predResults
-      False -> phiTransfer phiNodes predsWithEdgeFacts -- phiPreds
-
-  -- FIXME: If there are phi nodes and a phi transfer function, that
-  -- will be processing the incoming edges.... we might not want to
-  -- re-process them here
-  incomingState <- foldM transfer' initialInputState (zip predInsts incomingEdges)
-  -- Now apply the transfer function one more time to get the dataflow
-  -- fact for this instruction.
-  case null predInsts of
-    True -> transfer incomingState i initialIncomingEdges
-    False -> transfer incomingState i [DefaultEdge]
-  where
-    transfer' s (inst, es) = transfer s inst es
-    blockRes bb = case M.lookup bb m of
-      Nothing -> $err' ("Basic block " ++ show (Value bb) ++ " has no dataflow result")
-      Just r -> r
-
-
--- | Perform a forward dataflow analysis of the given type over a
--- function or CFG.
-forwardDataflow :: (Eq a, DataflowAnalysis m a, HasCFG b)
-                   => a -- ^ The initial state of the analysis to run
-                   -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
-                   -> m (DataflowResult a)
-forwardDataflow analysis f =
-  dataflowAnalysis (instructionLabeledPredecessors cfg)
-    (instructionLabeledSuccessors cfg)
-    (basicBlockLabeledPredecessors cfg)
-    analysis cfg
-  where
-    cfg = getCFG f
-
--- | Perform a backward dataflow analysis of the given type over a
--- function or CFG.
-backwardDataflow :: (Eq a, DataflowAnalysis m a, HasCFG b)
-                    => a -- ^ The initial state of the analysis to run
-                    -> b -- ^ The CFG (or Function) on which to run the dataflow analysis
-                    -> m (DataflowResult a)
-backwardDataflow analysis f =
-  dataflowAnalysis (instructionLabeledSuccessors cfg)
-    (instructionLabeledPredecessors cfg)
-    (basicBlockLabeledSuccessors cfg)
-    analysis cfg
-  where
-    cfg = getCFG f
-
--- | FIXME: Remove phis from the instruction stream (they are handled
--- separately).
---
--- FIXME: This is actually broken.. successors to individual
--- instructions must also be fixed up (to skip phis)
-dataflowAnalysis :: forall a m . (Eq a, DataflowAnalysis m a)
-                    => (Instruction -> [(Instruction, CFGEdge)])
-                    -> (Instruction -> [(Instruction, CFGEdge)])
-                    -> (BasicBlock -> [(BasicBlock, CFGEdge)])
-                    -> a -> CFG -> m (DataflowResult a)
-dataflowAnalysis predFunc succFunc blockPreds analysis cfg = do
-  let instructions = concatMap basicBlockInstructions (functionBody func)
-      initialStates = M.fromList $ zip instructions (repeat top)
-      s0 = (initialStates, S.empty)
-  res <- dataflow instructions s0
-  return (DataflowInstructionResult res)
-  where
-    func = cfgFunction cfg
-
-    -- | If there is nothing left in the worklist, return the facts
-    -- associated with the exit node.
-    --
-    -- FIXME: When turning the workset into a worklist, see about a
-    -- better sort order to visit instructions in.  Currently it
-    -- should actually be automatically close to topological sort
-    -- order since instruction IDs are assigned sequentially and the
-    -- IR is in SSA form (so definitions dominate uses -- topological
-    -- order).
-    dataflow !work !factsAndWork = do
-      (facts', nextWork') <- foldM processNode factsAndWork work
-      case S.null nextWork' of
-        True -> return facts'
-        False -> dataflow (S.toList nextWork') (facts', S.empty)
-
-    lookupFact :: (DataflowAnalysis m a) => HashMap Instruction a -> Instruction -> a
-    lookupFact facts inst = case M.lookup inst facts of
-      Just fact -> fact
-      Nothing -> $err' $ printf "No facts for CFG node %s" (show inst)
-
-    -- | Apply the transfer function to this node.  If the result is
-    -- different than the current fact, add all successors to the
-    -- worklist.
-    processNode :: (DataflowAnalysis m a)
-                   => (HashMap Instruction a, Set Instruction)
-                   -> Instruction
-                   -> m (HashMap Instruction a, Set Instruction)
-    processNode fw@(outputFacts, nextWork) inst = do
-      let blockLookup = lookupFact outputFacts . basicBlockTerminatorInstruction
-
-      inputFact <- case null preds of
-        True -> case firstInst inst of
-          True -> return analysis
-          False -> return top
-        False -> case isFirstNonPhiInstruction inst of
-          False -> return $! meets $ map (lookupFact outputFacts) preds
-          True ->
-            let (phiNodes, _) = basicBlockSplitPhiNodes bb
-                phiPreds = buildPhiPredsInst blockPreds blockLookup inst
-            in phiTransfer phiNodes phiPreds
-
-      outputFact <- transfer inputFact inst incomingEdges
-      case outputFact == lastOutputFact of
-        True -> return fw
-        False ->
-          -- Updated worklist and facts
-          let outputFacts' = M.insert inst outputFact outputFacts
-              succNodes = succFunc inst
-              justIds = fst $ unzip succNodes
-              q = S.fromList justIds
-              nextWork' = S.union nextWork q
-          in return (outputFacts', S.size nextWork' `seq` nextWork')
-      where
-        Just bb = instructionBasicBlock inst
-        lastOutputFact = lookupFact outputFacts inst
-        (preds, incomingEdges) = unzip $ predFunc inst
+    Just r -> r
 
 firstInst :: Instruction -> Bool
 firstInst i = firstBlock bb
   where
     Just bb = instructionBasicBlock i
 
-forwardBlockDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
-                        => a -> b -> m (DataflowResult a)
-forwardBlockDataflow analysis f =
-  blockDataflowAnalysis id
+forwardDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
+                   => a -> b -> m (DataflowResult a)
+forwardDataflow analysis f =
+  dataflowAnalysis id
     (basicBlockLabeledPredecessors cfg)
     (basicBlockLabeledSuccessors cfg)
     (instructionLabeledPredecessors cfg)
@@ -311,10 +141,14 @@ forwardBlockDataflow analysis f =
   where
     cfg = getCFG f
 
-backwardBlockDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
-                         => a -> b -> m (DataflowResult a)
-backwardBlockDataflow analysis f =
-  blockDataflowAnalysis reverse
+-- | FIXME: This is currently broken.  When should the phi
+-- instructions be processed in parallel? Before or after the
+-- instructions in the block?  It also needs to look up the output
+-- fact of the *first* instruction of the block instead of the last
+backwardDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
+                    => a -> b -> m (DataflowResult a)
+backwardDataflow analysis f =
+  dataflowAnalysis reverse
     (basicBlockLabeledSuccessors cfg)
     (basicBlockLabeledPredecessors cfg)
     (instructionLabeledSuccessors cfg)
@@ -322,22 +156,19 @@ backwardBlockDataflow analysis f =
   where
     cfg = getCFG f
 
-blockDataflowAnalysis :: forall a m . (Eq a, DataflowAnalysis m a)
-                         => ([Instruction] -> [Instruction])
-                         -> (BasicBlock -> [(BasicBlock, CFGEdge)])
-                         -> (BasicBlock -> [(BasicBlock, CFGEdge)])
-                         -> (Instruction -> [(Instruction, CFGEdge)])
-                         -> a -> CFG -> m (DataflowResult a)
-blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis cfg = do
+dataflowAnalysis :: forall a m . (Eq a, DataflowAnalysis m a)
+                    => ([Instruction] -> [Instruction])
+                    -> (BasicBlock -> [(BasicBlock, CFGEdge)])
+                    -> (BasicBlock -> [(BasicBlock, CFGEdge)])
+                    -> (Instruction -> [(Instruction, CFGEdge)])
+                    -> a -> CFG -> m (DataflowResult a)
+dataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc fact0 cfg = do
   let blocks = functionBody func
-      initialStates = M.fromList $ zip blocks (repeat top)
+      insts = concatMap basicBlockInstructions blocks
+      initialStates = M.fromList $ zip insts (repeat top)
       s0 = (initialStates, S.empty)
   res <- dataflow blocks s0
-  return DataflowBlockResult { blockEndResults = res
-                             , dataflowPredBlocks = blockPreds
-                             , dataflowPhiInput = buildPhiPreds blockPreds
-                             , dataflowInitial = analysis
-                             }
+  return (DataflowResult res)
   where
     func = cfgFunction cfg
 
@@ -356,75 +187,97 @@ blockDataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc analysis 
         True -> return facts'
         False -> dataflow (S.toList nextWork') (facts', S.empty)
 
-    lookupFact :: (DataflowAnalysis m a) => HashMap BasicBlock a -> BasicBlock -> a
-    lookupFact facts block =
-      case M.lookup block facts of
+    -- | FIXME the ordered block instructions should probably exclude
+    -- phi nodes here since we don't track facts for phi nodes.  This
+    -- will cause problems for a backwards analysis.
+    lookupBlockFact :: (DataflowAnalysis m a) => HashMap Instruction a -> BasicBlock -> a
+    lookupBlockFact facts block =
+      let insts = orderedBlockInsts (basicBlockInstructions block)
+      in case M.lookup (last insts) facts of
         Just fact -> fact
         Nothing -> $err' $ printf "No facts for block %s" (show (Value block))
 
+    lookupInstFact :: (DataflowAnalysis m a) => HashMap Instruction a -> Instruction -> a
+    lookupInstFact facts i =
+      case M.lookup i facts of
+        Just fact -> fact
+        Nothing -> $err' $ printf "No fact for instruction %s" (show i)
+
     processBlock :: (DataflowAnalysis m a)
-                    => (HashMap BasicBlock a, Set BasicBlock)
+                    => (HashMap Instruction a, Set BasicBlock)
                     -> BasicBlock
-                    -> m (HashMap BasicBlock a, Set BasicBlock)
-    processBlock fw@(outputFacts, nextWork) block = do
-      let predsWithFacts = map (\(b, e) -> (b, lookupFact outputFacts b, e)) preds
+                    -> m (HashMap Instruction a, Set BasicBlock)
+    processBlock (outputFacts, nextWork) block = do
+
+      -- First, match up the output facts for each incoming basic
+      -- block with the associated CFG edge.
+      let predsWithFacts = map (\(b, e) -> (b, lookupBlockFact outputFacts b, e)) preds
           applyEdgeTransfer (b, f, e) = do
             f' <- edgeTransfer f e
             return (b, f', e)
 
+      -- Now apply the edge transfer function to each CFG edge.  This
+      -- lets us generate facts before meeting all of the incoming
+      -- edges.
       predsWithEdgeFacts <- mapM applyEdgeTransfer predsWithFacts
+
+      -- Separate out Phi nodes so that we can process them all in parallel before
+      -- touching the other instructions.
       let (phiNodes, otherInsts) = basicBlockSplitPhiNodes block
-      {-
-          phiPreds = buildPhiPreds blockPreds (lookupFact outputFacts) block
--}
+
+      -- Determine the input fact.  If there are no predecessors and
+      -- this is the first block, use the initial analysis fact
+      -- (fact0).  If there are no predecessors and this is not the
+      -- first block, this block is not reachable and we use top as
+      -- its input fact.
+      --
+      -- Otherwise, we just generate an initial input fact for the
+      -- first instruction of the block (either through meeting all
+      -- incoming inputs OR while processing the Phi nodes.
       inputFact <- case null preds of
         True -> case firstBlock block of
-          True -> return analysis
+          True -> return fact0
           False -> return top
         False -> case null phiNodes of
           True -> return $! meets (map (\(_, f, _) -> f) predsWithEdgeFacts)
---          True -> return $! meets (map (lookupFact outputFacts . fst) preds)
-          False -> phiTransfer phiNodes  predsWithEdgeFacts -- phiPreds
-      outputFact <- foldM processNode inputFact (orderedBlockInsts otherInsts)
+          False -> phiTransfer phiNodes  predsWithEdgeFacts
 
-      case outputFact == lastOutputFact of
-        True -> return fw
+      -- Apply the transfer function to each instruction in the block.
+      -- The fold chains output facts to input facts.  This step also
+      -- (purely) updates the output fact map.
+      let insts = orderedBlockInsts otherInsts
+          lastInst = last insts
+      (_, outputFacts') <- foldM processNode (inputFact, outputFacts) insts
+
+      -- If the output fact of the block did not change, we don't need
+      -- to update the successors at all and so we don't modify the
+      -- worklist.
+      --
+      -- Since the facts for some instructions inside this block may
+      -- have changed, we update the output facts either way (it
+      -- doesn't really cost any extra).
+      case lookupInstFact outputFacts lastInst == lastOutputFact of
+        True -> return (outputFacts', nextWork)
         False ->
-          -- Update the worklist with the successors of this block
-          -- and the facts with what we just computed
-          let outputFacts' = M.insert block outputFact outputFacts
-              succBlocks = map fst $ blockSuccs block
-              nextWork' = S.union nextWork (S.fromList succBlocks)
+          -- Update the worklist with the successors of this block and the facts
+          let succBlocks = map fst $ blockSuccs block
+              nextWork' = nextWork `S.union` S.fromList succBlocks
           in return (outputFacts', S.size nextWork' `seq` nextWork')
       where
-        lastOutputFact = lookupFact outputFacts block
+        lastOutputFact = lookupBlockFact outputFacts block
         preds = blockPreds block
 
     -- | Apply the transfer function to each instruction in this
     -- block.  If the result is different than the current fact, add
     -- all successors to the worklist.
-    processNode inputFact inst =
+    processNode (inputFact, outputFacts) inst = do
       let incomingEdges = snd $ unzip $ predFunc inst
-      in transfer inputFact inst incomingEdges
+      outFact <- transfer inputFact inst incomingEdges
+      let outputFacts' = M.insert inst outFact outputFacts
+      return (outFact, outputFacts')
 
 firstBlock :: BasicBlock -> Bool
 firstBlock bb = bb == fb
   where
     f = basicBlockFunction bb
     fb : _ = functionBody f
-
-buildPhiPreds :: (BasicBlock -> [(BasicBlock, CFGEdge)])
-                 -> (BasicBlock -> a)
-                 -> BasicBlock
-                 -> [(BasicBlock, a, CFGEdge)]
-buildPhiPreds predFunc lookupFact block =
-  map (\(b, e) -> (b, lookupFact b, e)) (predFunc block)
-
-buildPhiPredsInst :: (BasicBlock -> [(BasicBlock, CFGEdge)])
-                 -> (BasicBlock -> a)
-                 -> Instruction
-                 -> [(BasicBlock, a, CFGEdge)]
-buildPhiPredsInst predFunc lookupFact i =
-  buildPhiPreds predFunc lookupFact bb
-  where
-    Just bb = instructionBasicBlock i

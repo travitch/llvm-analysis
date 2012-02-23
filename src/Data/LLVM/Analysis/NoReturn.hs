@@ -62,9 +62,9 @@ noRetAnalysis :: (Monad m)
 noRetAnalysis extSummary f summ =
   let cfg = mkCFG f
       env = AE extSummary summ
-      localRes = runReader (forwardBlockDataflow top cfg) env
+      localRes = runReader (forwardDataflow top cfg) env
       exitInsts = filter (instructionReachable cfg) (functionExitInstructions f)
-      exitInfos = runReader (mapM (dataflowResult localRes) exitInsts) env
+      exitInfos = map (dataflowResult localRes) exitInsts
       exitVal = foldr ((&&) . unRI) True exitInfos
   in case exitVal of
     False -> return summ
