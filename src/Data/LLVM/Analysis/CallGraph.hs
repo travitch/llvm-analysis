@@ -34,6 +34,7 @@ module Data.LLVM.Analysis.CallGraph (
   callGraphRepr,
   callValueTargets,
   callInstructionTargets,
+  callGraphFunctions,
   -- * Visualization
   cgGraphvizRepr
   ) where
@@ -41,6 +42,7 @@ module Data.LLVM.Analysis.CallGraph (
 import Control.Arrow ( (&&&) )
 import Data.Graph.Inductive
 import Data.GraphViz
+import Data.Maybe ( mapMaybe )
 import qualified Data.Set as S
 import FileLocation
 
@@ -90,6 +92,15 @@ instance Labellable CallEdge where
 -- | An opaque wrapper for the callgraph.  The nodes are functions and
 -- the edges are calls between them.
 data CallGraph = forall pta . (PointsToAnalysis pta) => CallGraph CG pta
+
+-- | Get all of the functions defined in this module from the
+-- CallGraph
+callGraphFunctions :: CallGraph -> [Function]
+callGraphFunctions (CallGraph cg _) =
+  mapMaybe extractDefinedFunction (labNodes cg)
+  where
+    extractDefinedFunction (_, DefinedFunction f) = Just f
+    extractDefinedFunction _ = Nothing
 
 -- | Convert the CallGraph to an FGL graph that can be traversed,
 -- manipulated, or easily displayed with graphviz.
