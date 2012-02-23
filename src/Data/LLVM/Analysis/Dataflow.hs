@@ -196,12 +196,6 @@ dataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc fact0 cfg = do
         Just fact -> fact
         Nothing -> $err' $ printf "No facts for block %s" (show (Value block))
 
-    lookupInstFact :: (DataflowAnalysis m a) => HashMap Instruction a -> Instruction -> a
-    lookupInstFact facts i =
-      case M.lookup i facts of
-        Just fact -> fact
-        Nothing -> $err' $ printf "No fact for instruction %s" (show i)
-
     processBlock :: (DataflowAnalysis m a)
                     => (HashMap Instruction a, Set BasicBlock)
                     -> BasicBlock
@@ -245,7 +239,6 @@ dataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc fact0 cfg = do
       -- The fold chains output facts to input facts.  This step also
       -- (purely) updates the output fact map.
       let insts = orderedBlockInsts otherInsts
-          lastInst = last insts
       (_, outputFacts') <- foldM processNode (inputFact, outputFacts) insts
 
       -- If the output fact of the block did not change, we don't need
@@ -255,7 +248,7 @@ dataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc fact0 cfg = do
       -- Since the facts for some instructions inside this block may
       -- have changed, we update the output facts either way (it
       -- doesn't really cost any extra).
-      case lookupInstFact outputFacts lastInst == lastOutputFact of
+      case lookupBlockFact outputFacts' block == lastOutputFact of
         True -> return (outputFacts', nextWork)
         False ->
           -- Update the worklist with the successors of this block and the facts
