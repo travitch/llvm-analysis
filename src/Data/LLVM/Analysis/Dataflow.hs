@@ -62,7 +62,6 @@ import Data.LLVM.Types
 class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
   transfer :: a -- ^ The incoming analysis state
               -> Instruction -- ^ The instruction being analyzed
-              -> [CFGEdge] -- ^ Incoming CFG edges
               -> m a
   -- ^ The transfer function of this analysis.  It is given any global
   -- constant data, the current set of facts, the current instruction,
@@ -271,8 +270,7 @@ dataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc fact0 cfg = do
     -- block.  If the result is different than the current fact, add
     -- all successors to the worklist.
     processNode (inputFact, outputFacts) inst = do
-      let incomingEdges = snd $ unzip $ predFunc inst
-      outFact <- transfer inputFact inst incomingEdges
+      outFact <- transfer inputFact inst
       let outputFacts' = M.insert inst outFact outputFacts
       return (outFact, outputFacts')
 

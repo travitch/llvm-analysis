@@ -70,8 +70,8 @@ noRetAnalysis extSummary f summ =
     False -> return summ
     True -> return $! S.insert f summ
 
-returnTransfer :: ReturnInfo -> Instruction -> [CFGEdge] -> AnalysisMonad ReturnInfo
-returnTransfer ri i _ =
+returnTransfer :: ReturnInfo -> Instruction -> AnalysisMonad ReturnInfo
+returnTransfer ri i =
   case i of
     CallInst { callFunction = calledFunc } ->
       dispatchCall ri calledFunc

@@ -57,7 +57,6 @@ import qualified Data.HashSet as HS
 import FileLocation
 
 import Data.LLVM
-import Data.LLVM.Analysis.CFG
 import Data.LLVM.Analysis.CallGraph
 import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.Dataflow
@@ -360,9 +359,8 @@ nodeProperlyEscaped escGr n = any (isGlobalNode escGr) nodesReachableFrom
 -- graph for each instruction.
 escapeTransfer :: EscapeGraph
                   -> Instruction
-                  -> [CFGEdge]
                   -> EscapeAnalysis EscapeGraph
-escapeTransfer eg i _ = do
+escapeTransfer eg i = do
 -- FIXME: Strip the bitcasts of the value and address here.  In the
 -- rest of the analysis- they are implicitly stripped by valueContent'
   (newGraph, passthrough) <- case i of
