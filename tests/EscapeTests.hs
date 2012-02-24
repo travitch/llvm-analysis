@@ -1,11 +1,7 @@
 module Main ( main ) where
 
-import qualified Data.ByteString.Char8 as BS
-import Data.Char ( isDigit )
 import Data.Map ( Map )
-import qualified Data.Map as M
 import Data.Set ( Set )
-import qualified Data.Set as S
 import System.FilePath
 import Test.HUnit ( assertEqual )
 
@@ -34,6 +30,8 @@ testDescriptors = [ TestDescriptor { testPattern = "tests/escape/proper-escapes/
                                    }
                   ]
 
+-- These tests assume that any external function allows all of its
+-- arguments to escape.
 properEscapeSummary :: Module -> Map String (Set String)
 properEscapeSummary m = escapeResultToTestFormat er
   where
@@ -45,7 +43,6 @@ properEscapeSummary m = escapeResultToTestFormat er
 willEscapeSummary :: Module -> Map String (Set String)
 willEscapeSummary m = willEscapeResultToTestFormat er
   where
-    globalVars = map Value $ moduleGlobalVariables m
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
     er = escapeAnalysis cg extSumm

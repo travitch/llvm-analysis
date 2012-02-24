@@ -19,6 +19,16 @@
 --
 -- This analysis assumes that arguments passed as varargs do *not*
 -- escape.
+--
+-- Only pointers can escape.  If a sub-component of an object escapes,
+-- as in:
+--
+-- > global = s->foo;
+--
+-- this analysis will not report that @s@ escapes.  This type of
+-- escaping can be identified by a derived analysis using the results
+-- of this analysis.  This analysis will identify the loaded result of
+-- @s->foo@ as escaping.
 module Data.LLVM.Analysis.Escape (
   EscapeResult,
   escapeAnalysis,
@@ -38,7 +48,6 @@ import qualified Data.HashMap.Strict as M
 import Data.List ( foldl' )
 import Data.Map ( Map )
 import qualified Data.Map as Map
-import Data.Maybe ( mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
 import FileLocation
@@ -47,6 +56,7 @@ import Data.LLVM
 import Data.LLVM.Analysis.CallGraph
 import Data.LLVM.Analysis.CallGraphSCCTraversal
 
+-- | An opaque representation of escape information for a Module.
 data EscapeResult =
   EscapeResult { escapeGraphs :: HashMap Function UseGraph
                , escapeArguments :: HashMap Function (Set Argument)
@@ -68,9 +78,19 @@ functionWillEscapeArguments er f =
   where
     errMsg = $err' ("No escape result for " ++ show (functionName f))
 
--- We cheat on this instance since the escape graphs are computed
--- exactly once, we don't need to compare them for equality at each
--- step.
+-- | Determine if an instruction escapes from the scope of its
+-- enclosing function.  This function does not include willEscape
+-- results.
+instructionEscapes :: EscapeResult -> Instruction -> Bool
+instructionEscapes er i =
+  fst $ foldr inducesEscape (False, False) reached
+  where
+    Just bb = instructionBasicBlock i
+    f = basicBlockFunction bb
+    errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
+    g = M.lookupDefault errMsg f (escapeGraphs er)
+    reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
+
 instance Eq EscapeResult where
   (EscapeResult g1 e1 w1) == (EscapeResult g2 e2 w2) =
     e1 == e2 && w1 == w2 && g1 == g2
@@ -90,15 +110,23 @@ type UseNode = LNode Value
 type UseEdge = LEdge ()
 type UseContext = Context Value ()
 
+-- | Run the escape analysis given a function summarizing the
+-- arguments of external functions.  The function summary should
+-- return true if the ith argument of the given external function
+-- escapes.
 escapeAnalysis :: CallGraph -> (ExternalFunction -> Int -> Bool) -> EscapeResult
 escapeAnalysis cg extSummary =
   runIdentity (callGraphSCCTraversal cg (escAnalysis extSummary) s0)
   where
+    -- This initial state must have an entry for each function in the
+    -- call graph; they will be filled in as the analysis progresses.
     s0 = emptyResult (callGraphFunctions cg)
 
 -- | This is the underlying bottom-up analysis to identify which
--- arguments escape.  It assumes that all of the use graphs have been
--- computed.
+-- arguments escape.  It builds a UseGraph for the function
+-- (incorporating information from other functions that have already
+-- been analyzed) and then checks to see which arguments escape using
+-- that graph.
 escAnalysis :: (Monad m)
                => (ExternalFunction -> Int -> Bool)
                -> Function
@@ -111,6 +139,10 @@ escAnalysis extSumm f summ =
   where
     args = functionParameters f
 
+-- | An argument escapes if any instruction that induces an escape is
+-- reachable in the UseGraph from it.  Reachability here is computed
+-- using a simple depth-first search.  See 'inducesEscape' for details
+-- on what we consider escaping.
 analyzeArgument :: (ExternalFunction -> Int -> Bool)
                    -> UseGraph
                    -> Function
@@ -126,16 +158,13 @@ analyzeArgument extSumm g f summ a =
   where
     reached = map ($fromJst . lab g) $ dfs [argumentUniqueId a] g
 
-instructionEscapes :: EscapeResult -> Instruction -> Bool
-instructionEscapes er i =
-  fst $ foldr inducesEscape (False, False) reached
-  where
-    Just bb = instructionBasicBlock i
-    f = basicBlockFunction bb
-    errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
-    g = M.lookupDefault errMsg f (escapeGraphs er)
-    reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
-
+-- | An instruction causes its value to escape if it is a store or a
+-- Call/Invoke.  The only edges to call instructions in the UseGraph
+-- are those that escape, so we don't need to try to figure out which
+-- argument is involved at this stage.
+--
+-- If a Return instruction is reachable from a value, that value
+-- *willEscape*, which is different from *escapes*.
 inducesEscape :: Value -> (Bool, Bool) -> (Bool, Bool)
 inducesEscape _ (True, we) = (True, we)
 inducesEscape v (e, we) =
@@ -148,17 +177,13 @@ inducesEscape v (e, we) =
 
 -- Graph construction
 
-addUseGraphForFunction :: (ExternalFunction -> Int -> Bool)
-                          -> Function -> EscapeResult -> EscapeResult
-addUseGraphForFunction extSumm f er =
-  er { escapeGraphs = M.insert f g (escapeGraphs er) }
-  where
-    g = buildUseGraph extSumm er f
-
 -- | The nodes of the graph are all of the instructions plus all of
--- their operands.  The edges are from use to user.
+-- their operands.  The edges are from use to user.  The graph
+-- construction only includes nodes relevant to the escape analysis.
+-- Anything not involving a pointer is ignored.
 --
--- Handling loads properly may require a fixed-point calculation
+-- The external and module summaries are required to know which call
+-- instructions allow values to escape.
 buildUseGraph :: (ExternalFunction -> Int -> Bool)
                  -> EscapeResult -> Function -> UseGraph
 buildUseGraph extSumm summ f = mkGraph (S.toList ns) (S.toList es)
@@ -181,38 +206,37 @@ addEdges extSumm er i s = s `S.union` S.fromList es
     es = map (mkOpEdge (instructionUniqueId i)) (escapeOperands extSumm er i)
     mkOpEdge dst v = (valueUniqueId v, dst, ())
 
-keepIfPointer :: Value -> Maybe Value
-keepIfPointer v =
+isPointer :: Value -> Bool
+isPointer v =
   case valueType v of
-    TypePointer _ _ -> Just v
-    _ -> Nothing
+    TypePointer _ _ -> True
+    _ -> False
 
--- Many instructions don't matter at all - we only need to extract
--- operands from the relevant ones (things involving memory and
--- addresses, plus arithmetic and casts).
+
+-- | Extract the operands relevant to the UseGraph from an
+-- Instruction.
+--
+-- Many instructions don't matter at all since they can't lead to
+-- escaping.  We only need to extract operands from the relevant ones
+-- (things involving memory, addresses, and casts).
 escapeOperands :: (ExternalFunction -> Int -> Bool) -> EscapeResult
                   -> Instruction -> [Value]
 escapeOperands extSumm er i =
-  mapMaybe keepIfPointer $ case i of
+  filter isPointer $ case i of
     RetInst { retInstValue = Just v } -> [v]
     RetInst {} -> []
-    -- Extracting an element could be said to make the base object
-    -- escape.  Inserting makes the inserted thing escape.
-    ExtractElementInst { extractElementVector = v } -> [v]
+    -- Inserting makes the inserted thing escape.  I'm not sure if
+    -- either of these instructions can ever actually operate on
+    -- pointers...  Actually I have never even seen them generated.
     InsertElementInst { insertElementValue = v } -> [v]
-    ExtractValueInst { extractValueAggregate = v } -> [v]
     InsertValueInst { insertValueValue = v } -> [v]
-    LoadInst { loadAddress = a } -> [a]
     StoreInst { storeValue = v } -> [v]
     AtomicCmpXchgInst { atomicCmpXchgNewValue = v } -> [v]
     AtomicRMWInst { atomicRMWValue = v } -> [v]
-    AddInst { binaryLhs = lhs, binaryRhs = rhs } -> [lhs, rhs]
-    SubInst { binaryLhs = lhs, binaryRhs = rhs } -> [lhs, rhs]
     PtrToIntInst { castedValue = v } -> [v]
     IntToPtrInst { castedValue = v } -> [v]
     BitcastInst { castedValue = v } -> [v]
     SelectInst { selectTrueValue = t, selectFalseValue = f } -> [t,f]
-    GetElementPtrInst { getElementPtrValue = v } -> [v]
     CallInst { callArguments = args, callFunction = f } ->
       keepEscapingArgs extSumm er f (map fst args)
     InvokeInst { invokeArguments = args, invokeFunction = f } ->
@@ -242,6 +266,12 @@ keepEscapingArgs extSumm er callee args =
 
 -- Testing
 
+-- | Extract the arguments for each function that escape.  The keys of
+-- the map are function names and the set elements are argument names.
+-- This format exposes the internal results for testing purposes.
+--
+-- For actual use in a program, use one of 'functionEscapeArguments',
+-- 'functionWillEscapeArguments', or 'instructionEscapes' instead.
 escapeResultToTestFormat :: EscapeResult -> Map String (Set String)
 escapeResultToTestFormat er =
   M.foldlWithKey' transform Map.empty m
@@ -250,6 +280,8 @@ escapeResultToTestFormat er =
     transform a f s =
       Map.insert (show (functionName f)) (S.map (show . argumentName) s) a
 
+-- | The same as 'escapeResultToTestFormat', but for the willEscape
+-- arguments.
 willEscapeResultToTestFormat :: EscapeResult -> Map String (Set String)
 willEscapeResultToTestFormat er =
   M.foldlWithKey' transform Map.empty m
