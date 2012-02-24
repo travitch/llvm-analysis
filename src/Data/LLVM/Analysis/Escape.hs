@@ -29,6 +29,16 @@
 -- escaping can be identified by a derived analysis using the results
 -- of this analysis.  This analysis will identify the loaded result of
 -- @s->foo@ as escaping.
+--
+-- Notes on precision:
+--
+-- This analysis does not do any sophisticated value tracking through
+-- memory references and it does not distinguish stores to locals
+-- (allocas) from stores to globals.  With no optimization, it will
+-- provide useless results (basically everything will escape).
+--
+-- With simple optimizations (-mem2reg and -basicaa) it will be very
+-- precise.
 module Data.LLVM.Analysis.Escape (
   EscapeResult,
   escapeAnalysis,
