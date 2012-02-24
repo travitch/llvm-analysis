@@ -1,1 +1,1 @@
-fromList [ ("@f", fromList[]) ]
+fromList [ ]

@@ -42,9 +42,10 @@
 module Data.LLVM.Analysis.Escape (
   EscapeResult,
   escapeAnalysis,
-  functionEscapeArguments,
-  functionWillEscapeArguments,
+  argumentEscapes,
+  argumentWillEscape,
   instructionEscapes,
+  instructionWillEscape,
   -- * Testing
   escapeResultToTestFormat,
   willEscapeResultToTestFormat
@@ -58,6 +59,7 @@ import qualified Data.HashMap.Strict as M
 import Data.List ( foldl' )
 import Data.Map ( Map )
 import qualified Data.Map as Map
+import Data.Maybe ( isJust )
 import Data.Set ( Set )
 import qualified Data.Set as S
 import FileLocation
@@ -69,37 +71,48 @@ import Data.LLVM.Analysis.CallGraphSCCTraversal
 -- | An opaque representation of escape information for a Module.
 data EscapeResult =
   EscapeResult { escapeGraphs :: HashMap Function UseGraph
-               , escapeArguments :: HashMap Function (Set Argument)
-               , willEscapeArguments :: HashMap Function (Set Argument)
+               , escapeArguments :: HashMap Argument Instruction
+               , willEscapeArguments :: HashMap Argument Instruction
                }
 
 -- | Get the set of escaped arguments for a function.  This function
 -- will throw an error if the function is not in the escape result set
 -- since that implies a programming error.
-functionEscapeArguments :: EscapeResult -> Function -> Set Argument
-functionEscapeArguments er f =
-  M.lookupDefault errMsg f (escapeArguments er)
-  where
-    errMsg = $err' ("No escape result for " ++ show (functionName f))
+argumentEscapes :: EscapeResult -> Argument -> Maybe Instruction
+argumentEscapes er a = M.lookup a (escapeArguments er)
 
-functionWillEscapeArguments :: EscapeResult -> Function -> Set Argument
-functionWillEscapeArguments er f =
-  M.lookupDefault errMsg f (willEscapeArguments er)
-  where
-    errMsg = $err' ("No escape result for " ++ show (functionName f))
+argumentWillEscape :: EscapeResult -> Argument -> Maybe Instruction
+argumentWillEscape er a = M.lookup a (willEscapeArguments er)
 
 -- | Determine if an instruction escapes from the scope of its
 -- enclosing function.  This function does not include willEscape
 -- results.
-instructionEscapes :: EscapeResult -> Instruction -> Bool
+instructionEscapes :: EscapeResult -> Instruction -> Maybe Instruction
 instructionEscapes er i =
-  fst $ foldr inducesEscape (False, False) reached
+  case foldr inducesEscape Nothing reached of
+    Just (EscapeWitness w) -> Just w
+    Just (WillEscapeWitness _) -> Nothing
+    Nothing -> Nothing
   where
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
     errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
     g = M.lookupDefault errMsg f (escapeGraphs er)
     reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
+
+instructionWillEscape :: EscapeResult -> Instruction -> Maybe Instruction
+instructionWillEscape er i =
+  case foldr inducesEscape Nothing reached of
+    Just (EscapeWitness _) -> Nothing
+    Just (WillEscapeWitness w) -> Just w
+    Nothing -> Nothing
+  where
+    Just bb = instructionBasicBlock i
+    f = basicBlockFunction bb
+    errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
+    g = M.lookupDefault errMsg f (escapeGraphs er)
+    reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
+
 
 instance Eq EscapeResult where
   (EscapeResult g1 e1 w1) == (EscapeResult g2 e2 w2) =
@@ -108,10 +121,8 @@ instance Eq EscapeResult where
 instance Eq (Gr Value ()) where
   (==) = equal
 
-emptyResult :: [Function] -> EscapeResult
-emptyResult fs =
-  let e = M.fromList (zip fs (repeat S.empty))
-  in EscapeResult M.empty e e
+emptyResult :: EscapeResult
+emptyResult = EscapeResult M.empty M.empty M.empty
 
 -- Useful type synonyms to hopefully make switching to hbgl easier
 -- later
@@ -127,11 +138,7 @@ type UseContext = Context Value ()
 escapeAnalysis :: (Monad m) => CallGraph -> (ExternalFunction -> Int -> m Bool)
                   -> m EscapeResult
 escapeAnalysis cg extSummary =
-  callGraphSCCTraversal cg (escAnalysis extSummary) s0
-  where
-    -- This initial state must have an entry for each function in the
-    -- call graph; they will be filled in as the analysis progresses.
-    s0 = emptyResult (callGraphFunctions cg)
+  callGraphSCCTraversal cg (escAnalysis extSummary) emptyResult
 
 -- | This is the underlying bottom-up analysis to identify which
 -- arguments escape.  It builds a UseGraph for the function
@@ -146,7 +153,7 @@ escAnalysis :: (Monad m)
 escAnalysis extSumm f summ = do
   g <- buildUseGraph extSumm summ f
   let summ' = summ { escapeGraphs = M.insert f g (escapeGraphs summ) }
-  return $! foldl' (analyzeArgument g f) summ' args
+  return $! foldl' (analyzeArgument g) summ' args
   where
     args = functionParameters f
 
@@ -155,18 +162,25 @@ escAnalysis extSumm f summ = do
 -- using a simple depth-first search.  See 'inducesEscape' for details
 -- on what we consider escaping.
 analyzeArgument :: UseGraph
-                   -> Function
                    -> EscapeResult
                    -> Argument
                    -> EscapeResult
-analyzeArgument g f summ a =
-  let (escapes, willEscape) = foldr inducesEscape (False, False) reached
-  in case (escapes, willEscape) of
-    (True, _) -> summ { escapeArguments = M.insertWith S.union f (S.singleton a) (escapeArguments summ) }
-    (_, True) -> summ { willEscapeArguments = M.insertWith S.union f (S.singleton a) (willEscapeArguments summ) }
-    _ -> summ
+analyzeArgument g summ a =
+  case foldr inducesEscape Nothing reached of
+    Just (EscapeWitness i) ->
+      summ { escapeArguments =
+                M.insert a i (escapeArguments summ)
+           }
+    Just (WillEscapeWitness i) ->
+      summ { willEscapeArguments =
+                M.insert a i (willEscapeArguments summ)
+           }
+    Nothing -> summ
   where
     reached = map ($fromJst . lab g) $ dfs [argumentUniqueId a] g
+
+data WitnessType = EscapeWitness Instruction
+                 | WillEscapeWitness Instruction
 
 -- | An instruction causes its value to escape if it is a store or a
 -- Call/Invoke.  The only edges to call instructions in the UseGraph
@@ -175,15 +189,15 @@ analyzeArgument g f summ a =
 --
 -- If a Return instruction is reachable from a value, that value
 -- *willEscape*, which is different from *escapes*.
-inducesEscape :: Value -> (Bool, Bool) -> (Bool, Bool)
-inducesEscape _ (True, we) = (True, we)
-inducesEscape v (e, we) =
+inducesEscape :: Value -> Maybe WitnessType -> Maybe WitnessType
+inducesEscape _ w@(Just (EscapeWitness _)) = w
+inducesEscape v w =
   case valueContent v of
-    InstructionC StoreInst {} -> (True, we)
-    InstructionC RetInst {} -> (e, True)
-    InstructionC CallInst {} -> (True, we)
-    InstructionC InvokeInst {} -> (True, we)
-    _ -> (e, we)
+    InstructionC i@StoreInst {} -> Just (EscapeWitness i)
+    InstructionC i@RetInst {} -> Just (WillEscapeWitness i)
+    InstructionC i@CallInst {} -> Just (EscapeWitness i)
+    InstructionC i@InvokeInst {} -> Just (EscapeWitness i)
+    _ -> w
 
 -- Graph construction
 
@@ -267,10 +281,7 @@ keepEscapingArgs :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeRe
 keepEscapingArgs extSumm er callee args =
   case valueContent' callee of
     FunctionC f ->
-      let errMsg = $err' ("Missing summary for " ++ show (functionName f))
-          escArgs = M.lookupDefault errMsg f (escapeArguments er)
-          indexedFormals = zip ixs (functionParameters f)
-          indexedEscapes = filter ((`S.member` escArgs) . snd) indexedFormals
+      let indexedEscapes = indexedEscapingArgs er f
           escapedIndices = S.fromList $ map fst indexedEscapes
       in return $ map snd $ filter ((`S.member` escapedIndices) . fst) (zip ixs args)
     ExternalFunctionC f -> do
@@ -280,6 +291,15 @@ keepEscapingArgs extSumm er callee args =
   where
     ixs :: [Int]
     ixs = [0..]
+    indexedArgs = zip ixs args
+
+indexedEscapingArgs :: EscapeResult -> Function -> [(Int, Argument)]
+indexedEscapingArgs er f =
+  filter (\(_, a) -> isJust (argumentEscapes er a)) indexedArgs
+  where
+    ixs :: [Int]
+    ixs = [0..]
+    args = functionParameters f
     indexedArgs = zip ixs args
 
 -- Testing
@@ -292,18 +312,24 @@ keepEscapingArgs extSumm er callee args =
 -- 'functionWillEscapeArguments', or 'instructionEscapes' instead.
 escapeResultToTestFormat :: EscapeResult -> Map String (Set String)
 escapeResultToTestFormat er =
-  M.foldlWithKey' transform Map.empty m
+  foldr transform Map.empty (M.keys m)
   where
     m = escapeArguments er
-    transform a f s =
-      Map.insert (show (functionName f)) (S.map (show . argumentName) s) a
+    transform a acc =
+      let f = argumentFunction a
+          fname = show (functionName f)
+          aname = show (argumentName a)
+      in Map.insertWith' S.union fname (S.singleton aname) acc
 
 -- | The same as 'escapeResultToTestFormat', but for the willEscape
 -- arguments.
 willEscapeResultToTestFormat :: EscapeResult -> Map String (Set String)
 willEscapeResultToTestFormat er =
-  M.foldlWithKey' transform Map.empty m
+  foldr transform Map.empty (M.keys m)
   where
     m = willEscapeArguments er
-    transform a f s =
-      Map.insert (show (functionName f)) (S.map (show . argumentName) s) a
+    transform a acc =
+      let f = argumentFunction a
+          fname = show (functionName f)
+          aname = show (argumentName a)
+      in Map.insertWith' S.union fname (S.singleton aname) acc

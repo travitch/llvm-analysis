@@ -1,2 +1,2 @@
-fromList [ ("@f", fromList []) ]
+fromList [ ]
 
