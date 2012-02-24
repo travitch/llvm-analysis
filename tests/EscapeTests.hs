@@ -1,5 +1,6 @@
 module Main ( main ) where
 
+import Control.Monad.Identity
 import Data.Map ( Map )
 import Data.Set ( Set )
 import System.FilePath
@@ -37,13 +38,13 @@ properEscapeSummary m = escapeResultToTestFormat er
   where
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
-    er = escapeAnalysis cg extSumm
-    extSumm _ _ = True
+    er = runIdentity $ escapeAnalysis cg extSumm
+    extSumm _ _ = return True
 
 willEscapeSummary :: Module -> Map String (Set String)
 willEscapeSummary m = willEscapeResultToTestFormat er
   where
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
-    er = escapeAnalysis cg extSumm
-    extSumm _ _ = True
+    er = runIdentity $ escapeAnalysis cg extSumm
+    extSumm _ _ = return True

@@ -51,7 +51,7 @@ module Data.LLVM.Analysis.Escape (
   ) where
 
 import Control.Arrow
-import Control.Monad.Identity
+import Control.Monad ( foldM, filterM )
 import Data.Graph.Inductive
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
@@ -124,9 +124,10 @@ type UseContext = Context Value ()
 -- arguments of external functions.  The function summary should
 -- return true if the ith argument of the given external function
 -- escapes.
-escapeAnalysis :: CallGraph -> (ExternalFunction -> Int -> Bool) -> EscapeResult
+escapeAnalysis :: (Monad m) => CallGraph -> (ExternalFunction -> Int -> m Bool)
+                  -> m EscapeResult
 escapeAnalysis cg extSummary =
-  runIdentity (callGraphSCCTraversal cg (escAnalysis extSummary) s0)
+  callGraphSCCTraversal cg (escAnalysis extSummary) s0
   where
     -- This initial state must have an entry for each function in the
     -- call graph; they will be filled in as the analysis progresses.
@@ -138,14 +139,14 @@ escapeAnalysis cg extSummary =
 -- been analyzed) and then checks to see which arguments escape using
 -- that graph.
 escAnalysis :: (Monad m)
-               => (ExternalFunction -> Int -> Bool)
+               => (ExternalFunction -> Int -> m Bool)
                -> Function
                -> EscapeResult
                -> m EscapeResult
-escAnalysis extSumm f summ =
-  let g = buildUseGraph extSumm summ f
-      summ' = summ { escapeGraphs = M.insert f g (escapeGraphs summ) }
-  in return $ foldl' (analyzeArgument extSumm g f) summ' args
+escAnalysis extSumm f summ = do
+  g <- buildUseGraph extSumm summ f
+  let summ' = summ { escapeGraphs = M.insert f g (escapeGraphs summ) }
+  return $! foldl' (analyzeArgument g f) summ' args
   where
     args = functionParameters f
 
@@ -153,13 +154,12 @@ escAnalysis extSumm f summ =
 -- reachable in the UseGraph from it.  Reachability here is computed
 -- using a simple depth-first search.  See 'inducesEscape' for details
 -- on what we consider escaping.
-analyzeArgument :: (ExternalFunction -> Int -> Bool)
-                   -> UseGraph
+analyzeArgument :: UseGraph
                    -> Function
                    -> EscapeResult
                    -> Argument
                    -> EscapeResult
-analyzeArgument extSumm g f summ a =
+analyzeArgument g f summ a =
   let (escapes, willEscape) = foldr inducesEscape (False, False) reached
   in case (escapes, willEscape) of
     (True, _) -> summ { escapeArguments = M.insertWith S.union f (S.singleton a) (escapeArguments summ) }
@@ -194,26 +194,31 @@ inducesEscape v (e, we) =
 --
 -- The external and module summaries are required to know which call
 -- instructions allow values to escape.
-buildUseGraph :: (ExternalFunction -> Int -> Bool)
-                 -> EscapeResult -> Function -> UseGraph
-buildUseGraph extSumm summ f = mkGraph (S.toList ns) (S.toList es)
+buildUseGraph :: (Monad m) => (ExternalFunction -> Int -> m Bool)
+                 -> EscapeResult -> Function -> m UseGraph
+buildUseGraph extSumm summ f = do
+  ns <- foldM (addInstAndOps extSumm summ) S.empty insts
+  es <- foldM (addEdges extSumm summ) S.empty insts
+  return $! mkGraph (S.toList ns) (S.toList es)
   where
     insts = concatMap basicBlockInstructions (functionBody f)
-    ns = foldr (addInstAndOps extSumm summ) S.empty insts
-    es = foldr (addEdges extSumm summ) S.empty insts
 
-addInstAndOps :: (ExternalFunction -> Int -> Bool) -> EscapeResult
-                 -> Instruction -> Set UseNode -> Set UseNode
-addInstAndOps extSumm er i s = s `S.union` S.fromList (inode : opNodes)
+addInstAndOps :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeResult
+                 -> Set UseNode -> Instruction -> m (Set UseNode)
+addInstAndOps extSumm er s i = do
+  operands <- escapeOperands extSumm er i
+  let opNodes = map (valueUniqueId &&& id) operands
+  return $! s `S.union` S.fromList (inode : opNodes)
   where
     inode = (instructionUniqueId i, Value i)
-    opNodes = map (valueUniqueId &&& id) (escapeOperands extSumm er i)
 
-addEdges :: (ExternalFunction -> Int -> Bool) -> EscapeResult
-            -> Instruction -> Set UseEdge -> Set UseEdge
-addEdges extSumm er i s = s `S.union` S.fromList es
+addEdges :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeResult
+            -> Set UseEdge -> Instruction -> m (Set UseEdge)
+addEdges extSumm er s i = do
+  operands <- escapeOperands extSumm er i
+  let es = map (mkOpEdge (instructionUniqueId i)) operands
+  return $! s `S.union` S.fromList es
   where
-    es = map (mkOpEdge (instructionUniqueId i)) (escapeOperands extSumm er i)
     mkOpEdge dst v = (valueUniqueId v, dst, ())
 
 isPointer :: Value -> Bool
@@ -229,35 +234,36 @@ isPointer v =
 -- Many instructions don't matter at all since they can't lead to
 -- escaping.  We only need to extract operands from the relevant ones
 -- (things involving memory, addresses, and casts).
-escapeOperands :: (ExternalFunction -> Int -> Bool) -> EscapeResult
-                  -> Instruction -> [Value]
-escapeOperands extSumm er i =
-  filter isPointer $ case i of
-    RetInst { retInstValue = Just v } -> [v]
-    RetInst {} -> []
+escapeOperands :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeResult
+                  -> Instruction -> m [Value]
+escapeOperands extSumm er i = do
+  operands <- case i of
+    RetInst { retInstValue = Just v } -> return [v]
+    RetInst {} -> return []
     -- Inserting makes the inserted thing escape.  I'm not sure if
     -- either of these instructions can ever actually operate on
     -- pointers...  Actually I have never even seen them generated.
-    InsertElementInst { insertElementValue = v } -> [v]
-    InsertValueInst { insertValueValue = v } -> [v]
-    StoreInst { storeValue = v } -> [v]
-    AtomicCmpXchgInst { atomicCmpXchgNewValue = v } -> [v]
-    AtomicRMWInst { atomicRMWValue = v } -> [v]
-    PtrToIntInst { castedValue = v } -> [v]
-    IntToPtrInst { castedValue = v } -> [v]
-    BitcastInst { castedValue = v } -> [v]
-    SelectInst { selectTrueValue = t, selectFalseValue = f } -> [t,f]
+    InsertElementInst { insertElementValue = v } -> return [v]
+    InsertValueInst { insertValueValue = v } -> return [v]
+    StoreInst { storeValue = v } -> return [v]
+    AtomicCmpXchgInst { atomicCmpXchgNewValue = v } -> return [v]
+    AtomicRMWInst { atomicRMWValue = v } -> return [v]
+    PtrToIntInst { castedValue = v } -> return [v]
+    IntToPtrInst { castedValue = v } -> return [v]
+    BitcastInst { castedValue = v } -> return [v]
+    SelectInst { selectTrueValue = t, selectFalseValue = f } -> return [t,f]
     CallInst { callArguments = args, callFunction = f } ->
       keepEscapingArgs extSumm er f (map fst args)
     InvokeInst { invokeArguments = args, invokeFunction = f } ->
       keepEscapingArgs extSumm er f (map fst args)
-    PhiNode { phiIncomingValues = vs } -> map fst vs
-    _ -> []
+    PhiNode { phiIncomingValues = vs } -> return $ map fst vs
+    _ -> return []
+  return $! filter isPointer operands
 
 -- | Only make nodes/edges for arguments that escape.  Indirect calls
 -- let all of their pointer arguments escape.
-keepEscapingArgs :: (ExternalFunction -> Int -> Bool) -> EscapeResult
-                    -> Value -> [Value] -> [Value]
+keepEscapingArgs :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeResult
+                    -> Value -> [Value] -> m [Value]
 keepEscapingArgs extSumm er callee args =
   case valueContent' callee of
     FunctionC f ->
@@ -266,9 +272,11 @@ keepEscapingArgs extSumm er callee args =
           indexedFormals = zip ixs (functionParameters f)
           indexedEscapes = filter ((`S.member` escArgs) . snd) indexedFormals
           escapedIndices = S.fromList $ map fst indexedEscapes
-      in map snd $ filter ((`S.member` escapedIndices) . fst) (zip ixs args)
-    ExternalFunctionC f -> map snd $ filter (extSumm f . fst) indexedArgs
-    _ -> args
+      in return $ map snd $ filter ((`S.member` escapedIndices) . fst) (zip ixs args)
+    ExternalFunctionC f -> do
+      escArgs <- filterM (extSumm f . fst) indexedArgs
+      return $ map snd escArgs
+    _ -> return args
   where
     ixs :: [Int]
     ixs = [0..]

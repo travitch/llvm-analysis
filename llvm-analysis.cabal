@@ -58,7 +58,7 @@ test-suite EscapeTests
   type: exitcode-stdio-1.0
   main-is: EscapeTests.hs
   hs-source-dirs: tests
-  build-depends: llvm-analysis, llvm-data-interop, bytestring,
+  build-depends: llvm-analysis, llvm-data-interop, bytestring, mtl,
                  base > 3 && < 5, filepath, containers, HUnit
   ghc-options: -Wall -rtsopts
 
