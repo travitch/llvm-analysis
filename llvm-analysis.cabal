@@ -40,8 +40,7 @@ library
                    Data.LLVM.Analysis.PointsTo.TrivialFunction,
                    Data.LLVM.Analysis.NoReturn,
                    Data.LLVM.Environment,
-                   Data.LLVM.Testing,
-                   Data.TransitiveClosure
+                   Data.LLVM.Testing
   other-modules: Data.LLVM.Internal.Condense,
                  Data.LLVM.Internal.ImperativeGraph,
                  Data.LLVM.Internal.PatriciaTree,
