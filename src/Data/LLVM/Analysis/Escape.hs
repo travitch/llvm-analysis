@@ -48,12 +48,15 @@ module Data.LLVM.Analysis.Escape (
   instructionWillEscape,
   -- * Testing
   escapeResultToTestFormat,
-  willEscapeResultToTestFormat
+  willEscapeResultToTestFormat,
+  escapeUseGraphs,
+  useGraphvizRepr
   ) where
 
 import Control.Arrow
 import Control.Monad ( foldM, filterM )
 import Data.Graph.Inductive
+import Data.GraphViz
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
 import Data.List ( foldl' )
@@ -89,7 +92,14 @@ argumentWillEscape er a = M.lookup a (willEscapeArguments er)
 -- results.
 instructionEscapes :: EscapeResult -> Instruction -> Maybe Instruction
 instructionEscapes er i =
-  case foldr inducesEscape Nothing reached of
+  -- Note, we have to filter out the call instruction itself since the
+  -- dfs reports that it reaches itself (which is trivial).
+  --
+  -- FIXME: Do we have a problem here if the result of a function is
+  -- passed to itself in a loop via a phi node?  Maybe.  Check to see
+  -- if the instruction is embedded in a cycle in the graph before
+  -- removing it?
+  case foldr inducesEscape Nothing reached' of
     Just (EscapeWitness w) -> Just w
     Just (WillEscapeWitness _) -> Nothing
     Nothing -> Nothing
@@ -99,10 +109,11 @@ instructionEscapes er i =
     errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
     g = M.lookupDefault errMsg f (escapeGraphs er)
     reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
+    reached' = filter (/= (Value i)) reached
 
 instructionWillEscape :: EscapeResult -> Instruction -> Maybe Instruction
 instructionWillEscape er i =
-  case foldr inducesEscape Nothing reached of
+  case foldr inducesEscape Nothing reached' of
     Just (EscapeWitness _) -> Nothing
     Just (WillEscapeWitness w) -> Just w
     Nothing -> Nothing
@@ -112,6 +123,7 @@ instructionWillEscape er i =
     errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
     g = M.lookupDefault errMsg f (escapeGraphs er)
     reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
+    reached' = filter (/= (Value i)) reached
 
 
 instance Eq EscapeResult where
@@ -333,3 +345,15 @@ willEscapeResultToTestFormat er =
           fname = show (functionName f)
           aname = show (argumentName a)
       in Map.insertWith' S.union fname (S.singleton aname) acc
+
+escapeUseGraphs :: EscapeResult -> [(String, UseGraph)]
+escapeUseGraphs = map (first (show . functionName)) . M.toList . escapeGraphs
+
+useGraphvizParams :: GraphvizParams n Value el () Value
+useGraphvizParams =
+  nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
+                     , fmtEdge = \_ -> []
+                     }
+
+useGraphvizRepr :: UseGraph -> DotGraph Node
+useGraphvizRepr = graphToDot useGraphvizParams

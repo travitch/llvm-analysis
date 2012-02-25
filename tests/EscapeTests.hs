@@ -1,7 +1,9 @@
 module Main ( main ) where
 
 import Control.Monad.Identity
+import Data.List ( find )
 import Data.Map ( Map )
+import Data.Maybe ( isJust )
 import Data.Set ( Set )
 import System.FilePath
 import Test.HUnit ( assertEqual )
@@ -29,6 +31,11 @@ testDescriptors = [ TestDescriptor { testPattern = "tests/escape/proper-escapes/
                                    , testResultBuilder = willEscapeSummary
                                    , testResultComparator = assertEqual
                                    }
+                  , TestDescriptor { testPattern = "tests/escape/instruction-escape/*.c"
+                                   , testExpectedMapping = (<.> "expected")
+                                   , testResultBuilder = callInstructionEscapeSummary
+                                   , testResultComparator = assertEqual
+                                   }
                   ]
 
 -- These tests assume that any external function allows all of its
@@ -48,3 +55,21 @@ willEscapeSummary m = willEscapeResultToTestFormat er
     cg = mkCallGraph m pta []
     er = runIdentity $ escapeAnalysis cg extSumm
     extSumm _ _ = return True
+
+callInstructionEscapeSummary :: Module -> Bool
+callInstructionEscapeSummary m = isJust $ instructionEscapes er i
+  where
+    pta = runPointsToAnalysis m
+    cg = mkCallGraph m pta []
+    er = runIdentity $ escapeAnalysis cg extSumm
+    extSumm _ _ = return True
+    Just i = find isCallInst (moduleInstructions m)
+
+moduleInstructions =
+  concatMap basicBlockInstructions . concatMap functionBody . moduleDefinedFunctions
+
+isCallInst :: Instruction -> Bool
+isCallInst i =
+  case i of
+    CallInst {} -> True
+    _ -> False
