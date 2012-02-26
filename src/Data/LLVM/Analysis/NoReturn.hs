@@ -14,7 +14,6 @@ module Data.LLVM.Analysis.NoReturn (
   noReturnAnalysis
   ) where
 
-import Control.Monad.Identity
 import Control.Monad.Reader
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
@@ -25,10 +24,10 @@ import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.CFG
 import Data.LLVM.Analysis.Dataflow
 
-noReturnAnalysis :: CallGraph -> (ExternalFunction -> Bool) -> [Function]
-noReturnAnalysis cg extSummary = S.toList res
-  where
-    res = runIdentity (callGraphSCCTraversal cg (noRetAnalysis extSummary) S.empty)
+noReturnAnalysis :: (Monad m) => CallGraph -> (ExternalFunction -> m Bool) -> m [Function]
+noReturnAnalysis cg extSummary = do
+  res <- callGraphSCCTraversal cg (noRetAnalysis extSummary) S.empty
+  return $ S.toList res
 
 -- | The dataflow fact represents the fact that the "Function does not
 -- return".  It is a simple wrapper around Bool
@@ -43,34 +42,35 @@ instance MeetSemiLattice ReturnInfo where
 instance BoundedMeetSemiLattice ReturnInfo where
   top = RI False
 
-data AnalysisEnvironment = AE { externalSummary :: ExternalFunction -> Bool
-                              , internalSummary :: HashSet Function
-                              }
+data AnalysisEnvironment m =
+  AE { externalSummary :: ExternalFunction -> m Bool
+     , internalSummary :: HashSet Function
+     }
 
 -- | The analysis monad is just a Reader whose environment is a function
 -- to test ExternalFunctions
-type AnalysisMonad = Reader AnalysisEnvironment
+type AnalysisMonad m = ReaderT (AnalysisEnvironment m) m
 
-instance DataflowAnalysis AnalysisMonad ReturnInfo where
+instance (Monad m) => DataflowAnalysis (AnalysisMonad m) ReturnInfo where
   transfer = returnTransfer
 
 noRetAnalysis :: (Monad m)
-                 => (ExternalFunction -> Bool)
+                 => (ExternalFunction -> m Bool)
                  -> Function
                  -> HashSet Function
                  -> m (HashSet Function)
-noRetAnalysis extSummary f summ =
+noRetAnalysis extSummary f summ = do
   let cfg = mkCFG f
       env = AE extSummary summ
-      localRes = runReader (forwardDataflow top cfg) env
-      exitInsts = filter (instructionReachable cfg) (functionExitInstructions f)
+  localRes <- runReaderT (forwardDataflow top cfg) env
+  let exitInsts = filter (instructionReachable cfg) (functionExitInstructions f)
       exitInfos = map (dataflowResult localRes) exitInsts
       exitVal = foldr ((&&) . unRI) True exitInfos
-  in case exitVal of
+  case exitVal of
     False -> return summ
     True -> return $! S.insert f summ
 
-returnTransfer :: ReturnInfo -> Instruction -> AnalysisMonad ReturnInfo
+returnTransfer :: (Monad m) => ReturnInfo -> Instruction -> AnalysisMonad m ReturnInfo
 returnTransfer ri i =
   case i of
     CallInst { callFunction = calledFunc } ->
@@ -79,7 +79,7 @@ returnTransfer ri i =
       dispatchCall ri calledFunc
     _ -> return ri
 
-dispatchCall :: ReturnInfo -> Value -> AnalysisMonad ReturnInfo
+dispatchCall :: (Monad m) => ReturnInfo -> Value -> AnalysisMonad m ReturnInfo
 dispatchCall ri v =
   case valueContent' v of
     FunctionC f -> do
@@ -89,7 +89,8 @@ dispatchCall ri v =
         False -> return ri
     ExternalFunctionC ef -> do
       extSumm <- asks externalSummary
-      case extSumm ef of
+      isNoRet <- lift $ extSumm ef
+      case isNoRet of
         True -> return $! RI True
         False -> return ri
     _ -> return ri

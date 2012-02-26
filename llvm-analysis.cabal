@@ -96,7 +96,7 @@ test-suite IFDSTests
 test-suite ReturnTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
-  build-depends: base == 4.*, containers, llvm-analysis, filepath,
+  build-depends: base == 4.*, containers, llvm-analysis, filepath, mtl,
                  HUnit, llvm-data-interop
   ghc-options: -Wall -rtsopts
   main-is: ReturnTests.hs

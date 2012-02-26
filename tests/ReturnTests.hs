@@ -1,5 +1,7 @@
 module Main ( main ) where
 
+import Control.Monad.Identity
+import Data.Set ( Set )
 import qualified Data.Set as S
 import System.FilePath ( (<.>) )
 import System.Environment ( getArgs, withArgs )
@@ -7,7 +9,6 @@ import Test.HUnit ( assertEqual )
 
 import Data.LLVM
 import Data.LLVM.Analysis.CallGraph
-import Data.LLVM.Analysis.PointsTo
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.Analysis.NoReturn
 import Data.LLVM.Parse
@@ -31,15 +32,17 @@ main = do
     opts = ["-mem2reg", "-basicaa", "-gvn"]
     parser = parseLLVMFile defaultParserOptions
 
-exitTest :: ExternalFunction -> Bool
-exitTest ef = "@exit" == efname
+exitTest :: (Monad m) => ExternalFunction -> m Bool
+exitTest ef = return $ "@exit" == efname
   where
     efname = show (externalFunctionName ef)
 
+nameToString :: Function -> String
 nameToString = show . functionName
 
+analyzeReturns :: Module -> Set String
 analyzeReturns m = S.fromList $ map nameToString nrs
   where
-    nrs = noReturnAnalysis cg exitTest
+    nrs = runIdentity (noReturnAnalysis cg exitTest)
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
