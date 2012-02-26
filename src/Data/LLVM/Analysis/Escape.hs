@@ -92,14 +92,7 @@ argumentWillEscape er a = M.lookup a (willEscapeArguments er)
 -- results.
 instructionEscapes :: EscapeResult -> Instruction -> Maybe Instruction
 instructionEscapes er i =
-  -- Note, we have to filter out the call instruction itself since the
-  -- dfs reports that it reaches itself (which is trivial).
-  --
-  -- FIXME: Do we have a problem here if the result of a function is
-  -- passed to itself in a loop via a phi node?  Maybe.  Check to see
-  -- if the instruction is embedded in a cycle in the graph before
-  -- removing it?
-  case foldr inducesEscape Nothing reached' of
+  case foldr inducesEscape Nothing reached of
     Just (EscapeWitness w) -> Just w
     Just (WillEscapeWitness _) -> Nothing
     Nothing -> Nothing
@@ -108,12 +101,13 @@ instructionEscapes er i =
     f = basicBlockFunction bb
     errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
     g = M.lookupDefault errMsg f (escapeGraphs er)
-    reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
-    reached' = filter (/= (Value i)) reached
+    reached = reachableValues i g
 
+-- | Determine if a function value will escape through a return
+-- instruction.
 instructionWillEscape :: EscapeResult -> Instruction -> Maybe Instruction
 instructionWillEscape er i =
-  case foldr inducesEscape Nothing reached' of
+  case foldr inducesEscape Nothing reached of
     Just (EscapeWitness _) -> Nothing
     Just (WillEscapeWitness w) -> Just w
     Nothing -> Nothing
@@ -122,9 +116,28 @@ instructionWillEscape er i =
     f = basicBlockFunction bb
     errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
     g = M.lookupDefault errMsg f (escapeGraphs er)
-    reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
-    reached' = filter (/= (Value i)) reached
+    reached = reachableValues i g
 
+-- | Get the list of values reachable from the given instruction in
+-- the use graph.  An instruction is not reachable from itself unless
+-- it is in a cycle.
+reachableValues :: Instruction -> UseGraph -> [Value]
+reachableValues i g =
+  case instructionInLoop i g of
+    True -> reached
+    False -> filter (/= (Value i)) reached
+  where
+    reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
+
+-- | Return True if the given instruction is in a cycle in the use
+-- graph
+instructionInLoop :: Instruction -> UseGraph -> Bool
+instructionInLoop i g = any (instInNonSingleton i) (scc g)
+  where
+    instInNonSingleton inst component =
+      case length component > 1 of
+        False -> False
+        True -> instructionUniqueId inst `elem` component
 
 instance Eq EscapeResult where
   (EscapeResult g1 e1 w1) == (EscapeResult g2 e2 w2) =
@@ -173,6 +186,10 @@ escAnalysis extSumm f summ = do
 -- reachable in the UseGraph from it.  Reachability here is computed
 -- using a simple depth-first search.  See 'inducesEscape' for details
 -- on what we consider escaping.
+--
+-- Note that this doesn't need the more complicated reaching
+-- computation as used in 'instructionEscapes' because arguments
+-- cannot ever reach themselves.
 analyzeArgument :: UseGraph
                    -> EscapeResult
                    -> Argument

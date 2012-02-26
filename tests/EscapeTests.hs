@@ -65,6 +65,7 @@ callInstructionEscapeSummary m = isJust $ instructionEscapes er i
     extSumm _ _ = return True
     Just i = find isCallInst (moduleInstructions m)
 
+moduleInstructions :: Module -> [Instruction]
 moduleInstructions =
   concatMap basicBlockInstructions . concatMap functionBody . moduleDefinedFunctions
 
