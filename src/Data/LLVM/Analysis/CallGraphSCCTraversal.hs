@@ -109,7 +109,7 @@ parallelBasicCallGraphSCCTraversal callgraph unwrap f seed = runPar $ do
   mapM_ (forkSCC cg varMap unwrap f seed) sccs
   let graphRoots = filter (isGraphRoot cg) (nodes cg)
       rootVars = map (getDep varMap) graphRoots
-  finalVals <- mapM get rootVars
+  finalVals <- mapM get outputVars -- rootVars
   return $! mconcat finalVals
   where
     g = projectDefinedFunctions $ callGraphRepr callgraph
