@@ -19,15 +19,8 @@ import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
 
 import Data.LLVM
-import Data.LLVM.Analysis.CallGraph
-import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.CFG
 import Data.LLVM.Analysis.Dataflow
-
-noReturnAnalysis :: (Monad m) => CallGraph -> (ExternalFunction -> m Bool) -> m [Function]
-noReturnAnalysis cg extSummary = do
-  res <- callGraphSCCTraversal cg (noRetAnalysis extSummary) S.empty
-  return $ S.toList res
 
 -- | The dataflow fact represents the fact that the "Function does not
 -- return".  It is a simple wrapper around Bool
@@ -54,12 +47,12 @@ type AnalysisMonad m = ReaderT (AnalysisEnvironment m) m
 instance (Monad m) => DataflowAnalysis (AnalysisMonad m) ReturnInfo where
   transfer = returnTransfer
 
-noRetAnalysis :: (Monad m)
-                 => (ExternalFunction -> m Bool)
-                 -> Function
-                 -> HashSet Function
-                 -> m (HashSet Function)
-noRetAnalysis extSummary f summ = do
+noReturnAnalysis :: (Monad m)
+                    => (ExternalFunction -> m Bool)
+                    -> Function
+                    -> HashSet Function
+                    -> m (HashSet Function)
+noReturnAnalysis extSummary f summ = do
   let cfg = mkCFG f
       env = AE extSummary summ
   localRes <- runReaderT (forwardDataflow top cfg) env

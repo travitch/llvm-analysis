@@ -1,6 +1,8 @@
 module Main ( main ) where
 
 import Control.Monad.Identity
+import Data.Foldable ( toList )
+import Data.Monoid
 import Data.Set ( Set )
 import qualified Data.Set as S
 import System.FilePath ( (<.>) )
@@ -9,6 +11,7 @@ import Test.HUnit ( assertEqual )
 
 import Data.LLVM
 import Data.LLVM.Analysis.CallGraph
+import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.Analysis.NoReturn
 import Data.LLVM.Parse
@@ -40,9 +43,15 @@ exitTest ef = return $ "@exit" == efname
 nameToString :: Function -> String
 nameToString = show . functionName
 
+runNoReturnAnalysis :: CallGraph -> (ExternalFunction -> Identity Bool) -> [Function]
+runNoReturnAnalysis cg extSummary =
+  let res = runIdentity (callGraphSCCTraversal cg (noReturnAnalysis extSummary) mempty)
+  in toList res
+
+
 analyzeReturns :: Module -> Set String
 analyzeReturns m = S.fromList $ map nameToString nrs
   where
-    nrs = runIdentity (noReturnAnalysis cg exitTest)
+    nrs = runNoReturnAnalysis cg exitTest -- runIdentity (noReturnAnalysis cg exitTest)
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
