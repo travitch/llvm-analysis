@@ -54,8 +54,9 @@ module Data.LLVM.Analysis.Escape (
   ) where
 
 import Control.Arrow
+import Control.DeepSeq
 import Control.Monad ( foldM, filterM )
-import Data.Graph.Inductive
+import Data.Graph.Inductive hiding ( Gr )
 import Data.GraphViz
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
@@ -63,13 +64,13 @@ import Data.List ( foldl' )
 import Data.Map ( Map )
 import qualified Data.Map as Map
 import Data.Maybe ( isJust )
+import Data.Monoid
 import Data.Set ( Set )
 import qualified Data.Set as S
 import FileLocation
 
 import Data.LLVM
-import Data.LLVM.Analysis.CallGraph
-import Data.LLVM.Analysis.CallGraphSCCTraversal
+import Data.LLVM.Internal.PatriciaTree
 
 -- | An opaque representation of escape information for a Module.
 data EscapeResult =
@@ -77,6 +78,28 @@ data EscapeResult =
                , escapeArguments :: HashMap Argument Instruction
                , willEscapeArguments :: HashMap Argument Instruction
                }
+
+instance Eq EscapeResult where
+  (EscapeResult g1 e1 w1) == (EscapeResult g2 e2 w2) =
+    e1 == e2 && w1 == w2 && g1 == g2
+
+instance Eq (Gr Value ()) where
+  (==) = equal
+
+emptyResult :: EscapeResult
+emptyResult = EscapeResult M.empty M.empty M.empty
+
+instance Monoid EscapeResult where
+  mempty = emptyResult
+  mappend (EscapeResult gs1 as1 was1) (EscapeResult gs2 as2 was2) =
+    EscapeResult { escapeGraphs = M.union gs1 gs2
+                 , escapeArguments = M.union as1 as2
+                 , willEscapeArguments = M.union was1 was2
+                 }
+
+instance NFData EscapeResult where
+  rnf r@(EscapeResult gs as was) =
+    gs `deepseq` as `deepseq` was `deepseq` r `seq` ()
 
 -- | Get the set of escaped arguments for a function.  This function
 -- will throw an error if the function is not in the escape result set
@@ -139,16 +162,6 @@ instructionInLoop i g = any (instInNonSingleton i) (scc g)
         False -> False
         True -> instructionUniqueId inst `elem` component
 
-instance Eq EscapeResult where
-  (EscapeResult g1 e1 w1) == (EscapeResult g2 e2 w2) =
-    e1 == e2 && w1 == w2 && g1 == g2
-
-instance Eq (Gr Value ()) where
-  (==) = equal
-
-emptyResult :: EscapeResult
-emptyResult = EscapeResult M.empty M.empty M.empty
-
 -- Useful type synonyms to hopefully make switching to hbgl easier
 -- later
 type UseGraph = Gr Value ()
@@ -156,26 +169,20 @@ type UseNode = LNode Value
 type UseEdge = LEdge ()
 type UseContext = Context Value ()
 
--- | Run the escape analysis given a function summarizing the
--- arguments of external functions.  The function summary should
--- return true if the ith argument of the given external function
--- escapes.
-escapeAnalysis :: (Monad m) => CallGraph -> (ExternalFunction -> Int -> m Bool)
-                  -> m EscapeResult
-escapeAnalysis cg extSummary =
-  callGraphSCCTraversal cg (escAnalysis extSummary) emptyResult
-
 -- | This is the underlying bottom-up analysis to identify which
 -- arguments escape.  It builds a UseGraph for the function
 -- (incorporating information from other functions that have already
 -- been analyzed) and then checks to see which arguments escape using
 -- that graph.
-escAnalysis :: (Monad m)
-               => (ExternalFunction -> Int -> m Bool)
-               -> Function
-               -> EscapeResult
-               -> m EscapeResult
-escAnalysis extSumm f summ = do
+--
+-- The function summary should return true if the ith argument of the
+-- given external function escapes.
+escapeAnalysis :: (Monad m)
+                  => (ExternalFunction -> Int -> m Bool)
+                  -> Function
+                  -> EscapeResult
+                  -> m EscapeResult
+escapeAnalysis extSumm f summ = do
   g <- buildUseGraph extSumm summ f
   let summ' = summ { escapeGraphs = M.insert f g (escapeGraphs summ) }
   return $! foldl' (analyzeArgument g) summ' args

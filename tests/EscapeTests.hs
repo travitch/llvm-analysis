@@ -4,12 +4,14 @@ import Control.Monad.Identity
 import Data.List ( find )
 import Data.Map ( Map )
 import Data.Maybe ( isJust )
+import Data.Monoid
 import Data.Set ( Set )
 import System.FilePath
 import Test.HUnit ( assertEqual )
 
 import Data.LLVM
 import Data.LLVM.Analysis.CallGraph
+import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.Escape
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
 import Data.LLVM.Parse
@@ -38,6 +40,12 @@ testDescriptors = [ TestDescriptor { testPattern = "tests/escape/proper-escapes/
                                    }
                   ]
 
+runEscapeAnalysis ::  CallGraph
+                     -> (ExternalFunction -> Int -> Identity Bool)
+                     -> EscapeResult
+runEscapeAnalysis cg extSumm =
+  runIdentity $ callGraphSCCTraversal cg (escapeAnalysis extSumm) mempty
+
 -- These tests assume that any external function allows all of its
 -- arguments to escape.
 properEscapeSummary :: Module -> Map String (Set String)
@@ -45,7 +53,7 @@ properEscapeSummary m = escapeResultToTestFormat er
   where
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
-    er = runIdentity $ escapeAnalysis cg extSumm
+    er = runEscapeAnalysis cg extSumm
     extSumm _ _ = return True
 
 willEscapeSummary :: Module -> Map String (Set String)
@@ -53,7 +61,7 @@ willEscapeSummary m = willEscapeResultToTestFormat er
   where
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
-    er = runIdentity $ escapeAnalysis cg extSumm
+    er = runEscapeAnalysis cg extSumm
     extSumm _ _ = return True
 
 callInstructionEscapeSummary :: Module -> Bool
@@ -61,7 +69,7 @@ callInstructionEscapeSummary m = isJust $ instructionEscapes er i
   where
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
-    er = runIdentity $ escapeAnalysis cg extSumm
+    er = runEscapeAnalysis cg extSumm
     extSumm _ _ = return True
     Just i = find isCallInst (moduleInstructions m)
 
