@@ -18,8 +18,6 @@ module Data.LLVM.Analysis.CFG (
   basicBlockSuccessorEdges,
   basicBlockLabeledPredecessors,
   basicBlockLabeledSuccessors,
-  instructionLabeledPredecessors,
-  instructionLabeledSuccessors,
   -- * Visualization
   cfgGraphvizRepr
   ) where
@@ -323,21 +321,6 @@ basicBlockLabeledPredecessors cfg bb =
     cfg' = cfgGraph cfg
     startInst : _ = basicBlockInstructions bb
     ps = lpre cfg' (instructionUniqueId startInst)
-
-instructionLabeledPredecessors :: CFG -> Instruction -> [(Instruction, CFGEdge)]
-instructionLabeledPredecessors cfg i =
-  map (\(n, l) -> (toInstruction cfg n, l)) (lpre cfg' uid)
-  where
-    uid = instructionUniqueId i
-    cfg' = cfgGraph cfg
-
-instructionLabeledSuccessors :: CFG -> Instruction -> [(Instruction, CFGEdge)]
-instructionLabeledSuccessors cfg i =
-  map (\(n, l) -> (toInstruction cfg n, l)) (lsuc cfg' uid)
-  where
-    uid = instructionUniqueId i
-    cfg' = cfgGraph cfg
-
 
 -- Visualization
 

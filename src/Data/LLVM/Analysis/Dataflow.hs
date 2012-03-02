@@ -135,7 +135,6 @@ forwardDataflow analysis f =
   dataflowAnalysis id
     (basicBlockLabeledPredecessors cfg)
     (basicBlockLabeledSuccessors cfg)
-    (instructionLabeledPredecessors cfg)
     analysis cfg
   where
     cfg = getCFG f
@@ -150,7 +149,6 @@ backwardDataflow analysis f =
   dataflowAnalysis reverse
     (basicBlockLabeledSuccessors cfg)
     (basicBlockLabeledPredecessors cfg)
-    (instructionLabeledSuccessors cfg)
     analysis cfg
   where
     cfg = getCFG f
@@ -159,9 +157,8 @@ dataflowAnalysis :: forall a m . (Eq a, DataflowAnalysis m a)
                     => ([Instruction] -> [Instruction])
                     -> (BasicBlock -> [(BasicBlock, CFGEdge)])
                     -> (BasicBlock -> [(BasicBlock, CFGEdge)])
-                    -> (Instruction -> [(Instruction, CFGEdge)])
                     -> a -> CFG -> m (DataflowResult a)
-dataflowAnalysis orderedBlockInsts blockPreds blockSuccs predFunc fact0 cfg = do
+dataflowAnalysis orderedBlockInsts blockPreds blockSuccs fact0 cfg = do
   let blocks = functionBody func
       insts = concatMap basicBlockInstructions blocks
       initialStates = M.fromList $ zip insts (repeat top)
