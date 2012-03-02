@@ -40,14 +40,17 @@ module Data.LLVM.Analysis.CallGraph (
   ) where
 
 import Control.Arrow ( (&&&) )
-import Data.Graph.Inductive
+import Data.Graph.Inductive hiding ( Gr )
 import Data.GraphViz
 import Data.Maybe ( mapMaybe )
+import Data.Hashable
+import qualified Data.HashSet as HS
 import qualified Data.Set as S
 import FileLocation
 
 import Data.LLVM.Types
 import Data.LLVM.Analysis.PointsTo
+import Data.LLVM.Internal.PatriciaTree
 
 -- | A type synonym for the underlying graph
 type CG = Gr CallNode CallEdge
@@ -80,6 +83,11 @@ data CallEdge = DirectCall
                 -- ^ A possible call to an unknown function through a
                 -- function pointer
               deriving (Ord, Eq)
+
+instance Hashable CallEdge where
+  hash DirectCall = hash (1 :: Int)
+  hash IndirectCall = hash (2 :: Int)
+  hash UnknownCall = hash (3 :: Int)
 
 instance Show CallEdge where
   show DirectCall = ""
@@ -161,8 +169,8 @@ mkCallGraph m pta entryPoints =
 
     funcs = moduleDefinedFunctions m
 
-unique :: (Ord a) => [a] -> [a]
-unique = S.toList . S.fromList
+unique :: (Hashable a, Eq a) => [a] -> [a]
+unique = HS.toList . HS.fromList
 
 -- | This is the ID for the single "Unknown function" call graph node.
 unknownNodeId :: Node
