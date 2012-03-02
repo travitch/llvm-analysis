@@ -8,7 +8,7 @@ module Data.LLVM.Analysis.CallGraphSCCTraversal (
 import Control.DeepSeq
 import Control.Monad ( foldM, replicateM )
 import Control.Monad.Par
-import Data.Graph.Inductive hiding ( new )
+import Data.Graph.Inductive hiding ( Gr, new )
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Monoid
@@ -18,6 +18,7 @@ import Data.LLVM.Analysis.CallGraph
 import Data.LLVM.Types
 
 import Data.LLVM.Internal.Condense
+import Data.LLVM.Internal.PatriciaTree
 
 import Text.Printf
 import Debug.Trace
@@ -142,32 +143,30 @@ forkSCC cg varMap unwrap f val0 (nid, component) = fork $ do
   depVals <- mapM get depVars
   let seed = case null deps of
         True -> val0
-        False -> mconcat depVals
+        False -> force $ mconcat depVals
       sccSummary = f (map snd component) seed
       sccVar = getDep varMap nid
   put sccVar (unwrap sccSummary)
 
-
 projectDefinedFunctions :: Gr CallNode b -> Gr Function b
-projectDefinedFunctions g = nmap unwrap g'
+projectDefinedFunctions g = mkGraph ns' es'
   where
-    unwrap (DefinedFunction f) = f
-    unwrap _ = $err' "Expected a defined function"
-    g' = delNodes undefinedNodes $ delEdges edgesToUndefined g
-    (undefinedNodes, edgesToUndefined) =
-      foldr (extractUndefined g) ([], []) (nodes g)
+    es = labEdges g
+    ns = labNodes g
+    ns' = foldr keepDefinedFunctions [] ns
+    es' = filter (edgeIsBetweenDefined m) es
+    m = M.fromList ns
 
-extractUndefined :: Graph gr => gr CallNode b -> Node -> ([Node], [Edge]) -> ([Node], [Edge])
-extractUndefined g n (nacc, eacc) =
-  case lbl of
-    DefinedFunction _ -> (nacc, newEdges ++ eacc)
-    _ -> (n : nacc, newEdges ++ eacc)
-  where
-    (_, _, lbl, adjOut) = context g n
-    newEdges = filter eitherUndefined $ zip (repeat n) (map snd adjOut)
-    eitherUndefined (src, tgt) = isNotDefined src || isNotDefined tgt
-    isNotDefined nid =
-      let Just l = lab g nid
-      in case l of
-        DefinedFunction _ -> False
-        _ -> True
+keepDefinedFunctions :: LNode CallNode -> [LNode Function] -> [LNode Function]
+keepDefinedFunctions (nid, DefinedFunction f) acc = (nid, f) : acc
+keepDefinedFunctions _ acc = acc
+
+edgeIsBetweenDefined :: Map Node CallNode -> LEdge b -> Bool
+edgeIsBetweenDefined m (src, dst, _) =
+  nodeIsDefined m src && nodeIsDefined m dst
+
+nodeIsDefined :: Map Node CallNode -> Node -> Bool
+nodeIsDefined m n =
+  case m M.! n of
+    DefinedFunction _ -> True
+    _ -> False
