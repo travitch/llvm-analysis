@@ -3,7 +3,10 @@ module Data.LLVM.Internal.Condense ( condense ) where
 import Data.Graph.Inductive
 import qualified Data.Map as M
 import Data.Map ( Map, (!) )
-import Data.List ( nub )
+import qualified Data.HashSet as HS
+
+unique :: [LEdge ()] -> [LEdge ()]
+unique = HS.toList . HS.fromList
 
 -- | Turn a graph @g@ into a DAG by identifying its strongly-connected
 -- components and re-connecting them.  This differs from the standard
@@ -19,7 +22,7 @@ condense g = mkGraph condensedNodes condensedEdges
     -- That was a list of SCC nodes with integer ids.  We need to
     -- add the original labels to each of the SCC nodes.
     condensedNodes = map sccToNode sccIds
-    condensedEdges = nub $ concatMap (remapEdges g nodeToSCCMap) (M.toList nodeToSCCMap)
+    condensedEdges = unique $ concatMap (remapEdges g nodeToSCCMap) (M.toList nodeToSCCMap)
 
     sccIds = zip [0..] $ scc g
 
