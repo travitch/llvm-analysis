@@ -47,13 +47,14 @@ type AnalysisMonad m = ReaderT (AnalysisEnvironment m) m
 instance (Monad m) => DataflowAnalysis (AnalysisMonad m) ReturnInfo where
   transfer = returnTransfer
 
-noReturnAnalysis :: (Monad m)
+noReturnAnalysis :: (Monad m, HasCFG cfg)
                     => (ExternalFunction -> m Bool)
-                    -> Function
+                    -> cfg
                     -> HashSet Function
                     -> m (HashSet Function)
-noReturnAnalysis extSummary f summ = do
-  let cfg = mkCFG f
+noReturnAnalysis extSummary cfgLike summ = do
+  let cfg = getCFG cfgLike
+      f = getFunction cfg
       env = AE extSummary summ
   localRes <- runReaderT (forwardDataflow top cfg) env
   let exitInsts = filter (instructionReachable cfg) (functionExitInstructions f)

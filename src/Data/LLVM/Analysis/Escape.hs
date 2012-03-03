@@ -177,16 +177,17 @@ type UseContext = Context Value ()
 --
 -- The function summary should return true if the ith argument of the
 -- given external function escapes.
-escapeAnalysis :: (Monad m)
+escapeAnalysis :: (Monad m, HasFunction funcLike)
                   => (ExternalFunction -> Int -> m Bool)
-                  -> Function
+                  -> funcLike
                   -> EscapeResult
                   -> m EscapeResult
-escapeAnalysis extSumm f summ = do
+escapeAnalysis extSumm funcLike summ = do
   g <- buildUseGraph extSumm summ f
   let summ' = summ { escapeGraphs = M.insert f g (escapeGraphs summ) }
   return $! foldl' (analyzeArgument g) summ' args
   where
+    f = getFunction funcLike
     args = functionParameters f
 
 -- | An argument escapes if any instruction that induces an escape is

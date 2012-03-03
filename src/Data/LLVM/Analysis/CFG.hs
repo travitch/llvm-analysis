@@ -94,6 +94,12 @@ instance HasCFG CFG where
 instance HasCFG Function where
   getCFG = mkCFG
 
+instance HasFunction CFG where
+  getFunction = cfgFunction
+
+instance HasFunction RCFG where
+  getFunction = rcfgFunction
+
 -- | Build a control flow graph for the given function.  Each
 -- instruction in the function body is a node in the graph.  Branching
 -- instructions induce edges.  This form of the CFG is fine-grained in
