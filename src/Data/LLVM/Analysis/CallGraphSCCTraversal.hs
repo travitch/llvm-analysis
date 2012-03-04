@@ -105,17 +105,6 @@ callGraphSCCTraversal callgraph f seed =
 -- | Just like 'callGraphSCCTraversal', except strongly-connected
 -- components are analyzed in parallel.  Each component is analyzed as
 -- soon as possible after its dependencies have been analyzed.
---
--- FIXME: The IVars are holding on to large state summaries for the
--- entire length of the analysis...  maybe that is unavoidable.
---
--- Possible solution: instead of having a big map of Node to IVar,
--- just pass each SCC its output var and its list of input IVars.
--- That way, as threads die, so do references to IVars and they can be
--- collected ASAP.
---
--- Use something like zip3 to make a list of tuples (SCC, inVars,
--- outVar) that can be folded over.
 parallelCallGraphSCCTraversal :: (NFData summary, Monoid summary, FuncLike funcLike)
                                  => CallGraph
                                  -> ([funcLike] -> summary -> summary)
@@ -126,22 +115,40 @@ parallelCallGraphSCCTraversal callgraph f seed = runPar $ do
   outputVars <- replicateM (noNodes cg) new
   let sccs = labNodes cg
       varMap = M.fromList (zip (map fst sccs) outputVars)
+      sccsWithVars = map (attachVars cg varMap) sccs
 
   -- Spawn a thread for each SCC that waits until its dependencies are
   -- analyzed (by blocking on the IVars above).  Each SCC fills its
   -- IVar after it has been analyzed.
-  mapM_ (forkSCC cg varMap f seed) sccs
-
-  -- let graphRoots = filter (isGraphRoot cg) (nodes cg)
-  --     rootVars = map (getDep varMap) graphRoots
+  --
+  -- The fold accumulates the output vars of the functions that are
+  -- not depended on by any others.  These are the roots of the call
+  -- graph and combining their summaries will yield the summary for
+  -- the whole library.  This selectivity is explicit so that we
+  -- retain as few outputVars as possible.  If we retain all of the
+  -- output vars for the duration of the program, we get an explosion
+  -- of retained summaries and waste a lot of space.
+  rootOutVars <- foldM (forkSCC f seed) [] (force sccsWithVars)
 
   -- Merge all of the results from all of the SCCs
-  finalVals <- mapM get outputVars
+  finalVals <- mapM get rootOutVars
   return $! mconcat finalVals
   where
     g = projectDefinedFunctions $ callGraphRepr callgraph
     cg :: Gr [LNode Function] ()
     cg = condense g
+
+attachVars :: Gr [LNode Function] ()
+              -> Map Node (IVar summary)
+              -> LNode [LNode Function]
+              -> ([Function], [IVar summary], IVar summary, Bool)
+attachVars cg varMap (nid, component) =
+  (map snd component, inVars, outVar, isRoot)
+  where
+    outVar = varMap M.! nid
+    inVars = map (getDep varMap) deps
+    deps = filter (/=nid) $ suc cg nid
+    isRoot = null (pre cg nid)
 
 -- | Fork off a thread (using the Par monad) to process a
 -- strongly-connected component in the call graph in its own thread.
@@ -149,26 +156,26 @@ parallelCallGraphSCCTraversal callgraph f seed = runPar $ do
 -- have been analyzed.  When the component is analyzed, it will fill
 -- its IVar with a value to unblock the other threads waiting on it.
 forkSCC :: (NFData summary, Monoid summary, FuncLike funcLike)
-           => Gr [LNode Function] () -- ^ The call graph
-           -> Map Node (IVar summary) -- ^ The IVars for each node in the call graph
-           -> ([funcLike] -> summary -> summary) -- ^ The summary function to apply
+           => ([funcLike] -> summary -> summary) -- ^ The summary function to apply
            -> summary -- ^ The seed value
-           -> LNode [LNode Function] -- ^ The strongly-connected component
-           -> Par ()
-forkSCC cg varMap f val0 (nid, component) = fork $ do
-  -- SCCs can contain self-loops in the condensed call graph, so
-  -- remove those self loops here so we don't block the entire
-  -- parallel computation with a thread waiting on itself.
-  let deps = filter (/=nid) $ suc cg nid
-      depVars = map (getDep varMap) deps
-  depVals <- mapM get depVars
-  let seed = case null deps of
-        True -> val0
-        False -> force $ mconcat depVals
-      funcLikes = map (fromFunction . snd) component
-      sccSummary = f funcLikes seed
-      sccVar = getDep varMap nid
-  put sccVar sccSummary
+           -> [IVar summary]
+           -> ([Function], [IVar summary], IVar summary, Bool)
+           -> Par [IVar summary]
+forkSCC f val0 acc (component, inVars, outVar, isRoot) = do
+  fork $ do
+    -- SCCs can contain self-loops in the condensed call graph, so
+    -- remove those self loops here so we don't block the entire
+    -- parallel computation with a thread waiting on itself.
+    depVals <- mapM get inVars
+    let seed = case null inVars of
+          True -> val0
+          False -> force $ mconcat depVals
+        funcLikes = map fromFunction component
+        sccSummary = f funcLikes seed
+    put outVar sccSummary
+  case isRoot of
+    False -> return acc
+    True -> return (outVar : acc)
 
 -- | Make a call-graph SCC summary function from a basic monadic
 -- summary function and a function to evaluate the function in its
