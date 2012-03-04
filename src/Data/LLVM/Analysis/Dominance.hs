@@ -126,7 +126,6 @@ nearestCommonPostdominator (PDT t _) n m =
   case commonPrefix (reverse npdoms) (reverse mpdoms) of
     -- This case should really be impossible since this is a tree
     [] -> Nothing
-      -- $err' $ printf "No common postdominator for [%s] and [%s]" (show n) (show m)
     commonPostdom : _ -> Just $! toInst t commonPostdom
   where
     npdoms = dfs [instructionUniqueId n] t
