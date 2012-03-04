@@ -39,6 +39,7 @@ library
                    Data.LLVM.Analysis.PointsTo.Andersen,
                    Data.LLVM.Analysis.PointsTo.TrivialFunction,
                    Data.LLVM.Analysis.NoReturn,
+                   Data.LLVM.Analysis.Types,
                    Data.LLVM.Environment,
                    Data.LLVM.Testing
   other-modules: Data.LLVM.Internal.Condense,

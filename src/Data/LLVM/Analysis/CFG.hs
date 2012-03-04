@@ -28,6 +28,7 @@ import FileLocation
 import Text.Printf
 
 import Data.LLVM.Types
+import Data.LLVM.Analysis.Types
 
 type CFGType = Gr Instruction CFGEdge
 
@@ -99,6 +100,9 @@ instance HasFunction CFG where
 
 instance HasFunction RCFG where
   getFunction = rcfgFunction
+
+instance FuncLike CFG where
+  fromFunction = mkCFG
 
 -- | Build a control flow graph for the given function.  Each
 -- instruction in the function body is a node in the graph.  Branching
