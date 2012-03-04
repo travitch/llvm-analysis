@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, ViewPatterns, FlexibleInstances #-}
+{-# LANGUAGE TemplateHaskell, ViewPatterns, FlexibleInstances, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | This is a very conservative flow- and context-insensitive escape
 -- analysis based on graph reachability.  The underlying graph is a used-by
@@ -56,7 +56,6 @@ module Data.LLVM.Analysis.Escape (
 import Control.Arrow
 import Control.DeepSeq
 import Control.Monad ( foldM, filterM )
-import Data.Graph.Inductive hiding ( Gr )
 import Data.GraphViz
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
@@ -69,8 +68,11 @@ import Data.Set ( Set )
 import qualified Data.Set as S
 import FileLocation
 
+import Data.Graph.Interface
+import Data.Graph.PatriciaTree
+import Data.Graph.Algorithms.Matching.DFS
+
 import Data.LLVM
-import Data.LLVM.Internal.PatriciaTree
 
 -- | An opaque representation of escape information for a Module.
 data EscapeResult =
@@ -83,8 +85,8 @@ instance Eq EscapeResult where
   (EscapeResult g1 e1 w1) == (EscapeResult g2 e2 w2) =
     e1 == e2 && w1 == w2 && g1 == g2
 
-instance Eq (Gr Value ()) where
-  (==) = equal
+instance Eq UseGraph where
+  (==) = graphEqual
 
 emptyResult :: EscapeResult
 emptyResult = EscapeResult M.empty M.empty M.empty
@@ -164,10 +166,10 @@ instructionInLoop i g = any (instInNonSingleton i) (scc g)
 
 -- Useful type synonyms to hopefully make switching to hbgl easier
 -- later
-type UseGraph = Gr Value ()
-type UseNode = LNode Value
-type UseEdge = LEdge ()
-type UseContext = Context Value ()
+type UseGraph = SLGraph Value ()
+type UseNode = LNode UseGraph
+type UseEdge = LEdge UseGraph
+type UseContext = Context UseGraph
 
 -- | This is the underlying bottom-up analysis to identify which
 -- arguments escape.  It builds a UseGraph for the function
@@ -258,10 +260,10 @@ addInstAndOps :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeResul
                  -> Set UseNode -> Instruction -> m (Set UseNode)
 addInstAndOps extSumm er s i = do
   operands <- escapeOperands extSumm er i
-  let opNodes = map (valueUniqueId &&& id) operands
+  let opNodes = map (\v -> LNode (valueUniqueId v) v) operands
   return $! s `S.union` S.fromList (inode : opNodes)
   where
-    inode = (instructionUniqueId i, Value i)
+    inode = LNode (instructionUniqueId i) (Value i)
 
 addEdges :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeResult
             -> Set UseEdge -> Instruction -> m (Set UseEdge)
@@ -270,7 +272,7 @@ addEdges extSumm er s i = do
   let es = map (mkOpEdge (instructionUniqueId i)) operands
   return $! s `S.union` S.fromList es
   where
-    mkOpEdge dst v = (valueUniqueId v, dst, ())
+    mkOpEdge dst v = LEdge (Edge (valueUniqueId v) dst) ()
 
 isPointer :: Value -> Bool
 isPointer v =
@@ -380,5 +382,11 @@ useGraphvizParams =
                      , fmtEdge = \_ -> []
                      }
 
-useGraphvizRepr :: UseGraph -> DotGraph Node
-useGraphvizRepr = graphToDot useGraphvizParams
+useGraphvizRepr :: UseGraph -> DotGraph Int
+useGraphvizRepr g = graphElemsToDot useGraphvizParams ns es
+  where
+    ns = map (unlabelNode &&& nodeLabel) $ labNodes g
+    es = map toLE $ labEdges g
+    toLE le = (edgeSource (unlabelEdge le),
+               edgeDest (unlabelEdge le),
+               edgeLabel le)
