@@ -6,12 +6,12 @@ import qualified Data.Set as S
 import System.FilePath
 import Test.HUnit ( assertEqual )
 
-import Data.LLVM
-import Data.LLVM.Analysis.CallGraph
-import Data.LLVM.Analysis.PointsTo.TrivialFunction
-import Data.LLVM.Analysis.CallGraphSCCTraversal
-import Data.LLVM.Parse
-import Data.LLVM.Testing
+import LLVM.Analysis
+import LLVM.Analysis.CallGraph
+import LLVM.Analysis.PointsTo.TrivialFunction
+import LLVM.Analysis.CallGraphSCCTraversal
+import LLVM.Analysis.Util.Testing
+import LLVM.Parse
 
 main :: IO ()
 main = testAgainstExpected ["-mem2reg", "-basicaa"] bcParser testDescriptors

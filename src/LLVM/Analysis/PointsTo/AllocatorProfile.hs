@@ -7,11 +7,11 @@
 -- Different profiles are useful for different languages or setups.
 -- The points-to analyses take lists of these functions so they can be
 -- combined arbitrarily (and augmented with user-provided versions).
-module Data.LLVM.Analysis.PointsTo.AllocatorProfile (
+module LLVM.Analysis.PointsTo.AllocatorProfile (
   standardCProfile
   ) where
 
-import Data.LLVM
+import LLVM.Analysis
 
 -- | This profile corresponds to the standard C library and marks
 -- @malloc@, @calloc@, and @alloca@ as allocators.  @realloc@ is not

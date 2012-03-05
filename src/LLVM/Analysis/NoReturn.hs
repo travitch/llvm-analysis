@@ -10,7 +10,7 @@
 -- computed by meeting all of the values at the *reachable* exit
 -- instructions.  If no paths can return, this will be &&(True...),
 -- which is True.
-module Data.LLVM.Analysis.NoReturn (
+module LLVM.Analysis.NoReturn (
   NoReturnSummary,
   noReturnAnalysis
   ) where
@@ -19,9 +19,9 @@ import Control.Monad.Reader
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
 
-import Data.LLVM
-import Data.LLVM.Analysis.CFG
-import Data.LLVM.Analysis.Dataflow
+import LLVM.Analysis
+import LLVM.Analysis.CFG
+import LLVM.Analysis.Dataflow
 
 type NoReturnSummary = HashSet Function
 

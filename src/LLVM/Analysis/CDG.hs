@@ -19,9 +19,9 @@
 -- together all of the top-level nodes.  This just means that the set
 -- of control dependencies can be empty if code will be executed
 -- unconditionally.
-module Data.LLVM.Analysis.CDG (
+module LLVM.Analysis.CDG (
   -- * Types
-  CDG(cdgCFG),
+  CDG,
   -- * Constructor
   controlDependenceGraph,
   -- * Queries
@@ -43,10 +43,10 @@ import qualified Data.HashSet as S
 import Data.List ( foldl' )
 import FileLocation
 
-import Data.LLVM
-import Data.LLVM.Analysis.CFG
-import Data.LLVM.Analysis.Dominance
-import Data.LLVM.Internal.PatriciaTree
+import LLVM.Analysis
+import LLVM.Analysis.CFG
+import LLVM.Analysis.Dominance
+import LLVM.Analysis.Internal.PatriciaTree
 
 -- | The internal representation of the CDG.  Instructions are
 -- control-dependent on other instructions, so they are the nodes in
@@ -57,6 +57,9 @@ type CDGType = Gr Instruction ()
 data CDG = CDG { cdgGraph :: CDGType
                , cdgCFG :: CFG
                }
+
+instance HasCFG CDG where
+  getCFG = cdgCFG
 
 -- | Return True if @n@ is control dependent on @m@.
 --

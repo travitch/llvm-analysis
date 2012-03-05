@@ -1,4 +1,4 @@
-module Data.LLVM.Internal.Condense ( condense ) where
+module LLVM.Analysis.Internal.Condense ( condense ) where
 
 import Data.Graph.Inductive
 import qualified Data.Map as M

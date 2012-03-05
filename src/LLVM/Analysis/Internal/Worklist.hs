@@ -11,7 +11,7 @@
 -- TODO: Provide a hook to sort the "next" worklist in some
 -- user-specified way.  Topological sorts are often useful, for
 -- example.
-module Data.LLVM.Internal.Worklist (
+module LLVM.Analysis.Internal.Worklist (
   -- * Types
   Worklist,
   WorklistDecomp(..),

@@ -24,30 +24,30 @@ library
                  HUnit, test-framework, test-framework-hunit,
                  llvm-base-types, hbgl
   hs-source-dirs: src
-  exposed-modules: Data.LLVM,
-                   Data.LLVM.Analysis.CDG,
-                   Data.LLVM.Analysis.CFG,
-                   Data.LLVM.Analysis.CallGraph,
-                   Data.LLVM.Analysis.CallGraphSCCTraversal,
-                   Data.LLVM.Analysis.Dataflow,
-                   Data.LLVM.Analysis.Dominance,
-                   Data.LLVM.Analysis.Escape,
-                   Data.LLVM.Analysis.ICFG,
-                   Data.LLVM.Analysis.IFDS,
-                   Data.LLVM.Analysis.PointsTo,
-                   Data.LLVM.Analysis.PointsTo.AllocatorProfile,
-                   Data.LLVM.Analysis.PointsTo.Andersen,
-                   Data.LLVM.Analysis.PointsTo.TrivialFunction,
-                   Data.LLVM.Analysis.NoReturn,
-                   Data.LLVM.Analysis.Types,
-                   Data.LLVM.Environment,
-                   Data.LLVM.Testing
-  other-modules: Data.LLVM.Internal.Condense,
-                 Data.LLVM.Internal.ImperativeGraph,
-                 Data.LLVM.Internal.PatriciaTree,
-                 Data.LLVM.Internal.Worklist
+  exposed-modules: LLVM.Analysis,
+                   LLVM.Analysis.CDG,
+                   LLVM.Analysis.CFG,
+                   LLVM.Analysis.CallGraph,
+                   LLVM.Analysis.CallGraphSCCTraversal,
+                   LLVM.Analysis.Dataflow,
+                   LLVM.Analysis.Dominance,
+                   LLVM.Analysis.Escape,
+                   LLVM.Analysis.ICFG,
+                   LLVM.Analysis.IFDS,
+                   LLVM.Analysis.PointsTo,
+                   LLVM.Analysis.PointsTo.AllocatorProfile,
+                   LLVM.Analysis.PointsTo.Andersen,
+                   LLVM.Analysis.PointsTo.TrivialFunction,
+                   LLVM.Analysis.NoReturn,
+                   LLVM.Analysis.Types,
+                   LLVM.Analysis.Util.Environment,
+                   LLVM.Analysis.Util.Testing
+  other-modules: LLVM.Analysis.Internal.Condense,
+                 LLVM.Analysis.Internal.ImperativeGraph,
+                 LLVM.Analysis.Internal.PatriciaTree,
+                 LLVM.Analysis.Internal.Worklist
                  -- This module does not work yet.
-                 -- Data.LLVM.Rewrite
+                 -- LLVM.Rewrite
 
 
   ghc-options: -Wall -funbox-strict-fields

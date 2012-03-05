@@ -6,7 +6,7 @@
 -- Other pointers are considered to alias if they are of the same
 -- type.  The 'pointsTo' function only returns empty sets for
 -- non-function pointers.
-module Data.LLVM.Analysis.PointsTo.TrivialFunction (
+module LLVM.Analysis.PointsTo.TrivialFunction (
   -- * Types
   TrivialFunction,
   -- * Constructor
@@ -19,8 +19,8 @@ import qualified Data.HashMap.Strict as M
 import qualified Data.Set as S
 import FileLocation
 
-import Data.LLVM.Types
-import Data.LLVM.Analysis.PointsTo
+import LLVM.Analysis
+import LLVM.Analysis.PointsTo
 
 -- | The result of the TrivialFunction points-to analysis.  It is an
 -- instance of the 'PointsToAnalysis' typeclass and is intended to be

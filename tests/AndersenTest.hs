@@ -6,12 +6,12 @@ import Data.Maybe ( fromJust )
 import System.FilePath
 import Test.HUnit ( assertEqual )
 
-import Data.LLVM
-import Data.LLVM.Analysis.PointsTo.AllocatorProfile
-import Data.LLVM.Analysis.PointsTo.Andersen
-import Data.LLVM.Analysis.PointsTo
-import Data.LLVM.Parse
-import Data.LLVM.Testing
+import LLVM.Analysis
+import LLVM.Analysis.PointsTo.AllocatorProfile
+import LLVM.Analysis.PointsTo.Andersen
+import LLVM.Analysis.PointsTo
+import LLVM.Analysis.Util.Testing
+import LLVM.Parse
 
 ptPattern = "tests/points-to-inputs/*.c"
 expectedMapper = flip replaceExtension ".expected-andersen"

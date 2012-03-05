@@ -1,4 +1,4 @@
-module Data.LLVM.Environment (
+module LLVM.Analysis.Util.Environment (
   findOpt
   ) where
 

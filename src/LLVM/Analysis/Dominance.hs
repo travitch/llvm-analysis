@@ -9,7 +9,7 @@
 -- which is based on the algorithm from Cooper, Harvey, and Kennedy:
 --
 --   http://www.cs.rice.edu/~keith/Embed/dom.pdf
-module Data.LLVM.Analysis.Dominance (
+module LLVM.Analysis.Dominance (
   -- * Types
   DominatorTree,
   PostdominatorTree,
@@ -36,9 +36,9 @@ import Data.Graph.Inductive.Query.DFS
 import Data.Graph.Inductive.Query.Dominators
 import Data.GraphViz
 
-import Data.LLVM
-import Data.LLVM.Analysis.CFG
-import Data.LLVM.Internal.PatriciaTree
+import LLVM.Analysis
+import LLVM.Analysis.CFG
+import LLVM.Analysis.Internal.PatriciaTree
 
 -- | The standard dominator tree
 data DominatorTree = DT { dtTree :: Gr Instruction ()

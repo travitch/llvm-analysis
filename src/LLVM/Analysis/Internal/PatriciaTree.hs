@@ -16,7 +16,7 @@
 --
 -- * 'Data.Graph.Inductive.Graph.emap'
 
-module Data.LLVM.Internal.PatriciaTree (
+module LLVM.Analysis.Internal.PatriciaTree (
   Gr,
   UGr
   ) where

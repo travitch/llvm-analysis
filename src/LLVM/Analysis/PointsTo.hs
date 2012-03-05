@@ -12,7 +12,7 @@
 -- just modify your imports.  If you need multiple points-to analyses
 -- in the same module (for example, to support command-line selectable
 -- points-to analysis precision), use qualified imports.
-module Data.LLVM.Analysis.PointsTo (
+module LLVM.Analysis.PointsTo (
   -- * Classes
   PointsToAnalysis(..),
   PTResult(..),
@@ -23,8 +23,9 @@ module Data.LLVM.Analysis.PointsTo (
 
 import Data.Set ( Set )
 import qualified Data.Set as S
-import Data.LLVM.Types
 import FileLocation
+
+import LLVM.Analysis
 
 -- | A data type to describe complex points-to relationships.
 data PTRel = Direct !Value

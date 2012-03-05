@@ -22,7 +22,7 @@
 --   dlopen or similar call
 --
 -- Again, the more sophisticated callgraph is still pending.
-module Data.LLVM.Analysis.CallGraph (
+module LLVM.Analysis.CallGraph (
   -- * Types
   CallGraph,
   CG,
@@ -48,9 +48,9 @@ import qualified Data.HashSet as HS
 import qualified Data.Set as S
 import FileLocation
 
-import Data.LLVM.Types
-import Data.LLVM.Analysis.PointsTo
-import Data.LLVM.Internal.PatriciaTree
+import LLVM.Analysis
+import LLVM.Analysis.PointsTo
+import LLVM.Analysis.Internal.PatriciaTree
 
 -- | A type synonym for the underlying graph
 type CG = Gr CallNode CallEdge

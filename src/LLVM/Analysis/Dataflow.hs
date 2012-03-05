@@ -22,13 +22,12 @@
 -- gives the dataflow value for the return instruction in function
 -- @f@.  Any instruction in @f@ can be used as an argument to the
 -- @result@ function.
-module Data.LLVM.Analysis.Dataflow (
+module LLVM.Analysis.Dataflow (
   -- * Dataflow analysis
   DataflowAnalysis(..),
   MeetSemiLattice(..),
   BoundedMeetSemiLattice(..),
   meets,
-  HasCFG(..),
   forwardDataflow,
   backwardDataflow,
   -- * Dataflow results
@@ -46,8 +45,8 @@ import qualified Data.Set as S
 import FileLocation
 import Text.Printf
 
-import Data.LLVM.Analysis.CFG
-import Data.LLVM.Types
+import LLVM.Analysis
+import LLVM.Analysis.CFG
 
 -- | A class defining the interface to a dataflow analysis.  The
 -- analysis object itself that is passed to one of the dataflow

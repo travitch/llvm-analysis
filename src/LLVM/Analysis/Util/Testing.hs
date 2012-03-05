@@ -32,7 +32,7 @@
 --
 -- NOTE 2: The test inputs can be C, C++, bitcode, or LLVM assembly
 -- files.
-module Data.LLVM.Testing (
+module LLVM.Analysis.Util.Testing (
   -- * Types
   TestDescriptor(..),
   -- * Actions
@@ -55,8 +55,8 @@ import System.Process
 import Test.Framework ( defaultMain, Test )
 import Test.Framework.Providers.HUnit
 
-import Data.LLVM
-import Data.LLVM.Environment
+import LLVM.Analysis
+import LLVM.Analysis.Util.Environment
 
 -- | A description of a set of tests.
 data TestDescriptor =

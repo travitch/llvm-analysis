@@ -1,6 +1,6 @@
 {-# LANGUAGE ExistentialQuantification, TemplateHaskell #-}
 -- | This module defines control flow graphs over the LLVM IR.
-module Data.LLVM.Analysis.CFG (
+module LLVM.Analysis.CFG (
   -- * Types
   CFG(..),
   RCFG(..),
@@ -27,8 +27,8 @@ import Data.GraphViz
 import FileLocation
 import Text.Printf
 
-import Data.LLVM.Types
-import Data.LLVM.Analysis.Types
+import LLVM.Analysis
+import LLVM.Analysis.Types
 
 type CFGType = Gr Instruction CFGEdge
 

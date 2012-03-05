@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell, ExistentialQuantification #-}
-module Data.LLVM.Analysis.CallGraphSCCTraversal (
+module LLVM.Analysis.CallGraphSCCTraversal (
   -- * Traversals
   callGraphSCCTraversal,
   parallelCallGraphSCCTraversal,
@@ -30,12 +30,12 @@ import qualified Data.Map as M
 import Data.Monoid
 import FileLocation
 
-import Data.LLVM.Analysis.CallGraph
-import Data.LLVM.Analysis.Types
-import Data.LLVM.Types
+import LLVM.Analysis
+import LLVM.Analysis.CallGraph
+import LLVM.Analysis.Types
 
-import Data.LLVM.Internal.Condense
-import Data.LLVM.Internal.PatriciaTree
+import LLVM.Analysis.Internal.Condense
+import LLVM.Analysis.Internal.PatriciaTree
 
 -- import Text.Printf
 -- import Debug.Trace

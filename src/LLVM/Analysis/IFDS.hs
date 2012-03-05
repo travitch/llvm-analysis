@@ -38,7 +38,7 @@
 -- In particular, this formulation avoids constructing the entire
 -- exploded supergraph G#; instead, it implicitly constructs only the
 -- reachable portion of the graph.
-module Data.LLVM.Analysis.IFDS (
+module LLVM.Analysis.IFDS (
   -- * Types
   IFDSAnalysis(..),
   IFDSResult,
@@ -58,10 +58,10 @@ import qualified Data.Set as S
 import FileLocation
 import Text.Printf
 
-import Data.LLVM
-import Data.LLVM.Analysis.CFG
-import Data.LLVM.Analysis.ICFG
-import Data.LLVM.Internal.Worklist
+import LLVM.Analysis
+import LLVM.Analysis.CFG
+import LLVM.Analysis.ICFG
+import LLVM.Analysis.Internal.Worklist
 
 -- | The interface to define an IFDS analysis.  There are variants of
 -- the interprocedural flow functions to handle /external/ functions.

@@ -1,4 +1,4 @@
-module Data.LLVM.Internal.ImperativeGraph (
+module LLVM.Analysis.Internal.ImperativeGraph (
   -- * Types
   ImperativeGraph,
   Node,
@@ -24,7 +24,7 @@ import qualified Data.Vector.Unboxed.Mutable as V
 import qualified Data.Vector.Unboxed as IV
 
 import Data.Graph.Inductive ( LNode, LEdge, mkGraph )
-import Data.LLVM.Internal.PatriciaTree ( Gr )
+import LLVM.Analysis.Internal.PatriciaTree ( Gr )
 
 type Node = Int
 

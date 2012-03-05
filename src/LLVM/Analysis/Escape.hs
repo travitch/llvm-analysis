@@ -39,7 +39,7 @@
 --
 -- With simple optimizations (-mem2reg and -basicaa) it will be very
 -- precise.
-module Data.LLVM.Analysis.Escape (
+module LLVM.Analysis.Escape (
   EscapeResult,
   escapeAnalysis,
   argumentEscapes,
@@ -72,7 +72,7 @@ import Data.Graph.Interface
 import Data.Graph.PatriciaTree
 import Data.Graph.Algorithms.Matching.DFS
 
-import Data.LLVM
+import LLVM.Analysis
 
 -- | An opaque representation of escape information for a Module.
 data EscapeResult =

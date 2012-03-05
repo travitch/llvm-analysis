@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, TemplateHaskell #-}
-module Data.LLVM.Analysis.ICFG (
+module LLVM.Analysis.ICFG (
   -- * Types
   ICFG(..),
   ICFGEdge(..),
@@ -19,10 +19,10 @@ import FileLocation
 
 import Text.Printf
 
-import Data.LLVM.Analysis.CFG
-import Data.LLVM.Analysis.PointsTo
-import Data.LLVM.Internal.PatriciaTree
-import Data.LLVM.Types
+import LLVM.Analysis
+import LLVM.Analysis.CFG
+import LLVM.Analysis.PointsTo
+import LLVM.Analysis.Internal.PatriciaTree
 
 data ICFGNode = InstNode Instruction
               | ReturnNode Instruction

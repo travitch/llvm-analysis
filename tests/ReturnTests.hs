@@ -9,14 +9,14 @@ import System.FilePath ( (<.>) )
 import System.Environment ( getArgs, withArgs )
 import Test.HUnit ( assertEqual )
 
-import Data.LLVM
-import Data.LLVM.Analysis.CFG
-import Data.LLVM.Analysis.CallGraph
-import Data.LLVM.Analysis.CallGraphSCCTraversal
-import Data.LLVM.Analysis.PointsTo.TrivialFunction
-import Data.LLVM.Analysis.NoReturn
-import Data.LLVM.Parse
-import Data.LLVM.Testing
+import LLVM.Analysis
+import LLVM.Analysis.CFG
+import LLVM.Analysis.CallGraph
+import LLVM.Analysis.CallGraphSCCTraversal
+import LLVM.Analysis.PointsTo.TrivialFunction
+import LLVM.Analysis.NoReturn
+import LLVM.Analysis.Util.Testing
+import LLVM.Parse
 
 main :: IO ()
 main = do

@@ -18,7 +18,7 @@
 -- * Add field sensitivity eventually. See http://delivery.acm.org/10.1145/1300000/1290524/a4-pearce.pdf?ip=128.105.181.27&acc=ACTIVE%20SERVICE&CFID=52054919&CFTOKEN=71981976&__acm__=1320350342_65be4c25a6fba7e32d7b4cd60f13fe97
 --
 -- * On-the-fly allocator discovery
-module Data.LLVM.Analysis.PointsTo.Andersen (
+module LLVM.Analysis.PointsTo.Andersen (
   -- * Types
   Andersen,
   -- * Constructor
@@ -43,11 +43,11 @@ import Data.HashSet ( HashSet )
 import qualified Data.HashSet as HS
 import Data.STRef
 
-import Data.LLVM.Analysis.PointsTo
-import Data.LLVM.Internal.PatriciaTree
-import Data.LLVM.Internal.ImperativeGraph
-import Data.LLVM.Internal.Worklist
-import Data.LLVM.Types
+import LLVM.Analysis
+import LLVM.Analysis.PointsTo
+import LLVM.Analysis.Internal.PatriciaTree
+import LLVM.Analysis.Internal.ImperativeGraph
+import LLVM.Analysis.Internal.Worklist
 
 import System.IO.Unsafe
 import Text.Printf

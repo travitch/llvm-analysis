@@ -10,13 +10,12 @@ import Text.Regex.TDFA
 
 import Test.HUnit
 
-import Data.LLVM
-import Data.LLVM.Analysis.ICFG
-import Data.LLVM.Analysis.IFDS
-import Data.LLVM.Analysis.PointsTo.TrivialFunction
-
-import Data.LLVM.Parse
-import Data.LLVM.Testing
+import LLVM.Analysis
+import LLVM.Analysis.ICFG
+import LLVM.Analysis.IFDS
+import LLVM.Analysis.PointsTo.TrivialFunction
+import LLVM.Analysis.Util.Testing
+import LLVM.Parse
 
 import Text.Printf
 import Debug.Trace
