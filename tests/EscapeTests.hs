@@ -44,7 +44,9 @@ runEscapeAnalysis ::  CallGraph
                      -> (ExternalFunction -> Int -> Identity Bool)
                      -> EscapeResult
 runEscapeAnalysis cg extSumm =
-  runIdentity $ callGraphSCCTraversal cg (escapeAnalysis extSumm) mempty
+  let analysis :: [Function] -> EscapeResult -> EscapeResult
+      analysis = callGraphAnalysisM runIdentity (escapeAnalysis extSumm)
+  in callGraphSCCTraversal cg analysis mempty
 
 -- These tests assume that any external function allows all of its
 -- arguments to escape.

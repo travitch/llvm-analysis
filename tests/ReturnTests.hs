@@ -10,6 +10,7 @@ import System.Environment ( getArgs, withArgs )
 import Test.HUnit ( assertEqual )
 
 import Data.LLVM
+import Data.LLVM.Analysis.CFG
 import Data.LLVM.Analysis.CallGraph
 import Data.LLVM.Analysis.CallGraphSCCTraversal
 import Data.LLVM.Analysis.PointsTo.TrivialFunction
@@ -45,7 +46,9 @@ nameToString = show . functionName
 
 runNoReturnAnalysis :: CallGraph -> (ExternalFunction -> Identity Bool) -> [Function]
 runNoReturnAnalysis cg extSummary =
-  let res = runIdentity (callGraphSCCTraversal cg (noReturnAnalysis extSummary) mempty)
+  let analysis :: [CFG] -> NoReturnSummary -> NoReturnSummary
+      analysis = callGraphAnalysisM runIdentity (noReturnAnalysis extSummary)
+      res = callGraphSCCTraversal cg analysis mempty
   in toList res
 
 

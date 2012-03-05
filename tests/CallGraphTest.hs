@@ -30,13 +30,13 @@ cgPattern = "tests/callgraph/order/*.c"
 expectedMapper = (<.> "expected")
 
 extractTraversalOrder m =
-  runIdentity $ basicCallGraphSCCTraversal cg buildSummary []
+  callGraphSCCTraversal cg buildSummary []
   where
     Just main = findMain m
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta [main]
 
-buildSummary :: [Function] -> [Set ByteString] -> Identity [Set ByteString]
-buildSummary scc summ = return $ S.fromList fnames : summ
+buildSummary :: [Function] -> [Set ByteString] -> [Set ByteString]
+buildSummary scc summ = S.fromList fnames : summ
   where
     fnames = map (identifierContent . functionName) scc

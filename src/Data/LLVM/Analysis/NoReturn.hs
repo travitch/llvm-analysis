@@ -11,6 +11,7 @@
 -- instructions.  If no paths can return, this will be &&(True...),
 -- which is True.
 module Data.LLVM.Analysis.NoReturn (
+  NoReturnSummary,
   noReturnAnalysis
   ) where
 
@@ -21,6 +22,8 @@ import qualified Data.HashSet as S
 import Data.LLVM
 import Data.LLVM.Analysis.CFG
 import Data.LLVM.Analysis.Dataflow
+
+type NoReturnSummary = HashSet Function
 
 -- | The dataflow fact represents the fact that the "Function does not
 -- return".  It is a simple wrapper around Bool
