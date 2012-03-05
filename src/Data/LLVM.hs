@@ -12,8 +12,8 @@ module Data.LLVM (
   -- ParserOptions(..),
   -- PositionPrecision(..),
   -- * Inspect the IR
-  findFunctionByName,
-  findMain,
+  -- findFunctionByName,
+  -- findMain,
   module Data.LLVM.Types
   ) where
 
@@ -23,7 +23,7 @@ import Data.List ( find )
 -- import Data.LLVM.Private.Parser.Options
 -- import Data.LLVM.Private.Parser.Unmarshal
 import Data.LLVM.Types
-
+{-
 -- | Find a function in the Module by its name.
 findFunctionByName :: Module -> String -> Maybe Function
 findFunctionByName m s = find isFunc $ moduleDefinedFunctions m
@@ -34,3 +34,4 @@ findFunctionByName m s = find isFunc $ moduleDefinedFunctions m
 -- | Find the function named 'main' in the 'Module', if any.
 findMain :: Module -> Maybe Function
 findMain m = findFunctionByName m "main"
+-}

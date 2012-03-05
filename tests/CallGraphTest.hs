@@ -1,7 +1,6 @@
 module Main ( main ) where
 
-import Control.Monad.Identity
-import Data.ByteString ( ByteString )
+import Data.ByteString.Char8 ( unpack )
 import Data.Set ( Set )
 import qualified Data.Set as S
 import System.FilePath
@@ -19,6 +18,7 @@ main = testAgainstExpected ["-mem2reg", "-basicaa"] bcParser testDescriptors
   where
     bcParser = parseLLVMFile defaultParserOptions
 
+testDescriptors :: [TestDescriptor]
 testDescriptors = [ TestDescriptor { testPattern = cgPattern
                                    , testExpectedMapping = expectedMapper
                                    , testResultBuilder = extractTraversalOrder
@@ -26,17 +26,26 @@ testDescriptors = [ TestDescriptor { testPattern = cgPattern
                                    }
                   ]
 
+cgPattern :: String
 cgPattern = "tests/callgraph/order/*.c"
+
+expectedMapper :: FilePath -> FilePath
 expectedMapper = (<.> "expected")
 
+extractTraversalOrder :: Module -> [Set String]
 extractTraversalOrder m =
-  callGraphSCCTraversal cg buildSummary []
+  case res == pres of
+    True -> res
+    False -> error "Mismatch between serial and parallel result"
   where
-    Just main = findMain m
+    Just mainFunc = findMain m
     pta = runPointsToAnalysis m
-    cg = mkCallGraph m pta [main]
+    cg = mkCallGraph m pta [mainFunc]
 
-buildSummary :: [Function] -> [Set ByteString] -> [Set ByteString]
+    res = callGraphSCCTraversal cg buildSummary []
+    pres = parallelCallGraphSCCTraversal cg buildSummary []
+
+buildSummary :: [Function] -> [Set String] -> [Set String]
 buildSummary scc summ = S.fromList fnames : summ
   where
-    fnames = map (identifierContent . functionName) scc
+    fnames = map (unpack . identifierContent . functionName) scc
