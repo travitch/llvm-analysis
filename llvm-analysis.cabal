@@ -40,6 +40,7 @@ library
                    LLVM.Analysis.PointsTo.Andersen,
                    LLVM.Analysis.PointsTo.TrivialFunction,
                    LLVM.Analysis.NoReturn,
+                   LLVM.Analysis.ScalarEffects,
                    LLVM.Analysis.Types,
                    LLVM.Analysis.Util.Environment,
                    LLVM.Analysis.Util.Testing
