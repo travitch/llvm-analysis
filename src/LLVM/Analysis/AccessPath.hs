@@ -10,6 +10,7 @@ module LLVM.Analysis.AccessPath (
   abstractAccessPath
   ) where
 
+import Control.DeepSeq
 import Control.Exception
 import Control.Failure hiding ( failure )
 import qualified Control.Failure as F
@@ -32,16 +33,26 @@ data AbstractAccessPath =
                      }
   deriving (Show, Eq, Ord)
 
+instance NFData AbstractAccessPath where
+  rnf a@(AbstractAccessPath _ ts) = ts `deepseq` a `seq` ()
+
 data AccessPath =
   AccessPath { accessPathBaseValue :: Value
              , accessPathComponents :: [AccessType]
              }
   deriving (Show, Eq, Ord)
 
+instance NFData AccessPath where
+  rnf a@(AccessPath _ ts) = ts `deepseq` a `seq` ()
+
 data AccessType = AccessField !Int
                 | AccessArray
                 | AccessDeref
                 deriving (Read, Show, Eq, Ord)
+
+instance NFData AccessType where
+  rnf a@(AccessField i) = i `seq` a `seq` ()
+  rnf _ = ()
 
 abstractAccessPath :: AccessPath -> AbstractAccessPath
 abstractAccessPath (AccessPath v p) =

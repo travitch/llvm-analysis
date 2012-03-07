@@ -5,6 +5,7 @@ module LLVM.Analysis.ScalarEffects (
   scalarEffectAnalysis
   ) where
 
+import Control.DeepSeq
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
 
@@ -19,6 +20,10 @@ import LLVM.Analysis.Dataflow
 data ScalarEffect = EffectAdd1 AbstractAccessPath
                   | EffectSub1 AbstractAccessPath
                   deriving (Eq)
+
+instance NFData ScalarEffect where
+  rnf e@(EffectAdd1 ap) = ap `deepseq` e `seq` ()
+  rnf e@(EffectSub1 ap) = ap `deepseq` e `seq` ()
 
 type ScalarEffectResult = HashMap Argument ScalarEffect
 
