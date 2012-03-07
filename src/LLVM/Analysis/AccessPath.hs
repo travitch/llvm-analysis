@@ -30,13 +30,13 @@ data AbstractAccessPath =
   AbstractAccessPath { abstractAccessPathBaseType :: Type
                      , abstractAccessPathComponents :: [AccessType]
                      }
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data AccessPath =
   AccessPath { accessPathBaseValue :: Value
              , accessPathComponents :: [AccessType]
              }
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data AccessType = AccessField !Int
                 | AccessArray
