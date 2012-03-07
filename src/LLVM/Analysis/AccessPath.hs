@@ -2,10 +2,12 @@
 module LLVM.Analysis.AccessPath (
   -- * Types
   AccessPath(..),
+  AbstractAccessPath(..),
   AccessType(..),
   AccessPathError,
   -- * Constructor
-  accessPath
+  accessPath,
+  abstractAccessPath
   ) where
 
 import Control.Exception
@@ -24,31 +26,38 @@ instance Exception AccessPathError
 
 -- | The sequence of field accesses used to reference a field
 -- structure.
+data AbstractAccessPath =
+  AbstractAccessPath { abstractAccessPathBaseType :: Type
+                     , abstractAccessPathComponents :: [AccessType]
+                     }
+  deriving (Show)
+
 data AccessPath =
-  AccessPath { accessPathBaseType :: Type
+  AccessPath { accessPathBaseValue :: Value
              , accessPathComponents :: [AccessType]
              }
+  deriving (Show)
 
 data AccessType = AccessField !Int
                 | AccessArray
                 | AccessDeref
                 deriving (Read, Show, Eq, Ord)
 
-derefPathBase :: (Monad m) => AccessPath -> m AccessPath
-derefPathBase p =
-  return $! p { accessPathBaseType = derefPointerType (accessPathBaseType p) }
+abstractAccessPath :: AccessPath -> AbstractAccessPath
+abstractAccessPath (AccessPath v p) =
+  AbstractAccessPath (derefPointerType (valueType v)) p
 
 accessPath :: (Failure AccessPathError m) => Instruction -> m AccessPath
 accessPath i =
   case i of
     LoadInst { loadAddress = la } ->
-      derefPathBase $! go (AccessPath (valueType la) []) la
+      return $! go (AccessPath la []) la
     StoreInst { storeAddress = sa } ->
-      derefPathBase $! go (AccessPath (valueType sa) []) sa
+      return $! go (AccessPath sa []) sa
     AtomicCmpXchgInst { atomicCmpXchgPointer = p } ->
-      derefPathBase $! go (AccessPath (valueType p) []) p
+      return $! go (AccessPath p []) p
     AtomicRMWInst { atomicRMWPointer = p } ->
-      derefPathBase $! go (AccessPath (valueType p) []) p
+      return $! go (AccessPath p []) p
     _ -> F.failure (NotMemoryInstruction i)
   where
     go p v =
@@ -56,7 +65,7 @@ accessPath i =
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = ixs
                                        } ->
-          let p' = p { accessPathBaseType = valueType base
+          let p' = p { accessPathBaseValue = base
                      , accessPathComponents =
                        gepIndexFold base ixs ++ accessPathComponents p
                      }
@@ -65,18 +74,18 @@ accessPath i =
           GetElementPtrInst { getElementPtrValue = base
                             , getElementPtrIndices = ixs
                             } } ->
-          let p' = p { accessPathBaseType = valueType base
+          let p' = p { accessPathBaseValue = base
                      , accessPathComponents =
                        gepIndexFold base ixs ++ accessPathComponents p
                      }
           in go p' base
         InstructionC LoadInst { loadAddress = la } ->
-          let p' = p { accessPathBaseType  = derefPointerType (valueType la)
+          let p' = p { accessPathBaseValue  = la
                      , accessPathComponents =
                           AccessDeref : accessPathComponents p
                      }
           in go p' la
-        _ -> p { accessPathBaseType = valueType v }
+        _ -> p { accessPathBaseValue = v }
 
 derefPointerType :: Type -> Type
 derefPointerType (TypePointer p _) = p

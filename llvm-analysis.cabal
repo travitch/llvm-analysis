@@ -103,3 +103,12 @@ test-suite ReturnTests
   ghc-options: -Wall -rtsopts
   main-is: ReturnTests.hs
   hs-source-dirs: tests
+
+test-suite AccessPathTests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  build-depends: base == 4.*, containers, llvm-analysis, filepath,
+                 HUnit, llvm-data-interop
+  ghc-options: -Wall -rtsopts
+  main-is: AccessPathTests.hs
+  hs-source-dirs: tests

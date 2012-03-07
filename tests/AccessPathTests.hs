@@ -45,7 +45,9 @@ extractFirstFuncPath f = (show (functionName f), summ)
     allInsts = concatMap basicBlockInstructions (functionBody f)
     Just firstStore = find isStore allInsts
     Just p = accessPath firstStore
-    summ = (show (accessPathBaseType p), accessPathComponents p)
+    p' = abstractAccessPath p
+    summ = (show (abstractAccessPathBaseType p'),
+            abstractAccessPathComponents p')
 
 isStore :: Instruction -> Bool
 isStore StoreInst {} = True
