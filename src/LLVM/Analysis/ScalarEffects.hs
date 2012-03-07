@@ -1,4 +1,22 @@
 {-# LANGUAGE ViewPatterns, FlexibleInstances, MultiParamTypeClasses #-}
+{-|
+
+This analysis identifies the (memory) effects that functions have on
+the scalar components of their arguments.
+
+Only pointer parameters are interesting because only their effects can
+escape the callee.  Effects are currently restricted to increments and
+decrements of integral types.  The affected memory can be a struct
+member; the effects are described in terms of abstract AccessPaths.
+
+This is a must analysis.  Effects are only reported if they *MUST*
+occur (modulo non-termination style effects like calls to exit or
+infinite loops).
+
+Currently, sequential effects are not composed and nothing useful will
+be reported.
+
+-}
 module LLVM.Analysis.ScalarEffects (
   ScalarEffectResult,
   ScalarEffect(..),
