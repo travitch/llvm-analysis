@@ -55,7 +55,7 @@ import Data.Map ( Map )
 import Data.Set ( Set )
 import qualified Data.Map as M
 import qualified Data.Set as S
-import FileLocation
+import Debug.Trace.LocationTH
 import Text.Printf
 
 import LLVM.Analysis
@@ -306,7 +306,7 @@ addInfoForPotentialCallee ci e@(PathEdge _ n d2) calleeEntry = do
   let argToFormalEdges = case calleeEntryLabel of
         InstNode entryInst -> passArgs analysis d2 ci (instructionFunction entryInst)
         ExternalNode ef -> externPassArgs analysis d2 ci ef
-        _ -> $err' ("Expected InstNode or ExternalNode: " ++ show calleeEntryLabel)
+        _ -> $failure ("Expected InstNode or ExternalNode: " ++ show calleeEntryLabel)
 
   -- This covers lines 14-16 of the algorithm (the call to passArgs
   -- defines argToFormalEntries)
@@ -380,7 +380,7 @@ addCallSummaries ci (PathEdge _ n d2) (IFDSNode e_p d4) = do
       returnedVals = case exitNode of
         InstNode retInst -> returnVal analysis d4 retInst ci
         ExternalNode ef -> externReturnVal analysis d4 ef ci
-        _ -> $err' ("Expected InstNode or ExternalNode: " ++ show exitNode)
+        _ -> $failure ("Expected InstNode or ExternalNode: " ++ show exitNode)
       summEdges = map (\d5 -> SummaryEdge n d2 d5) returnedVals
   mapM_ addSummaryEdge summEdges
 {-# INLINE addCallSummaries #-}

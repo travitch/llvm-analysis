@@ -28,7 +28,7 @@ import Data.List ( foldl' )
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Monoid
-import FileLocation
+import Debug.Trace.LocationTH
 
 import LLVM.Analysis
 import LLVM.Analysis.CallGraph
@@ -357,5 +357,5 @@ nodeIsDefined m n =
 getDep :: Map Node c -> Node -> c
 getDep m n =
   case M.lookup n m of
-    Nothing -> $err' ("Missing expected output var for node: " ++ show n)
+    Nothing -> $failure ("Missing expected output var for node: " ++ show n)
     Just v -> v

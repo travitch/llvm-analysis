@@ -66,7 +66,7 @@ import Data.Maybe ( isJust )
 import Data.Monoid
 import Data.Set ( Set )
 import qualified Data.Set as S
-import FileLocation
+import Debug.Trace.LocationTH
 
 import Data.Graph.Interface
 import Data.Graph.PatriciaTree
@@ -124,7 +124,7 @@ instructionEscapes er i =
   where
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
-    errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
+    errMsg = $failure ("Expected escape graph for " ++ show (functionName f))
     g = M.lookupDefault errMsg f (escapeGraphs er)
     reached = reachableValues i g
 
@@ -139,7 +139,7 @@ instructionWillEscape er i =
   where
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
-    errMsg = $err' ("Expected escape graph for " ++ show (functionName f))
+    errMsg = $failure ("Expected escape graph for " ++ show (functionName f))
     g = M.lookupDefault errMsg f (escapeGraphs er)
     reached = reachableValues i g
 
@@ -152,7 +152,7 @@ reachableValues i g =
     True -> reached
     False -> filter (/= (Value i)) reached
   where
-    reached = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
+    reached = map (safeLab $__LOCATION__ g) $ dfs [instructionUniqueId i] g
 
 -- | Return True if the given instruction is in a cycle in the use
 -- graph
@@ -216,7 +216,7 @@ analyzeArgument g summ a =
            }
     Nothing -> summ
   where
-    reached = map ($fromJst . lab g) $ dfs [argumentUniqueId a] g
+    reached = map (safeLab $__LOCATION__ g) $ dfs [argumentUniqueId a] g
 
 data WitnessType = EscapeWitness Instruction
                  | WillEscapeWitness Instruction
@@ -287,6 +287,10 @@ isPointer v =
 -- Many instructions don't matter at all since they can't lead to
 -- escaping.  We only need to extract operands from the relevant ones
 -- (things involving memory, addresses, and casts).
+--
+-- FIXME: Add an extra argument here that tests whether or not an
+-- instruction should be ignored.  This will be useful since sometimes
+-- domain knowledge or annotations can let us rule out escapes early.
 escapeOperands :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeResult
                   -> Instruction -> m [Value]
 escapeOperands extSumm er i = do
@@ -372,6 +376,12 @@ willEscapeResultToTestFormat er =
           fname = show (functionName f)
           aname = show (argumentName a)
       in Map.insertWith' S.union fname (S.singleton aname) acc
+
+safeLab :: (InspectableGraph gr) => String -> gr -> Node gr -> NodeLabel gr
+safeLab loc g n =
+  case lab g n of
+    Nothing -> error (loc ++ ": missing label for use graph node")
+    Just l -> l
 
 escapeUseGraphs :: EscapeResult -> [(String, UseGraph)]
 escapeUseGraphs = map (first (show . functionName)) . M.toList . escapeGraphs

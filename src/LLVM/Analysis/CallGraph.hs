@@ -46,7 +46,7 @@ import Data.Maybe ( mapMaybe )
 import Data.Hashable
 import qualified Data.HashSet as HS
 import qualified Data.Set as S
-import FileLocation
+import Debug.Trace.LocationTH
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo
@@ -127,7 +127,7 @@ callInstructionTargets cg (CallInst { callFunction = f }) =
 callInstructionTargets cg (InvokeInst { invokeFunction = f}) =
   callValueTargets cg f
 callInstructionTargets _ i =
-  $err' ("Expected a Call or Invoke instruction: " ++ show i)
+  $failure ("Expected a Call or Invoke instruction: " ++ show i)
 
 -- | Given the value called by a Call or Invoke instruction, return
 -- all of the possible Functions or ExternalFunctions that it could
@@ -200,7 +200,7 @@ buildFuncEdges pta f = concat es
 getCallee :: Instruction -> Value
 getCallee CallInst { callFunction = f } = f
 getCallee InvokeInst { invokeFunction = f } = f
-getCallee i = $err' ("Expected a function in getCallee: " ++ show i)
+getCallee i = $failure ("Expected a function in getCallee: " ++ show i)
 
 buildCallEdges :: (PointsToAnalysis a) => a -> Function -> Instruction -> [LEdge CallEdge]
 buildCallEdges pta caller callInst = build' (getCallee callInst)

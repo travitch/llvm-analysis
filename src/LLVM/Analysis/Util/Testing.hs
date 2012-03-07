@@ -44,7 +44,7 @@ module LLVM.Analysis.Util.Testing (
 
 import Control.Monad ( when )
 
-import FileLocation
+import Debug.Trace.LocationTH
 
 import System.Exit ( ExitCode(ExitSuccess) )
 import System.FilePath
@@ -121,7 +121,7 @@ optify args inp optFile = do
   let cmd = proc opt ("-o" : optFile : inp : args)
   (_, _, _, p) <- createProcess cmd
   rc <- waitForProcess p
-  when (rc /= ExitSuccess) ($err' ("Could not optimize " ++ inp))
+  when (rc /= ExitSuccess) ($failure ("Could not optimize " ++ inp))
 
 -- | Given an input file, bitcode parsing function, and options to
 -- pass to opt, return a Module.  The input file can be C, C++, or
@@ -138,31 +138,31 @@ buildModule optOpts parseFile inputFilePath =
     ".C" -> clangBuilder inputFilePath "clang++"
     ".cxx" -> clangBuilder inputFilePath "clang++"
     ".cpp" -> clangBuilder inputFilePath "clang++"
-    _ -> $err' ("No build method for test input " ++ inputFilePath)
+    _ -> $failure ("No build method for test input " ++ inputFilePath)
   where
     simpleBuilder inp =
       case null optOpts of
         True -> do
           parseResult <- parseFile inp
-          either $err' return parseResult
+          either $failure return parseResult
         False ->
           withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
             optify optOpts inp optFname
             parseResult <- parseFile optFname
-            either $err' return parseResult
+            either $failure return parseResult
 
     clangBuilder inp driver =
       withSystemTempFile ("base_" ++ takeFileName inp) $ \baseFname _ -> do
         let baseCmd = proc driver ["-emit-llvm", "-o" , baseFname, "-c", inp]
         (_, _, _, p) <- createProcess baseCmd
         rc <- waitForProcess p
-        when (rc /= ExitSuccess) ($err' ("Could not compile input to bitcode: " ++ inp))
+        when (rc /= ExitSuccess) ($failure ("Could not compile input to bitcode: " ++ inp))
         case null optOpts of
           True -> do
             parseResult <- parseFile baseFname
-            either $err' return parseResult
+            either $failure return parseResult
           False ->
             withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
               optify optOpts baseFname optFname
               parseResult <- parseFile optFname
-              either $err' return parseResult
+              either $failure return parseResult

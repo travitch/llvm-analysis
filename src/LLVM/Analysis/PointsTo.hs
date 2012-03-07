@@ -23,7 +23,7 @@ module LLVM.Analysis.PointsTo (
 
 import Data.Set ( Set )
 import qualified Data.Set as S
-import FileLocation
+import Debug.Trace.LocationTH
 
 import LLVM.Analysis
 
@@ -52,7 +52,7 @@ data ExternFunctionDescriptor = EFD { argumentEffects :: [ExternPointerDescripto
 showRel :: PTRel -> String
 showRel (Direct v) = case valueName v of
   Just n -> show n
-  Nothing -> $err' ("Value has no name in points-to request: " ++ show v)
+  Nothing -> $failure ("Value has no name in points-to request: " ++ show v)
 showRel (ArrayElt p) = show p ++ "[*]"
 showRel (FieldAccess ix p) = concat [show p, ".<", show ix, ">"]
 

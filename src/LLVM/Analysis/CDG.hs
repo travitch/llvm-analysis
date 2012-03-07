@@ -41,7 +41,7 @@ import qualified Data.HashMap.Strict as M
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
 import Data.List ( foldl' )
-import FileLocation
+import Debug.Trace.LocationTH
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
@@ -76,15 +76,21 @@ controlDependencies :: CDG -> Instruction -> [Instruction]
 controlDependencies (CDG g _) i =
   case deps of
     _ : rest -> rest
-    _ -> $err' $ "Instruction should at least be reachable from itself: " ++ show i
+    _ -> $failure $ "Instruction should at least be reachable from itself: " ++ show i
   where
-    deps = map ($fromJst . lab g) $ dfs [instructionUniqueId i] g
+    deps = map (safeLab $__LOCATION__ g) $ dfs [instructionUniqueId i] g
+
+safeLab :: (Graph gr) => String -> gr a b -> Node -> a
+safeLab loc g n =
+  case lab g n of
+    Nothing -> error (loc ++ ": missing label for CDG node " ++ show n)
+    Just l -> l
 
 -- | Get the list of instructions that @i@ is directly control
 -- dependent upon.
 directControlDependencies :: CDG -> Instruction -> [Instruction]
 directControlDependencies (CDG g _) i =
-  map ($fromJst . lab g) $ suc g (instructionUniqueId i)
+  map (safeLab $__LOCATION__ g) $ suc g (instructionUniqueId i)
 
 -- | Construct the control dependence graph for a function (from its
 -- CFG).  This follows the construction from chapter 9 of the
@@ -114,7 +120,7 @@ controlDependenceGraph cfg = CDG (mkGraph ns es) cfg
 
     g = cfgGraph cfg
     pdt = postdominatorTree (reverseCFG cfg)
-    cfgEdges = map (($fromJst . lab g) *** ($fromJst . lab g)) (edges g)
+    cfgEdges = map ((safeLab $__LOCATION__ g) *** (safeLab $__LOCATION__ g)) (edges g)
     -- | All of the edges in the CFG m->n such that n does not
     -- postdominate m
     s = filter (isNotPostdomEdge pdt) cfgEdges

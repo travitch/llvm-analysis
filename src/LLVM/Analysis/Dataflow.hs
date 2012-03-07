@@ -42,7 +42,7 @@ import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
 import Data.Set ( Set )
 import qualified Data.Set as S
-import FileLocation
+import Debug.Trace.LocationTH
 import Text.Printf
 
 import LLVM.Analysis
@@ -120,7 +120,7 @@ instance (NFData a) => NFData (DataflowResult a) where
 dataflowResult :: DataflowResult a -> Instruction -> a
 dataflowResult (DataflowResult m) i =
   case M.lookup i m of
-    Nothing -> $err' ("Instruction " ++ show i ++ " has no dataflow result")
+    Nothing -> $failure ("Instruction " ++ show i ++ " has no dataflow result")
     Just r -> r
 
 firstInst :: Instruction -> Bool
@@ -190,7 +190,7 @@ dataflowAnalysis orderedBlockInsts blockPreds blockSuccs fact0 cfg = do
       let insts = orderedBlockInsts (basicBlockInstructions block)
       in case M.lookup (last insts) facts of
         Just fact -> fact
-        Nothing -> $err' $ printf "No facts for block %s" (show (Value block))
+        Nothing -> $failure $ printf "No facts for block %s" (show (Value block))
 
     processBlock :: (DataflowAnalysis m a)
                     => (HashMap Instruction a, Set BasicBlock)

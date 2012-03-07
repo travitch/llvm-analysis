@@ -17,7 +17,7 @@ import Data.HashMap.Strict ( HashMap )
 import Data.Set ( Set )
 import qualified Data.HashMap.Strict as M
 import qualified Data.Set as S
-import FileLocation
+import Debug.Trace.LocationTH
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo
@@ -74,4 +74,4 @@ trivialPointsTo p@(TrivialFunction m) v =
 derefPointer :: Value -> Type
 derefPointer v = case valueType v of
   TypePointer p _ -> p
-  _ -> $err' ("Non-pointer type given to trivalPointsTo: " ++ show v)
+  _ -> $failure ("Non-pointer type given to trivalPointsTo: " ++ show v)

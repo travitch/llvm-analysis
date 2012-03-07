@@ -24,7 +24,7 @@ module LLVM.Analysis.CFG (
 
 import Data.Graph.Inductive
 import Data.GraphViz
-import FileLocation
+import Debug.Trace.LocationTH
 import Text.Printf
 
 import LLVM.Analysis
@@ -239,7 +239,7 @@ buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (inst, Nothing) (nodeAcc, e
       -- handler in the same function could pick it up...  Resolving
       -- that might require some more sophisticated analysis.
       ResumeInst {} -> []
-      _ -> $err' ("Last instruction in a block should be a terminator: " ++ show (Value inst))
+      _ -> $failure ("Last instruction in a block should be a terminator: " ++ show (Value inst))
 buildGraphInst edgeF callEdgeF callEdgeN nodeF callF (inst, Just successor) (nodeAcc, edgeAcc) =
   case (callEdgeN inst, inst) of
     (Just en, CallInst { }) -> (nodeF thisNode : en : nodeAcc, theseEdges ++ edgeAcc)
@@ -271,10 +271,10 @@ indirectEdge thisNodeId addr target =
 toBlock :: CFGType -> Node -> BasicBlock
 toBlock cfg n =
   case lab cfg n of
-    Nothing -> $err' ("Instruction missing from CFG: " ++ show n)
+    Nothing -> $failure ("Instruction missing from CFG: " ++ show n)
     Just i ->
       case instructionBasicBlock i of
-        Nothing -> $err' ("Instruction in CFG should have a basic block: " ++ show i)
+        Nothing -> $failure ("Instruction in CFG should have a basic block: " ++ show i)
         Just b -> b
 
 {-# INLINE toInstruction #-}
@@ -282,7 +282,7 @@ toInstruction :: CFG -> Node -> Instruction
 toInstruction cfg nod =
   case lab (cfgGraph cfg) nod of
     Just v -> v
-    Nothing -> $err' ("No value for cfg node: " ++ show nod)
+    Nothing -> $failure ("No value for cfg node: " ++ show nod)
 
 -- | Get all of the predecessor blocks for basic block @bb@
 --
