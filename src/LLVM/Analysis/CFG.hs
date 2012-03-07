@@ -18,6 +18,7 @@ module LLVM.Analysis.CFG (
   basicBlockSuccessorEdges,
   basicBlockLabeledPredecessors,
   basicBlockLabeledSuccessors,
+  instructionReachable,
   -- * Visualization
   cfgGraphvizRepr
   ) where
@@ -331,6 +332,19 @@ basicBlockLabeledPredecessors cfg bb =
     cfg' = cfgGraph cfg
     startInst : _ = basicBlockInstructions bb
     ps = lpre cfg' (instructionUniqueId startInst)
+
+-- | An instruction is reachable if its basic block has predecessors
+-- *OR* (if there are no predecessors) it is the first basic block.
+instructionReachable :: CFG -> Instruction -> Bool
+instructionReachable cfg i =
+  case null (basicBlockPredecessors cfg bb) of
+    True -> bb == firstBlock
+    False -> True
+  where
+    Just bb = instructionBasicBlock i
+    f = basicBlockFunction bb
+    firstBlock : _ = functionBody f
+
 
 -- Visualization
 

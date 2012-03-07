@@ -91,15 +91,3 @@ dispatchCall ri v =
         True -> return $! RI True
         False -> return ri
     _ -> return ri
-
--- | An instruction is reachable if its basic block has predecessors
--- *OR* (if there are no predecessors) it is the first basic block.
-instructionReachable :: CFG -> Instruction -> Bool
-instructionReachable cfg i =
-  case null (basicBlockPredecessors cfg bb) of
-    True -> bb == firstBlock
-    False -> True
-  where
-    Just bb = instructionBasicBlock i
-    f = basicBlockFunction bb
-    firstBlock : _ = functionBody f
