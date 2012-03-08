@@ -7,7 +7,8 @@ module LLVM.Analysis.AccessPath (
   AccessPathError,
   -- * Constructor
   accessPath,
-  abstractAccessPath
+  abstractAccessPath,
+  appendAccessPath
   ) where
 
 import Control.DeepSeq
@@ -29,21 +30,31 @@ instance Exception AccessPathError
 -- structure.
 data AbstractAccessPath =
   AbstractAccessPath { abstractAccessPathBaseType :: Type
+                     , abstractAccessPathEndType :: Type
                      , abstractAccessPathComponents :: [AccessType]
                      }
   deriving (Show, Eq, Ord)
 
+appendAccessPath :: AbstractAccessPath
+                    -> AbstractAccessPath
+                    -> Maybe AbstractAccessPath
+appendAccessPath (AbstractAccessPath bt1 et1 cs1) (AbstractAccessPath bt2 et2 cs2) =
+  case et1 == bt2 of
+    True -> Just $ AbstractAccessPath bt1 et2 (cs1 ++ cs2)
+    False -> Nothing
+
 instance NFData AbstractAccessPath where
-  rnf a@(AbstractAccessPath _ ts) = ts `deepseq` a `seq` ()
+  rnf a@(AbstractAccessPath _ _ ts) = ts `deepseq` a `seq` ()
 
 data AccessPath =
   AccessPath { accessPathBaseValue :: Value
+             , accessPathEndValue :: Value
              , accessPathComponents :: [AccessType]
              }
   deriving (Show, Eq, Ord)
 
 instance NFData AccessPath where
-  rnf a@(AccessPath _ ts) = ts `deepseq` a `seq` ()
+  rnf a@(AccessPath _ _ ts) = ts `deepseq` a `seq` ()
 
 data AccessType = AccessField !Int
                 | AccessArray
@@ -55,20 +66,22 @@ instance NFData AccessType where
   rnf _ = ()
 
 abstractAccessPath :: AccessPath -> AbstractAccessPath
-abstractAccessPath (AccessPath v p) =
-  AbstractAccessPath (derefPointerType (valueType v)) p
+abstractAccessPath (AccessPath v v0 p) =
+  AbstractAccessPath (derefPointerType (valueType v)) (valueType v0) p
 
 accessPath :: (Failure AccessPathError m) => Instruction -> m AccessPath
 accessPath i =
   case i of
     LoadInst { loadAddress = la } ->
-      return $! go (AccessPath la []) la
+      return $! go (AccessPath la la []) la
     StoreInst { storeAddress = sa } ->
-      return $! go (AccessPath sa []) sa
+      return $! go (AccessPath sa sa []) sa
     AtomicCmpXchgInst { atomicCmpXchgPointer = p } ->
-      return $! go (AccessPath p []) p
+      return $! go (AccessPath p p []) p
     AtomicRMWInst { atomicRMWPointer = p } ->
-      return $! go (AccessPath p []) p
+      return $! go (AccessPath p p []) p
+    GetElementPtrInst {} ->
+      return $! go (AccessPath (Value i) (Value i) []) (Value i)
     _ -> F.failure (NotMemoryInstruction i)
   where
     go p v =
