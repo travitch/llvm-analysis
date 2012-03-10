@@ -67,7 +67,7 @@ instance NFData AccessType where
 
 abstractAccessPath :: AccessPath -> AbstractAccessPath
 abstractAccessPath (AccessPath v v0 p) =
-  AbstractAccessPath (derefPointerType (valueType v)) (valueType v0) p
+  AbstractAccessPath (valueType v) (valueType v0) p
 
 accessPath :: (Failure AccessPathError m) => Instruction -> m AccessPath
 accessPath i =
