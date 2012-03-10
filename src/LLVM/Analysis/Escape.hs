@@ -69,7 +69,7 @@ import qualified Data.Set as S
 import Debug.Trace.LocationTH
 
 import Data.Graph.Interface
-import Data.Graph.PatriciaTree
+import Data.Graph.HAMT
 import Data.Graph.Algorithms.Matching.DFS
 
 import LLVM.Analysis
@@ -166,7 +166,7 @@ instructionInLoop i g = any (instInNonSingleton i) (scc g)
 
 -- Useful type synonyms to hopefully make switching to hbgl easier
 -- later
-type UseGraph = SLGraph Value ()
+type UseGraph = Gr UniqueId Value ()
 type UseNode = LNode UseGraph
 type UseEdge = LEdge UseGraph
 type UseContext = Context UseGraph
