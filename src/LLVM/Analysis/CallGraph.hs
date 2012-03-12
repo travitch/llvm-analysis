@@ -40,7 +40,7 @@ module LLVM.Analysis.CallGraph (
   ) where
 
 import Control.Arrow ( (&&&) )
-import Data.Graph.Inductive hiding ( Gr )
+import Data.Graph.Inductive
 import Data.GraphViz
 import Data.Maybe ( mapMaybe )
 import Data.Hashable
@@ -50,7 +50,6 @@ import Debug.Trace.LocationTH
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo
-import LLVM.Analysis.Internal.PatriciaTree
 
 -- | A type synonym for the underlying graph
 type CG = Gr CallNode CallEdge

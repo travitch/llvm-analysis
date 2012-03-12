@@ -45,8 +45,8 @@ library
                    LLVM.Analysis.Util.Environment,
                    LLVM.Analysis.Util.Testing
   other-modules: LLVM.Analysis.Internal.Condense,
-                 LLVM.Analysis.Internal.ImperativeGraph,
-                 LLVM.Analysis.Internal.PatriciaTree,
+                 -- LLVM.Analysis.Internal.ImperativeGraph,
+                 -- LLVM.Analysis.Internal.PatriciaTree,
                  LLVM.Analysis.Internal.Worklist
                  -- This module does not work yet.
                  -- LLVM.Rewrite

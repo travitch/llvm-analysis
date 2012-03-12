@@ -22,7 +22,7 @@ module LLVM.Analysis.CallGraphSCCTraversal (
 import Control.DeepSeq
 import Control.Monad ( foldM, replicateM )
 import Control.Monad.Par
-import Data.Graph.Inductive hiding ( Gr, new )
+import Data.Graph.Inductive hiding ( new )
 import Data.Lens.Common
 import Data.List ( foldl' )
 import Data.Map ( Map )
@@ -35,7 +35,6 @@ import LLVM.Analysis.CallGraph
 import LLVM.Analysis.Types
 
 import LLVM.Analysis.Internal.Condense
-import LLVM.Analysis.Internal.PatriciaTree
 
 -- import Text.Printf
 -- import Debug.Trace
