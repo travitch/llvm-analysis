@@ -13,7 +13,7 @@ tested-with: GHC == 7.0.3
 
 library
   default-language: Haskell2010
-  build-depends: base > 3 && < 5, array, bytestring, containers >= 0.4.1.0,
+  build-depends: base > 3 && < 5, array, bytestring, containers,
                  deepseq, process, filepath, directory, vector >= 0.9,
                  fgl, mtl > 2, filemanip >= 0.3.5.2, monad-par >= 0.1,
                  graphviz >= 2999.12.0.3, data-default >= 0.3,
