@@ -38,8 +38,8 @@ import Data.GraphViz
 
 import Data.Graph.Interface
 import Data.Graph.PatriciaTree
-import Data.Graph.Algorithms.Marking.DFS
-import Data.Graph.Algorithms.Marking.Dominators
+import Data.Graph.Algorithms.Matching.DFS
+import Data.Graph.Algorithms.Matching.Dominators
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
