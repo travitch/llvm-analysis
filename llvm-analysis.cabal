@@ -33,11 +33,11 @@ library
                    LLVM.Analysis.Dataflow,
                    LLVM.Analysis.Dominance,
                    LLVM.Analysis.Escape,
-                   LLVM.Analysis.ICFG,
-                   LLVM.Analysis.IFDS,
+                   -- LLVM.Analysis.ICFG,
+                   -- LLVM.Analysis.IFDS,
                    LLVM.Analysis.PointsTo,
                    LLVM.Analysis.PointsTo.AllocatorProfile,
-                   LLVM.Analysis.PointsTo.Andersen,
+                   -- LLVM.Analysis.PointsTo.Andersen,
                    LLVM.Analysis.PointsTo.TrivialFunction,
                    LLVM.Analysis.NoReturn,
                    LLVM.Analysis.ScalarEffects,
@@ -73,28 +73,28 @@ test-suite CallGraphTests
                  base > 3 && < 5, filepath, containers, HUnit, bytestring
   ghc-options: -Wall
 
-test-suite AndersenTests
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  main-is: AndersenTest.hs
-  hs-source-dirs: tests
-  build-depends: llvm-analysis,
-                 base > 3 && < 5, filemanip >= 0.3.5.2,
-                 process, directory, filepath, containers,
-                 HUnit, llvm-data-interop
+-- test-suite AndersenTests
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   main-is: AndersenTest.hs
+--   hs-source-dirs: tests
+--   build-depends: llvm-analysis,
+--                  base > 3 && < 5, filemanip >= 0.3.5.2,
+--                  process, directory, filepath, containers,
+--                  HUnit, llvm-data-interop
 
-test-suite IFDSTests
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  build-depends: llvm-analysis, regex-tdfa,
-                 base > 3 && < 5, containers,
-                 graphviz, filepath,
-                 HUnit, test-framework, test-framework-hunit,
-                 llvm-data-interop
-  ghc-options: -Wall -O -rtsopts -funbox-strict-fields
-  ghc-prof-options: -auto-all
-  main-is: INullPtrs.hs
-  hs-source-dirs: tests
+-- test-suite IFDSTests
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   build-depends: llvm-analysis, regex-tdfa,
+--                  base > 3 && < 5, containers,
+--                  graphviz, filepath,
+--                  HUnit, test-framework, test-framework-hunit,
+--                  llvm-data-interop
+--   ghc-options: -Wall -O -rtsopts -funbox-strict-fields
+--   ghc-prof-options: -auto-all
+--   main-is: INullPtrs.hs
+--   hs-source-dirs: tests
 
 test-suite ReturnTests
   default-language: Haskell2010

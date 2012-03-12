@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, TypeFamilies #-}
 -- | Tools to compute dominance information for functions.  Includes
 -- postdominators.
 --
@@ -31,22 +31,29 @@ module LLVM.Analysis.Dominance (
   ) where
 
 import Control.Arrow
-import Data.Graph.Inductive.Graph
-import Data.Graph.Inductive.Query.DFS
-import Data.Graph.Inductive.Query.Dominators
+-- import Data.Graph.Inductive.Graph
+-- import Data.Graph.Inductive.Query.DFS
+-- import Data.Graph.Inductive.Query.Dominators
 import Data.GraphViz
+
+import Data.Graph.Interface
+import Data.Graph.PatriciaTree
+import Data.Graph.Algorithms.Marking.DFS
+import Data.Graph.Algorithms.Marking.Dominators
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
-import LLVM.Analysis.Internal.PatriciaTree
+-- import LLVM.Analysis.Internal.PatriciaTree
+
+type DomTreeType = Gr Instruction ()
 
 -- | The standard dominator tree
-data DominatorTree = DT { dtTree :: Gr Instruction ()
+data DominatorTree = DT { dtTree :: DomTreeType
                         , dtRoot :: Instruction
                         }
 
 -- | The dominator tree of the reversed CFG.
-data PostdominatorTree = PDT { pdtTree :: Gr Instruction ()
+data PostdominatorTree = PDT { pdtTree :: DomTreeType
                              , pdtRoots :: [Instruction]
                              }
 
@@ -75,34 +82,39 @@ postdominators RCFG { rcfgGraph = g, rcfgFunction = f } =
     roots = functionExitInstructions f
     gs = map (\r -> dom g (instructionUniqueId r)) roots
 
-toInst :: (Graph gr) => gr Instruction a -> Node -> Instruction
+toInst :: (InspectableGraph gr) => gr -> Node gr -> NodeLabel gr
 toInst gr n =
-  let (_, _, i, _) = context gr n
+  let Just (Context _ (LNode _ i) _) = context gr n
   in i
 
 -- | Construct a dominator tree from a CFG
 dominatorTree :: CFG -> DominatorTree
 dominatorTree cfg =
-  DT { dtTree = mkGraph (labNodes g) (buildEdges idoms)
+  DT { dtTree = mkGraph ns (buildEdges idoms)
      , dtRoot = cfgEntryValue cfg
      }
   where
     idoms = immediateDominators cfg
     g = cfgGraph cfg
+    ns = map (\(LNode n l) -> LNode n l) (labNodes g)
 
 -- | Construct a postdominator tree from a reversed CFG
 postdominatorTree :: RCFG -> PostdominatorTree
 postdominatorTree cfg =
-  PDT { pdtTree = mkGraph (labNodes g) (buildEdges idoms)
+  PDT { pdtTree = mkGraph ns (buildEdges idoms)
       , pdtRoots = functionExitInstructions (rcfgFunction cfg)
       }
   where
     idoms = immediatePostdominators cfg
     g = rcfgGraph cfg
+    ns = map (\(LNode n l) -> LNode n l) (labNodes g)
 
-buildEdges :: [(Instruction, Instruction)] -> [LEdge ()]
+-- buildEdges :: [(Instruction, Instruction)] -> [LEdge ()]
+buildEdges :: (Graph gr, EdgeLabel gr ~ (), Node gr ~ UniqueId)
+              => [(Instruction, Instruction)]
+              -> [LEdge gr]
 buildEdges =
-  map (\(a,b) -> (a, b, ())) . map (instructionUniqueId *** instructionUniqueId)
+  map (\(a,b) -> LEdge (Edge a b) ()) . map (instructionUniqueId *** instructionUniqueId)
 
 -- | Check whether n dominates m
 dominates :: DominatorTree -> Instruction -> Instruction -> Bool
@@ -157,8 +169,22 @@ domTreeParams =
 
 -- Visualization
 
-domTreeGraphvizRepr :: DominatorTree -> DotGraph Node
-domTreeGraphvizRepr dt = graphToDot domTreeParams (dtTree dt)
+domTreeGraphvizRepr :: DominatorTree -> DotGraph (Node DomTreeType)
+domTreeGraphvizRepr dt = graphElemsToDot domTreeParams ns es
+  where
+    ns = map toFGLNode (labNodes (dtTree dt))
+    es = map toFGLEdge (labEdges (dtTree dt))
+  --graphToDot domTreeParams (dtTree dt)
 
-postdomTreeGraphvizRepr :: PostdominatorTree -> DotGraph Node
-postdomTreeGraphvizRepr dt = graphToDot domTreeParams (pdtTree dt)
+postdomTreeGraphvizRepr :: PostdominatorTree -> DotGraph (Node DomTreeType)
+postdomTreeGraphvizRepr dt = graphElemsToDot domTreeParams ns es
+  where
+    ns = map toFGLNode (labNodes (pdtTree dt))
+    es = map toFGLEdge (labEdges (pdtTree dt))
+--  graphToDot domTreeParams (pdtTree dt)
+
+toFGLNode :: LNode gr -> (Node gr, NodeLabel gr)
+toFGLNode (LNode n l) = (n, l)
+
+toFGLEdge :: LEdge gr -> (Node gr, Node gr, EdgeLabel gr)
+toFGLEdge (LEdge (Edge src dst) l) = (src, dst, l)

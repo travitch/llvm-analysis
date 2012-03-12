@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, FlexibleContexts #-}
 -- | Control Dependence Graphs for the LLVM IR
 --
 -- This module follows the definition of control dependence of Cytron et al
@@ -32,9 +32,6 @@ module LLVM.Analysis.CDG (
   cdgGraphvizRepr
   ) where
 
-import Control.Arrow
-import Data.Graph.Inductive.Graph
-import Data.Graph.Inductive.Query.DFS
 import Data.GraphViz
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
@@ -43,15 +40,21 @@ import qualified Data.HashSet as S
 import Data.List ( foldl' )
 import Debug.Trace.LocationTH
 
+import Data.Graph.Interface
+import Data.Graph.PatriciaTree
+import Data.Graph.Algorithms.Marking.DFS
+
 import LLVM.Analysis
 import LLVM.Analysis.CFG
 import LLVM.Analysis.Dominance
-import LLVM.Analysis.Internal.PatriciaTree
 
 -- | The internal representation of the CDG.  Instructions are
 -- control-dependent on other instructions, so they are the nodes in
 -- the graph.
 type CDGType = Gr Instruction ()
+type NodeType = Node CDGType
+type LEdgeType = LEdge CDGType
+type LNodeType = LNode CDGType
 
 -- | A control depenence graph
 data CDG = CDG { cdgGraph :: CDGType
@@ -80,7 +83,8 @@ controlDependencies (CDG g _) i =
   where
     deps = map (safeLab $__LOCATION__ g) $ dfs [instructionUniqueId i] g
 
-safeLab :: (Graph gr) => String -> gr a b -> Node -> a
+safeLab :: (Show (Node gr), InspectableGraph gr)
+           => String -> gr -> Node gr -> NodeLabel gr
 safeLab loc g n =
   case lab g n of
     Nothing -> error (loc ++ ": missing label for CDG node " ++ show n)
@@ -115,12 +119,13 @@ directControlDependencies (CDG g _) i =
 controlDependenceGraph :: CFG -> CDG
 controlDependenceGraph cfg = CDG (mkGraph ns es) cfg
   where
-    ns = labNodes g
+    ns = map (\(LNode n l) -> LNode n l) $ labNodes g
     es = M.foldlWithKey' toEdge [] controlDeps
 
     g = cfgGraph cfg
     pdt = postdominatorTree (reverseCFG cfg)
-    cfgEdges = map ((safeLab $__LOCATION__ g) *** (safeLab $__LOCATION__ g)) (edges g)
+    cfgEdges = map (\(Edge src dst) -> ((safeLab $__LOCATION__ g src), (safeLab $__LOCATION__ g dst))) (edges g)
+    -- cfgEdges = map ((safeLab $__LOCATION__ g) *** (safeLab $__LOCATION__ g)) (edges g)
     -- | All of the edges in the CFG m->n such that n does not
     -- postdominate m
     s = filter (isNotPostdomEdge pdt) cfgEdges
@@ -131,10 +136,10 @@ isNotPostdomEdge :: PostdominatorTree -> (Instruction, Instruction) -> Bool
 isNotPostdomEdge pdt (m, n) = not (postdominates pdt n m)
 
 -- | Add an edge from @dependent@ to each @m@ it is control dependent on
-toEdge :: [LEdge ()] -> Instruction -> HashSet Instruction -> [LEdge ()]
+toEdge :: [LEdgeType] -> Instruction -> HashSet Instruction -> [LEdgeType]
 toEdge acc dependent ms = S.foldr (toE dependent) acc ms
   where
-    toE n m a = (instructionUniqueId n, instructionUniqueId m, ()) : a
+    toE n m a = LEdge (Edge (instructionUniqueId n) (instructionUniqueId m)) () : a
 
 -- | A private type to describe what instructions the keys of the map
 -- are control dependent upon.
@@ -197,7 +202,16 @@ cdgGraphvizParams =
       in C bb (N l)
     formatCluster bb = [GraphAttrs [toLabel (show (basicBlockName bb))]]
 
-cdgGraphvizRepr :: CDG -> DotGraph Node
-cdgGraphvizRepr = graphToDot cdgGraphvizParams . cdgGraph
+cdgGraphvizRepr :: CDG -> DotGraph (Node CDGType)
+cdgGraphvizRepr cdg = graphElemsToDot cdgGraphvizParams ns es
+  where
+    g = cdgGraph cdg
+    ns = map toFGLNode (labNodes g)
+    es = map toFGLEdge (labEdges g)
 
+toFGLNode :: LNode gr -> (Node gr, NodeLabel gr)
+toFGLNode (LNode n l) = (n, l)
+
+toFGLEdge :: LEdge gr -> (Node gr, Node gr, EdgeLabel gr)
+toFGLEdge (LEdge (Edge src dst) l) = (src, dst, l)
 -- Note: can use graphElemsToDot to deal with non fgl graphs
