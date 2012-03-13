@@ -172,19 +172,13 @@ domTreeParams =
 domTreeGraphvizRepr :: DominatorTree -> DotGraph (Node DomTreeType)
 domTreeGraphvizRepr dt = graphElemsToDot domTreeParams ns es
   where
-    ns = map toFGLNode (labNodes (dtTree dt))
-    es = map toFGLEdge (labEdges (dtTree dt))
-  --graphToDot domTreeParams (dtTree dt)
+    g = dtTree dt
+    ns = map toNodeTuple (labNodes g)
+    es = map toEdgeTuple (labEdges g)
 
 postdomTreeGraphvizRepr :: PostdominatorTree -> DotGraph (Node DomTreeType)
 postdomTreeGraphvizRepr dt = graphElemsToDot domTreeParams ns es
   where
-    ns = map toFGLNode (labNodes (pdtTree dt))
-    es = map toFGLEdge (labEdges (pdtTree dt))
---  graphToDot domTreeParams (pdtTree dt)
-
-toFGLNode :: LNode gr -> (Node gr, NodeLabel gr)
-toFGLNode (LNode n l) = (n, l)
-
-toFGLEdge :: LEdge gr -> (Node gr, Node gr, EdgeLabel gr)
-toFGLEdge (LEdge (Edge src dst) l) = (src, dst, l)
+    g = pdtTree dt
+    ns = map toNodeTuple (labNodes g)
+    es = map toEdgeTuple (labEdges g)

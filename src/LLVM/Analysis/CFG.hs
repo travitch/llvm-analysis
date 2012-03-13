@@ -487,8 +487,5 @@ cfgGraphvizRepr :: CFG -> DotGraph NodeType
 cfgGraphvizRepr cfg = graphElemsToDot cfgGraphvizParams ns es
   where
     g = cfgGraph cfg
-    ns = map toFGLNode (labNodes g)
-    es = map toFGLEdge (labEdges g)
-    toFGLNode (LNode n l) = (n, l)
-    toFGLEdge (LEdge (Edge src dst) l) = (src, dst, l)
---cfgGraphvizRepr = graphToDot cfgGraphvizParams . cfgGraph
+    ns = map toNodeTuple (labNodes g)
+    es = map toEdgeTuple (labEdges g)

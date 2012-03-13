@@ -206,12 +206,5 @@ cdgGraphvizRepr :: CDG -> DotGraph (Node CDGType)
 cdgGraphvizRepr cdg = graphElemsToDot cdgGraphvizParams ns es
   where
     g = cdgGraph cdg
-    ns = map toFGLNode (labNodes g)
-    es = map toFGLEdge (labEdges g)
-
-toFGLNode :: LNode gr -> (Node gr, NodeLabel gr)
-toFGLNode (LNode n l) = (n, l)
-
-toFGLEdge :: LEdge gr -> (Node gr, Node gr, EdgeLabel gr)
-toFGLEdge (LEdge (Edge src dst) l) = (src, dst, l)
--- Note: can use graphElemsToDot to deal with non fgl graphs
+    ns = map toNodeTuple (labNodes g)
+    es = map toEdgeTuple (labEdges g)

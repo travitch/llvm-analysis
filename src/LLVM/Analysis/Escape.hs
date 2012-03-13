@@ -395,8 +395,5 @@ useGraphvizParams =
 useGraphvizRepr :: UseGraph -> DotGraph Int
 useGraphvizRepr g = graphElemsToDot useGraphvizParams ns es
   where
-    ns = map (unlabelNode &&& nodeLabel) $ labNodes g
-    es = map toLE $ labEdges g
-    toLE le = (edgeSource (unlabelEdge le),
-               edgeDest (unlabelEdge le),
-               edgeLabel le)
+    ns = map toNodeTuple $ labNodes g
+    es = map toEdgeTuple $ labEdges g
