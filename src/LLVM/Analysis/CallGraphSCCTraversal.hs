@@ -22,7 +22,6 @@ module LLVM.Analysis.CallGraphSCCTraversal (
 import Control.DeepSeq
 import Control.Monad ( foldM, replicateM )
 import Control.Monad.Par
-import Data.Graph.Inductive hiding ( new )
 import Data.Lens.Common
 import Data.List ( foldl' )
 import Data.Map ( Map )
@@ -34,11 +33,9 @@ import LLVM.Analysis
 import LLVM.Analysis.CallGraph
 import LLVM.Analysis.Types
 
-import LLVM.Analysis.Internal.Condense
-
--- import Text.Printf
--- import Debug.Trace
--- debug' = flip trace
+import Data.Graph.Interface
+import Data.Graph.PatriciaTree
+import Data.Graph.Algorithms.Matching.DFS
 
 
 -- | An abstract representation of a composable analysis.  Construct
@@ -96,10 +93,10 @@ callGraphSCCTraversal callgraph f seed =
   -- fold
   where
     g = projectDefinedFunctions $ callGraphRepr callgraph
-    cg :: Gr [LNode Function] ()
+    cg :: SCCGraph
     cg = condense g
     sccList = topsort' cg
-    applyAnalysis component = f (map (fromFunction . snd) component)
+    applyAnalysis component = f (map (\(LNode _ func) -> fromFunction func) component)
 
 -- | Just like 'callGraphSCCTraversal', except strongly-connected
 -- components are analyzed in parallel.  Each component is analyzed as
@@ -113,7 +110,7 @@ parallelCallGraphSCCTraversal callgraph f seed = runPar $ do
   -- Make an output variable for each SCC in the call graph.
   outputVars <- replicateM (noNodes cg) new
   let sccs = labNodes cg
-      varMap = M.fromList (zip (map fst sccs) outputVars)
+      varMap = M.fromList (zip (map unlabelNode sccs) outputVars)
       sccsWithVars = map (attachVars cg varMap) sccs
 
   -- Spawn a thread for each SCC that waits until its dependencies are
@@ -134,15 +131,16 @@ parallelCallGraphSCCTraversal callgraph f seed = runPar $ do
   return $! mconcat finalVals
   where
     g = projectDefinedFunctions $ callGraphRepr callgraph
-    cg :: Gr [LNode Function] ()
+    cg :: SCCGraph
     cg = condense g
 
-attachVars :: Gr [LNode Function] ()
-              -> Map Node (IVar summary)
-              -> LNode [LNode Function]
+type FunctionGraph = Gr Function ()
+type SCCGraph = Gr [LNode FunctionGraph] ()
+
+attachVars :: SCCGraph -> Map Int (IVar summary) -> LNode SCCGraph
               -> ([Function], [IVar summary], IVar summary, Bool)
-attachVars cg varMap (nid, component) =
-  (map snd component, inVars, outVar, isRoot)
+attachVars cg varMap (LNode nid component) =
+  (map nodeLabel component, inVars, outVar, isRoot)
   where
     outVar = varMap M.! nid
     inVars = map (getDep varMap) deps
@@ -291,11 +289,11 @@ composableAnalysisM = ComposableAnalysisM
 
 -- | A monadic version of 'composableDependencyAnalysis'.
 composableDependencyAnalysisM :: (NFData summary, Monoid summary, Eq summary, Monad m, FuncLike funcLike)
-                                       => (m summary -> summary)
-                                       -> (deps -> funcLike -> summary -> m summary)
-                                       -> Lens compSumm summary
-                                       -> Lens compSumm deps
-                                       -> ComposableAnalysis compSumm funcLike
+                                 => (m summary -> summary)
+                                 -> (deps -> funcLike -> summary -> m summary)
+                                 -> Lens compSumm summary
+                                 -> Lens compSumm deps
+                                 -> ComposableAnalysis compSumm funcLike
 composableDependencyAnalysisM = ComposableAnalysisDM
 
 -- | Create a pure composable analysis from a summary function and a
@@ -330,30 +328,30 @@ composableDependencyAnalysis = ComposableAnalysisD
 
 -- Helpers
 
-projectDefinedFunctions :: Gr CallNode b -> Gr Function b
+projectDefinedFunctions :: CG -> Gr Function ()
 projectDefinedFunctions g = mkGraph ns' es'
   where
     es = labEdges g
     ns = labNodes g
     ns' = foldr keepDefinedFunctions [] ns
-    es' = filter (edgeIsBetweenDefined m) es
-    m = M.fromList ns
+    es' = map (\(LEdge (Edge s d) _) -> (LEdge (Edge s d) ())) $ filter (edgeIsBetweenDefined m) es
+    m = M.fromList (map toNodeTuple ns)
 
-keepDefinedFunctions :: LNode CallNode -> [LNode Function] -> [LNode Function]
-keepDefinedFunctions (nid, DefinedFunction f) acc = (nid, f) : acc
+keepDefinedFunctions :: LNode CG -> [LNode FunctionGraph] -> [LNode FunctionGraph]
+keepDefinedFunctions (LNode nid (DefinedFunction f)) acc = LNode nid f : acc
 keepDefinedFunctions _ acc = acc
 
-edgeIsBetweenDefined :: Map Node CallNode -> LEdge b -> Bool
-edgeIsBetweenDefined m (src, dst, _) =
+edgeIsBetweenDefined :: Map Int CallNode -> LEdge CG -> Bool
+edgeIsBetweenDefined m (LEdge (Edge src dst) _) =
   nodeIsDefined m src && nodeIsDefined m dst
 
-nodeIsDefined :: Map Node CallNode -> Node -> Bool
+nodeIsDefined :: Map Int CallNode -> Int -> Bool
 nodeIsDefined m n =
   case m M.! n of
     DefinedFunction _ -> True
     _ -> False
 
-getDep :: Map Node c -> Node -> c
+getDep :: Map Int c -> Int -> c
 getDep m n =
   case M.lookup n m of
     Nothing -> $failure ("Missing expected output var for node: " ++ show n)

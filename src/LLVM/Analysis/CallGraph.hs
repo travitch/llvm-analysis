@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies, ExistentialQuantification, TemplateHaskell #-}
 -- | This module defines a call graph and related functions.  The call
 -- graph is a static view of the calls between functions in a
 -- 'Module'.  The nodes of the graph are global functions and the
@@ -39,14 +39,15 @@ module LLVM.Analysis.CallGraph (
   cgGraphvizRepr
   ) where
 
-import Control.Arrow ( (&&&) )
-import Data.Graph.Inductive
 import Data.GraphViz
 import Data.Maybe ( mapMaybe )
 import Data.Hashable
 import qualified Data.HashSet as HS
 import qualified Data.Set as S
 import Debug.Trace.LocationTH
+
+import Data.Graph.Interface
+import Data.Graph.PatriciaTree
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo
@@ -106,7 +107,7 @@ callGraphFunctions :: CallGraph -> [Function]
 callGraphFunctions (CallGraph cg _) =
   mapMaybe extractDefinedFunction (labNodes cg)
   where
-    extractDefinedFunction (_, DefinedFunction f) = Just f
+    extractDefinedFunction (LNode _ (DefinedFunction f)) = Just f
     extractDefinedFunction _ = Nothing
 
 -- | Convert the CallGraph to an FGL graph that can be traversed,
@@ -159,7 +160,7 @@ mkCallGraph m pta entryPoints =
     -- ^ Build up all of the edges and accumulate unknown nodes as
     -- they are created on-the-fly
     -- knownNodes = map (\v -> (valueUniqueId v, DefinedFunction v)) funcs
-    knownNodes = map (valueUniqueId &&& DefinedFunction) funcs
+    knownNodes = map (\f -> LNode (valueUniqueId f) (DefinedFunction f)) funcs
     -- ^ Add nodes for unknown functions (one unknown node for each
     -- type signature in an indirect call).  The unknown nodes can use
     -- negative numbers for nodeids since actual Value IDs start at 0.
@@ -172,16 +173,16 @@ unique :: (Hashable a, Eq a) => [a] -> [a]
 unique = HS.toList . HS.fromList
 
 -- | This is the ID for the single "Unknown function" call graph node.
-unknownNodeId :: Node
+unknownNodeId :: Node CG
 unknownNodeId = -100
 
-mkExternFunc :: ExternalFunction -> LNode CallNode
-mkExternFunc v = (valueUniqueId v, ExtFunction v)
+mkExternFunc :: ExternalFunction -> LNode CG
+mkExternFunc v = LNode (valueUniqueId v) (ExtFunction v)
 
-buildEdges :: (PointsToAnalysis a) => a -> [Function] -> ([LEdge CallEdge], [LNode CallNode])
+buildEdges :: (PointsToAnalysis a) => a -> [Function] -> ([LEdge CG], [LNode CG])
 buildEdges pta funcs = do
   let es = map (buildFuncEdges pta) funcs
-      unknownNodes = [(unknownNodeId, UnknownFunction)]
+      unknownNodes = [LNode unknownNodeId UnknownFunction]
   (concat es, unknownNodes)
 
 isCall :: Instruction -> Bool
@@ -189,7 +190,7 @@ isCall CallInst {} = True
 isCall InvokeInst {} = True
 isCall _ = False
 
-buildFuncEdges :: (PointsToAnalysis a) => a -> Function -> [LEdge CallEdge]
+buildFuncEdges :: (PointsToAnalysis a) => a -> Function -> [LEdge CG]
 buildFuncEdges pta f = concat es
   where
     insts = concatMap basicBlockInstructions $ functionBody f
@@ -201,24 +202,25 @@ getCallee CallInst { callFunction = f } = f
 getCallee InvokeInst { invokeFunction = f } = f
 getCallee i = $failure ("Expected a function in getCallee: " ++ show i)
 
-buildCallEdges :: (PointsToAnalysis a) => a -> Function -> Instruction -> [LEdge CallEdge]
+buildCallEdges :: (PointsToAnalysis a) => a -> Function -> Instruction -> [LEdge CG]
 buildCallEdges pta caller callInst = build' (getCallee callInst)
   where
     callerId = valueUniqueId caller
     build' calledFunc =
       case valueContent' calledFunc of
         FunctionC f ->
-          [(callerId, valueUniqueId f, DirectCall)]
+          [LEdge (Edge callerId (valueUniqueId f)) DirectCall]
         GlobalAliasC GlobalAlias { globalAliasTarget = aliasee } ->
-          [(callerId, valueUniqueId aliasee, DirectCall)]
-        ExternalFunctionC ef -> [(callerId, valueUniqueId ef, DirectCall)]
+          [LEdge (Edge callerId (valueUniqueId aliasee)) DirectCall]
+        ExternalFunctionC ef ->
+          [LEdge (Edge callerId (valueUniqueId ef)) DirectCall]
         -- Functions can be bitcasted before being called - trace
         -- through those to find the underlying function
         InstructionC BitcastInst { castedValue = bcv } -> build' bcv
         _ ->
           let targets = S.toList $ pointsToValues pta (stripBitcasts calledFunc)
-              indirectEdges = map (\t -> (callerId, valueUniqueId t, IndirectCall)) targets
-              unknownEdge = (callerId, unknownNodeId, UnknownCall)
+              indirectEdges = map (\t -> LEdge (Edge callerId (valueUniqueId t)) IndirectCall) targets
+              unknownEdge = LEdge (Edge callerId unknownNodeId) UnknownCall
           in unknownEdge : indirectEdges
 
 cgGraphvizParams :: GraphvizParams n CallNode CallEdge () CallNode
@@ -227,5 +229,8 @@ cgGraphvizParams =
                      , fmtEdge = \(_,_,l) -> [toLabel (l)]
                      }
 
-cgGraphvizRepr :: CallGraph -> DotGraph Node
-cgGraphvizRepr = graphToDot cgGraphvizParams . callGraphRepr
+cgGraphvizRepr :: CallGraph -> DotGraph Int
+cgGraphvizRepr (CallGraph g _) = graphElemsToDot cgGraphvizParams ns es
+  where
+    ns = map toNodeTuple $ labNodes g
+    es = map toEdgeTuple $ labEdges g
