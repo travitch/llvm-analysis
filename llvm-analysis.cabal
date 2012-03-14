@@ -15,7 +15,7 @@ library
   default-language: Haskell2010
   build-depends: base > 3 && < 5, array, bytestring, containers,
                  deepseq, process, filepath, directory, vector >= 0.9,
-                 fgl, mtl > 2, filemanip >= 0.3.5.2, monad-par >= 0.1,
+                 mtl > 2, filemanip >= 0.3.5.2, monad-par >= 0.1,
                  graphviz >= 2999.12.0.3, data-default >= 0.3,
                  hashable >= 1.1.2.0, unordered-containers,
                  loch-th >= 0.2, temporary >= 1.0,
@@ -44,7 +44,8 @@ library
                    LLVM.Analysis.Types,
                    LLVM.Analysis.Util.Environment,
                    LLVM.Analysis.Util.Testing
-  other-modules: LLVM.Analysis.Internal.Condense,
+  other-modules:
+                 -- LLVM.Analysis.Internal.Condense,
                  -- LLVM.Analysis.Internal.ImperativeGraph,
                  -- LLVM.Analysis.Internal.PatriciaTree,
                  LLVM.Analysis.Internal.Worklist
