@@ -8,7 +8,8 @@ module LLVM.Analysis.AccessPath (
   -- * Constructor
   accessPath,
   abstractAccessPath,
-  appendAccessPath
+  appendAccessPath,
+  followAccessPath
   ) where
 
 import Control.DeepSeq
@@ -22,6 +23,9 @@ import LLVM.Analysis
 
 data AccessPathError = NoPathError Value
                      | NotMemoryInstruction Instruction
+                     | CannotFollowPath AbstractAccessPath Value
+                     | BaseTypeMismatch Type Type
+                     | NonConstantInPath AbstractAccessPath Value
                      deriving (Typeable, Show)
 
 instance Exception AccessPathError
@@ -64,6 +68,20 @@ data AccessType = AccessField !Int
 instance NFData AccessType where
   rnf a@(AccessField i) = i `seq` a `seq` ()
   rnf _ = ()
+
+followAccessPath :: (Failure AccessPathError m) => AbstractAccessPath -> Value -> m Value
+followAccessPath aap@(AbstractAccessPath bt _ components) val =
+  case derefPointerType bt /= valueType val of
+    True -> F.failure (BaseTypeMismatch bt (valueType val))
+    False -> walk components val
+  where
+    walk [] v = return v
+    walk (AccessField ix : rest) v =
+      case valueContent' v of
+        ConstantC ConstantStruct { constantStructValues = vs } ->
+          walk rest (vs !! ix)
+        _ -> F.failure (NonConstantInPath aap val)
+    walk _ _ = F.failure (CannotFollowPath aap val)
 
 abstractAccessPath :: AccessPath -> AbstractAccessPath
 abstractAccessPath (AccessPath v v0 p) =
