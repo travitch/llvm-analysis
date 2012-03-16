@@ -79,7 +79,9 @@ followAccessPath aap@(AbstractAccessPath bt _ components) val =
     walk (AccessField ix : rest) v =
       case valueContent' v of
         ConstantC ConstantStruct { constantStructValues = vs } ->
-          walk rest (vs !! ix)
+          case ix < length vs of
+            False -> $failure ("Invalid access path: " ++ show aap ++ " / " ++ show val)
+            True -> walk rest (vs !! ix)
         _ -> F.failure (NonConstantInPath aap val)
     walk _ _ = F.failure (CannotFollowPath aap val)
 
