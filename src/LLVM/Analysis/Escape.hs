@@ -43,6 +43,7 @@ module LLVM.Analysis.Escape (
   EscapeResult,
   escapeAnalysis,
   argumentEscapes,
+  argumentFptrEscapes,
   argumentWillEscape,
   instructionEscapes,
   instructionWillEscape,
@@ -78,30 +79,32 @@ import LLVM.Analysis
 data EscapeResult =
   EscapeResult { escapeGraphs :: HashMap Function UseGraph
                , escapeArguments :: HashMap Argument Instruction
+               , fptrEscapeArguments :: HashMap Argument Instruction
                , willEscapeArguments :: HashMap Argument Instruction
                }
 
 instance Eq EscapeResult where
-  (EscapeResult g1 e1 w1) == (EscapeResult g2 e2 w2) =
-    e1 == e2 && w1 == w2 && g1 == g2
+  (EscapeResult g1 e1 f1 w1) == (EscapeResult g2 e2 f2 w2) =
+    e1 == e2 && f1 == f2 && w1 == w2 && g1 == g2
 
 instance Eq UseGraph where
   (==) = graphEqual
 
 emptyResult :: EscapeResult
-emptyResult = EscapeResult M.empty M.empty M.empty
+emptyResult = EscapeResult mempty mempty mempty mempty
 
 instance Monoid EscapeResult where
   mempty = emptyResult
-  mappend (EscapeResult gs1 as1 was1) (EscapeResult gs2 as2 was2) =
+  mappend (EscapeResult gs1 as1 f1 was1) (EscapeResult gs2 as2 f2 was2) =
     EscapeResult { escapeGraphs = M.union gs1 gs2
                  , escapeArguments = M.union as1 as2
+                 , fptrEscapeArguments = M.union f1 f2
                  , willEscapeArguments = M.union was1 was2
                  }
 
 instance NFData EscapeResult where
-  rnf r@(EscapeResult gs as was) =
-    gs `deepseq` as `deepseq` was `deepseq` r `seq` ()
+  rnf r@(EscapeResult gs as fs was) =
+    gs `deepseq` as `deepseq` was `deepseq` fs `deepseq` r `seq` ()
 
 -- | Get the set of escaped arguments for a function.  This function
 -- will throw an error if the function is not in the escape result set
@@ -109,16 +112,22 @@ instance NFData EscapeResult where
 argumentEscapes :: EscapeResult -> Argument -> Maybe Instruction
 argumentEscapes er a = M.lookup a (escapeArguments er)
 
+argumentFptrEscapes :: EscapeResult -> Argument -> Maybe Instruction
+argumentFptrEscapes er a = M.lookup a (fptrEscapeArguments er)
+
 argumentWillEscape :: EscapeResult -> Argument -> Maybe Instruction
 argumentWillEscape er a = M.lookup a (willEscapeArguments er)
 
 -- | Determine if an instruction escapes from the scope of its
 -- enclosing function.  This function does not include willEscape
 -- results.
+--
+-- Note that this also reports escapes via function pointer
 instructionEscapes :: EscapeResult -> Instruction -> Maybe Instruction
 instructionEscapes er i =
   case foldr inducesEscape Nothing reached of
     Just (EscapeWitness w) -> Just w
+    Just (FptrEscapeWitness w) -> Just w
     Just (WillEscapeWitness _) -> Nothing
     Nothing -> Nothing
   where
@@ -134,6 +143,7 @@ instructionWillEscape :: EscapeResult -> Instruction -> Maybe Instruction
 instructionWillEscape er i =
   case foldr inducesEscape Nothing reached of
     Just (EscapeWitness _) -> Nothing
+    Just (FptrEscapeWitness _) -> Nothing
     Just (WillEscapeWitness w) -> Just w
     Nothing -> Nothing
   where
@@ -146,11 +156,11 @@ instructionWillEscape er i =
 -- | Get the list of values reachable from the given instruction in
 -- the use graph.  An instruction is not reachable from itself unless
 -- it is in a cycle.
-reachableValues :: Instruction -> UseGraph -> [Value]
+reachableValues :: Instruction -> UseGraph -> [(Bool, Value)]
 reachableValues i g =
   case instructionInLoop i g of
     True -> reached
-    False -> filter (/= (Value i)) reached
+    False -> filter ((/= (Value i)) . snd) reached
   where
     reached = map (safeLab $__LOCATION__ g) $ dfs [instructionUniqueId i] g
 
@@ -166,7 +176,7 @@ instructionInLoop i g = any (instInNonSingleton i) (scc g)
 
 -- Useful type synonyms to hopefully make switching to hbgl easier
 -- later
-type UseGraph = Gr Value ()
+type UseGraph = Gr (Bool, Value) ()
 type UseNode = LNode UseGraph
 type UseEdge = LEdge UseGraph
 type UseContext = Context UseGraph
@@ -214,12 +224,18 @@ analyzeArgument g summ a =
       summ { willEscapeArguments =
                 M.insert a i (willEscapeArguments summ)
            }
+    Just (FptrEscapeWitness i) ->
+      summ { fptrEscapeArguments =
+                M.insert a i (fptrEscapeArguments summ)
+           }
     Nothing -> summ
   where
     reached = map (safeLab $__LOCATION__ g) $ dfs [argumentUniqueId a] g
 
 data WitnessType = EscapeWitness Instruction
+                 | FptrEscapeWitness Instruction
                  | WillEscapeWitness Instruction
+                 deriving (Show)
 
 -- | An instruction causes its value to escape if it is a store or a
 -- Call/Invoke.  The only edges to call instructions in the UseGraph
@@ -228,14 +244,20 @@ data WitnessType = EscapeWitness Instruction
 --
 -- If a Return instruction is reachable from a value, that value
 -- *willEscape*, which is different from *escapes*.
-inducesEscape :: Value -> Maybe WitnessType -> Maybe WitnessType
+inducesEscape :: (Bool, Value) -> Maybe WitnessType -> Maybe WitnessType
 inducesEscape _ w@(Just (EscapeWitness _)) = w
-inducesEscape v w =
+inducesEscape (isFptr, v) w =
   case valueContent v of
     InstructionC i@StoreInst {} -> Just (EscapeWitness i)
     InstructionC i@RetInst {} -> Just (WillEscapeWitness i)
-    InstructionC i@CallInst {} -> Just (EscapeWitness i)
-    InstructionC i@InvokeInst {} -> Just (EscapeWitness i)
+    InstructionC i@CallInst {} ->
+      case isFptr of
+        False -> Just (EscapeWitness i)
+        True -> Just (FptrEscapeWitness i)
+    InstructionC i@InvokeInst {} ->
+      case isFptr of
+        False -> Just (EscapeWitness i)
+        True -> Just (FptrEscapeWitness i)
     _ -> w
 
 -- Graph construction
@@ -260,10 +282,10 @@ addInstAndOps :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeResul
                  -> Set UseNode -> Instruction -> m (Set UseNode)
 addInstAndOps extSumm er s i = do
   operands <- escapeOperands extSumm er i
-  let opNodes = map (\v -> LNode (valueUniqueId v) v) operands
+  let opNodes = map (\v -> LNode (valueUniqueId v) (False, v)) operands
   return $! s `S.union` S.fromList (inode : opNodes)
   where
-    inode = LNode (instructionUniqueId i) (Value i)
+    inode = LNode (instructionUniqueId i) (isIndirectCall i, Value i)
 
 addEdges :: (Monad m) => (ExternalFunction -> Int -> m Bool) -> EscapeResult
             -> Set UseEdge -> Instruction -> m (Set UseEdge)
@@ -280,6 +302,16 @@ isPointer v =
     TypePointer _ _ -> True
     _ -> False
 
+isIndirectCall :: Instruction -> Bool
+isIndirectCall i =
+  case i of
+    CallInst { callFunction = (valueContent' -> FunctionC _) } -> False
+    CallInst { callFunction = (valueContent' -> ExternalFunctionC _) } -> False
+    CallInst { } -> True
+    InvokeInst { invokeFunction = (valueContent' -> FunctionC _) } -> False
+    InvokeInst { invokeFunction = (valueContent' -> ExternalFunctionC _) } -> False
+    InvokeInst { } -> True
+    _ -> False
 
 -- | Extract the operands relevant to the UseGraph from an
 -- Instruction.
@@ -308,7 +340,7 @@ escapeOperands extSumm er i = do
     PtrToIntInst { castedValue = v } -> return [v]
     IntToPtrInst { castedValue = v } -> return [v]
     BitcastInst { castedValue = v } -> return [v]
-    SelectInst { selectTrueValue = t, selectFalseValue = f } -> return [t,f]
+    SelectInst { selectTrueValue = t, selectFalseValue = f } -> return [ t, f ]
     CallInst { callArguments = args, callFunction = f } ->
       keepEscapingArgs extSumm er f (map fst args)
     InvokeInst { invokeArguments = args, invokeFunction = f } ->
@@ -326,10 +358,12 @@ keepEscapingArgs extSumm er callee args =
     FunctionC f ->
       let indexedEscapes = indexedEscapingArgs er f
           escapedIndices = S.fromList $ map fst indexedEscapes
-      in return $ map snd $ filter ((`S.member` escapedIndices) . fst) (zip ixs args)
+          escapedArgs = filter ((`S.member` escapedIndices) . fst) (zip ixs args)
+      in return $ map snd escapedArgs
     ExternalFunctionC f -> do
       escArgs <- filterM (extSumm f . fst) indexedArgs
       return $ map snd escArgs
+
     _ -> return args
   where
     ixs :: [Int]
@@ -386,9 +420,9 @@ safeLab loc g n =
 escapeUseGraphs :: EscapeResult -> [(String, UseGraph)]
 escapeUseGraphs = map (first (show . functionName)) . M.toList . escapeGraphs
 
-useGraphvizParams :: GraphvizParams n Value el () Value
+useGraphvizParams :: GraphvizParams n (Bool, Value) el () (Bool, Value)
 useGraphvizParams =
-  nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
+  nonClusteredParams { fmtNode = \(_,(_, l)) -> [toLabel (Value l)]
                      , fmtEdge = \_ -> []
                      }
 
