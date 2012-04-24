@@ -16,10 +16,15 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Failure hiding ( failure )
 import qualified Control.Failure as F
+import Data.List ( foldl' )
 import Data.Typeable
 import Debug.Trace.LocationTH
 
 import LLVM.Analysis
+
+-- import Text.Printf
+-- import Debug.Trace
+-- debug = flip trace
 
 data AccessPathError = NoPathError Value
                      | NotMemoryInstruction Instruction
@@ -136,16 +141,16 @@ derefPointerType (TypePointer p _) = p
 derefPointerType t = $failure ("Type is not a pointer type: " ++ show t)
 
 gepIndexFold :: Value -> [Value] -> [AccessType]
-gepIndexFold base (ptrIx : ixs) =
+gepIndexFold base indices@(ptrIx : ixs) =
   -- GEPs always have a pointer as the base operand
   let TypePointer baseType _ = valueType base
   in case valueContent ptrIx of
     ConstantC ConstantInt { constantIntValue = 0 } ->
-      snd $ foldr walkGep (baseType, []) ixs
+      snd $ foldl' walkGep (baseType, []) ixs
     _ ->
-      snd $ foldr walkGep (baseType, [AccessArray]) ixs
+      snd $ foldl' walkGep (baseType, [AccessArray]) ixs
   where
-    walkGep ix (ty, acc) =
+    walkGep (ty, acc) ix =
       case ty of
         -- If the current type is a pointer, this must be an array
         -- access; that said, this wouldn't even be allowed because a
