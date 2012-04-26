@@ -1,4 +1,9 @@
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, FlexibleContexts #-}
+-- | This module defines an abstraction over field accesses of
+-- structures called AccessPaths.  A concrete access path is rooted at
+-- a value, while an abstract access path is rooted at a type.  Both
+-- include a list of 'AccessType's that denote dereferences of
+-- pointers, field accesses, and array references.
 module LLVM.Analysis.AccessPath (
   -- * Types
   AccessPath(..),
@@ -9,14 +14,15 @@ module LLVM.Analysis.AccessPath (
   accessPath,
   abstractAccessPath,
   appendAccessPath,
-  followAccessPath
+  followAccessPath,
+  externalizeAccessPath
   ) where
 
 import Control.DeepSeq
 import Control.Exception
 import Control.Failure hiding ( failure )
 import qualified Control.Failure as F
-import Data.List ( foldl' )
+import Data.List ( foldl', stripPrefix )
 import Data.Typeable
 import Debug.Trace.LocationTH
 
@@ -135,6 +141,36 @@ accessPath i =
                      }
           in go p' la
         _ -> p { accessPathBaseValue = v }
+
+-- | Convert an 'AbstractAccessPath' to a format that can be written
+-- to disk and read back into another process.  The format is the pair
+-- of the base name of the structure field being accessed (with
+-- struct. stripped off) and with any numeric suffixes (which are
+-- added by llvm) chopped off.  The actually list of 'AccessType's is
+-- preserved.
+--
+-- The struct name mangling here basically assumes that the types
+-- exposed via the access path abstraction have the same definition in
+-- all compilation units.  Ensuring this between runs is basically
+-- impossible, but it is pretty much always the case.
+externalizeAccessPath :: AbstractAccessPath -> Maybe (String, [AccessType])
+externalizeAccessPath accPath = do
+  structName <- case stripPointerTypes bt of
+    TypeStruct (Just name) _ _ -> return name
+    _ -> Nothing
+  let baseName = case stripPrefix "struct." structName of
+        Nothing -> takeWhile (/='.') structName
+        Just n' -> takeWhile (/='.') n'
+  return (baseName, abstractAccessPathComponents accPath)
+  where
+    bt = abstractAccessPathBaseType accPath
+    stripPointerTypes t =
+      case t of
+        TypePointer t' _ -> stripPointerTypes t'
+        _ -> t
+
+-- Internal Helpers
+
 
 derefPointerType :: Type -> Type
 derefPointerType (TypePointer p _) = p
