@@ -22,7 +22,7 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Failure hiding ( failure )
 import qualified Control.Failure as F
-import Data.List ( foldl', stripPrefix )
+import Data.List ( foldl' )
 import Data.Typeable
 import Debug.Trace.LocationTH
 
@@ -155,19 +155,10 @@ accessPath i =
 -- impossible, but it is pretty much always the case.
 externalizeAccessPath :: AbstractAccessPath -> Maybe (String, [AccessType])
 externalizeAccessPath accPath = do
-  structName <- case stripPointerTypes bt of
-    TypeStruct (Just name) _ _ -> return name
-    _ -> Nothing
-  let baseName = case stripPrefix "struct." structName of
-        Nothing -> takeWhile (/='.') structName
-        Just n' -> takeWhile (/='.') n'
+  baseName <- structTypeToName (stripPointerTypes bt)
   return (baseName, abstractAccessPathComponents accPath)
   where
     bt = abstractAccessPathBaseType accPath
-    stripPointerTypes t =
-      case t of
-        TypePointer t' _ -> stripPointerTypes t'
-        _ -> t
 
 -- Internal Helpers
 
