@@ -1,0 +1,3 @@
+fromList [ ("Base", fromList ["Derived"])
+         , ("Derived", fromList ["Derived2"])
+         ]

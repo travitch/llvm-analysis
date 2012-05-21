@@ -29,7 +29,9 @@ library
                  lattices, failure >= 0.2, hashtables,
                  data-lens == 2.0.*, data-lens-template >= 2.1.3,
                  HUnit, test-framework, test-framework-hunit,
-                 llvm-base-types, hbgl
+                 llvm-base-types, hbgl,
+                 -- Dealing with C++ names
+                 itanium-abi, uniplate == 1.*
   hs-source-dirs: src
   exposed-modules: LLVM.Analysis,
                    LLVM.Analysis.AccessPath,
@@ -37,6 +39,7 @@ library
                    LLVM.Analysis.CFG,
                    LLVM.Analysis.CallGraph,
                    LLVM.Analysis.CallGraphSCCTraversal,
+                   LLVM.Analysis.ClassHierarchy,
                    LLVM.Analysis.Dataflow,
                    LLVM.Analysis.Dominance,
                    LLVM.Analysis.Escape,
@@ -86,4 +89,13 @@ test-suite AccessPathTests
                  HUnit, llvm-data-interop
   ghc-options: -Wall -rtsopts
   main-is: AccessPathTests.hs
+  hs-source-dirs: tests
+
+test-suite ClassHierarchyTests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  build-depends: base == 4.*, containers, llvm-analysis, filepath,
+                 HUnit, llvm-data-interop
+  ghc-options: -Wall -rtsopts
+  main-is: ClassHierarchyTests.hs
   hs-source-dirs: tests
