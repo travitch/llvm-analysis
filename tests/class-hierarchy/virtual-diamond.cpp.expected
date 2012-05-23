@@ -1,0 +1,4 @@
+fromList [ ("Base", fromList ["Middle1", "Middle2"])
+         , ("Middle1", fromList ["Derived"])
+         , ("Middle2", fromList ["Derived"])
+         ]

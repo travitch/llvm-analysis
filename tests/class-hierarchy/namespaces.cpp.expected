@@ -1,0 +1,6 @@
+fromList [ ("ns1::Base", fromList ["m::Middle1"])
+         , ("ns2::Base", fromList ["m::Middle2"])
+         , ("m::Middle1", fromList ["Derived"])
+         , ("m::Middle2", fromList ["Derived"])
+         ]
+

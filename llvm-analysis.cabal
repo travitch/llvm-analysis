@@ -28,8 +28,9 @@ library
                  loch-th >= 0.2, temporary >= 1.0,
                  lattices, failure >= 0.2, hashtables,
                  data-lens == 2.0.*, data-lens-template >= 2.1.3,
+                 llvm-base-types, hbgl, boomerang,
+                 -- Testing
                  HUnit, test-framework, test-framework-hunit,
-                 llvm-base-types, hbgl,
                  -- Dealing with C++ names
                  itanium-abi, uniplate == 1.*
   hs-source-dirs: src
@@ -51,6 +52,7 @@ library
                    LLVM.Analysis.Types,
                    LLVM.Analysis.Util.Environment,
                    LLVM.Analysis.Util.Testing
+  other-modules: LLVM.Analysis.Util.Names
 
   ghc-options: -Wall -funbox-strict-fields
   ghc-prof-options: -auto-all
