@@ -201,11 +201,16 @@ buildBlockGraph (nacc, eacc) bb = (newNodes ++ nacc, concat [termEdges, internal
 
     internalEdges = map toInternalEdge internalEdgePairings
 
+    -- FIXME: Examine call instructions to pick out calls to the
+    -- libstdc++ unwind function, which marks the end of control flow
+    -- in a function... that said, calls to __cxa_throw are properly
+    -- marked as not returning (and are followed by the unreachable
+    -- instruction), so maybe no special handling is required at the
+    -- intraprocedural level.  This will still be important for
+    -- interprocedural analyses, though.
     termEdges = case termInst of
       -- Returns have no intraprocedural edges
       RetInst {} -> []
-      -- Unwinds also have no intraprocedural edges
-      UnwindInst {} -> []
       -- A single target (no label needed)
       UnconditionalBranchInst { unconditionalBranchTarget = tgt } ->
         [ LEdge (Edge termNodeId (jumpTargetId tgt)) UnconditionalEdge ]
