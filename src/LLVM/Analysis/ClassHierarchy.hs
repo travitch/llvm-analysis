@@ -99,7 +99,7 @@ virtualDispatch cha loadAddr thisVal = do
   where
     TypePointer thisType _ = valueType thisVal
     derivedTypes = classTransitiveSubtypes cha thisType
-    vtbls = mapMaybe (classVTable cha) (thisType : derivedTypes)
+    vtbls = mapMaybe (classVTable cha) derivedTypes
 
 -- | Identify the slot number of a virtual function call.  Basically,
 -- work backwards from the starred instructions in the virtual
