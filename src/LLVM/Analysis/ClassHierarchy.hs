@@ -220,7 +220,11 @@ transitiveTypes :: (CHA -> Map Name (Set Name)) -> CHA -> Type -> [Type]
 transitiveTypes selector cha t0 =
   namesToTypes cha (go (S.singleton (typeToName t0)))
   where
-    go ts = ts `mappend` foldMap getParents ts
+    go ts =
+      let nextLevel = foldMap getParents ts
+      in case mempty == nextLevel of
+        True -> ts
+        False -> go nextLevel `mappend` ts
     getParents t = M.findWithDefault mempty t (selector cha)
 
 -- | Retrieve the vtbl for a given type.  Will return Nothing if the
