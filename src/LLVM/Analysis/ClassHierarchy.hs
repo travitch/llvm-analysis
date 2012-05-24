@@ -16,10 +16,13 @@ module LLVM.Analysis.ClassHierarchy (
   CHA,
   VTable,
   -- * Functions
+  resolveVirtualCallee,
   classSubtypes,
+  classTransitiveSubtypes,
   classParents,
   classAncestors,
   classVTable,
+  functionAtSlot,
   runCHA,
   -- * Testing
   classHierarchyToTestFormat
@@ -35,11 +38,11 @@ import Data.Maybe ( mapMaybe )
 import Data.Monoid
 import Data.Set ( Set )
 import qualified Data.Set as S
-import Data.Vector ( Vector )
+import Data.Vector ( Vector, (!?) )
 import qualified Data.Vector as V
 import Debug.Trace.LocationTH
 
-import LLVM.Analysis
+import LLVM.Analysis hiding ( (!?) )
 import LLVM.Analysis.Util.Names
 
 -- | The result of the class hierarchy analysis
@@ -51,6 +54,8 @@ data CHA = CHA { childrenMap :: Map Name (Set Name)
                  -- ^ The virtual function pointer table for the map key
                , typeMapping :: Map Name Type
                  -- ^ A relation between ABI names and LLVM Types
+               , chaModule :: Module
+                 -- ^ A saved reference to the module
                }
 
 -- Note that all keys are by Name here.  The name is the name of the
@@ -61,17 +66,136 @@ data CHA = CHA { childrenMap :: Map Name (Set Name)
 -- records namespace information in class type names, this process is
 -- robust enough.
 
-instance Monoid CHA where
-  mempty = CHA mempty mempty mempty mempty
-  mappend c1 c2 = CHA { childrenMap = M.unionWith S.union (childrenMap c1) (childrenMap c2)
-                      , parentMap = M.unionWith S.union (parentMap c1) (parentMap c2)
-                      , typeMapping = typeMapping c1 `mappend` typeMapping c2
-                      , vtblMap = vtblMap c1 `mappend` vtblMap c2
-                      }
-
 -- | An interface for inspecting virtual function tables
 data VTable = ExternalVTable
             | VTable (Vector Function)
+            deriving (Show)
+
+resolveVirtualCallee :: CHA -> Instruction -> Maybe [Function]
+resolveVirtualCallee cha i =
+  case i of
+    -- Resolve direct calls (note, this does not cover calls to
+    -- external functions, unfortunately).
+    CallInst { callFunction = (valueContent' -> FunctionC f) } -> Just [f]
+    -- Resolve actual virtual dispatches.  Note that the first
+    -- argument is always the @this@ pointer.
+    CallInst { callFunction = (valueContent' -> InstructionC LoadInst { loadAddress = la })
+             , callArguments = (thisVal, _) : _
+             } ->
+      virtualDispatch cha la thisVal
+    InvokeInst { invokeFunction = (valueContent' -> FunctionC f) } -> Just [f]
+    InvokeInst { invokeFunction = (valueContent' -> InstructionC LoadInst { loadAddress = la })
+               , invokeArguments = (thisVal, _) : _
+               } ->
+      virtualDispatch cha la thisVal
+    _ -> Nothing
+
+-- | Dispatch to one of the vtable lookup strategies based on the
+-- value that was loaded from the vtable.
+virtualDispatch :: CHA -> Value -> Value -> Maybe [Function]
+virtualDispatch cha loadAddr thisVal = do
+  slotNumber <- getVFuncSlot cha loadAddr thisVal
+  return $! mapMaybe (functionAtSlot slotNumber) vtbls
+  where
+    TypePointer thisType _ = valueType thisVal
+    derivedTypes = classTransitiveSubtypes cha thisType
+    vtbls = mapMaybe (classVTable cha) (thisType : derivedTypes)
+
+-- | Identify the slot number of a virtual function call.  Basically,
+-- work backwards from the starred instructions in the virtual
+-- function call dispatch patterns:
+--
+-- clang:
+--
+--   %2 = bitcast %struct.Base* %0 to void (%struct.Base*)***
+--   %vtable = load void (%struct.Base*)*** %2
+--   %vfn = getelementptr inbounds void (%struct.Base*)** %vtable, i64 1
+-- * %3 = load void (%struct.Base*)** %vfn
+--   call void %3(%struct.Base* %0)
+--
+-- clang0:
+--
+--   %0 = bitcast %struct.Base* %b to void (%struct.Base*)***
+--   %vtable = load void (%struct.Base*)*** %0
+-- * %1 = load void (%struct.Base*)** %vtable
+--   call void %1(%struct.Base* %b)
+--
+-- dragonegg:
+--
+--   %2 = getelementptr inbounds %struct.Base* %1, i32 0, i32 0
+--   %3 = load i32 (...)*** %2, align 4
+--   %4 = bitcast i32 (...)** %3 to i8*
+--   %5 = getelementptr i8* %4, i32 4
+--   %6 = bitcast i8* %5 to i32 (...)**
+-- * %7 = load i32 (...)** %6, align 4
+--   %8 = bitcast i32 (...)* %7 to void (%struct.Base*)*
+--   call void %8(%struct.Base* %1)
+--
+-- dragonegg0 (first method slot):
+--
+--   %2 = getelementptr inbounds %struct.Base* %1, i32 0, i32 0
+--   %3 = load i32 (...)*** %2, align 4
+-- * %4 = load i32 (...)** %3, align 4
+--   %5 = bitcast i32 (...)* %4 to void (%struct.Base*)*
+--   call void %5(%struct.Base* %1)
+getVFuncSlot :: CHA -> Value -> Value -> Maybe Int
+getVFuncSlot cha loadAddr thisArg =
+  case valueContent loadAddr of
+    -- Clang style
+    InstructionC GetElementPtrInst {
+      getElementPtrIndices = [(valueContent -> ConstantC ConstantInt { constantIntValue = slotNo })],
+      getElementPtrValue =
+        (valueContent -> InstructionC LoadInst {
+            loadAddress =
+               (valueContent -> InstructionC BitcastInst {
+                   castedValue = thisPtr
+                      })})} ->
+      case thisArg == thisPtr of
+        True -> return $! fromIntegral slotNo
+        False -> Nothing
+    InstructionC LoadInst {
+      loadAddress = (valueContent -> InstructionC BitcastInst {
+                        castedValue = base})} ->
+      case thisArg == base of
+        True -> return 0
+        False -> Nothing
+    -- Dragonegg0 style (slot 0 call)
+    InstructionC LoadInst {
+      loadAddress =
+         (valueContent -> InstructionC GetElementPtrInst {
+             getElementPtrIndices = [ (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+                                    , (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+                                    ],
+             getElementPtrValue = thisPtr})} ->
+      case thisArg == thisPtr of
+        True -> return 0
+        False -> Nothing
+    -- Dragonegg general case
+    InstructionC BitcastInst {
+      castedValue =
+         (valueContent -> InstructionC GetElementPtrInst {
+             getElementPtrIndices = [(valueContent -> ConstantC ConstantInt { constantIntValue = offset })],
+             getElementPtrValue =
+               (valueContent -> InstructionC BitcastInst {
+                   castedValue =
+                      (valueContent -> InstructionC LoadInst {
+                          loadAddress =
+                             (valueContent -> InstructionC GetElementPtrInst {
+                                 getElementPtrIndices = [ (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+                                                        , (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+                                                        ],
+                                 getElementPtrValue = thisPtr})})})})} ->
+      case thisArg == thisPtr of
+        True -> Just $! indexFromOffset cha (fromIntegral offset)
+        False -> Nothing
+    _ -> Nothing
+
+indexFromOffset :: CHA -> Int -> Int
+indexFromOffset cha bytes = (bytes * 8) `div` pointerBits
+  where
+    m = chaModule cha
+    targetData = moduleDataLayout m
+    pointerBits = alignmentPrefSize (targetPointerPrefs targetData)
 
 -- | List of all types derived from the given 'Type'.
 classSubtypes :: CHA -> Type -> [Type]
@@ -104,16 +228,23 @@ transitiveTypes selector cha t0 =
 classVTable :: CHA -> Type -> Maybe VTable
 classVTable cha t = M.lookup (typeToName t) (vtblMap cha)
 
+-- | Get the function at the named slot in a vtable.  Returns Nothing
+-- for external vtables.
+functionAtSlot :: Int -> VTable -> Maybe Function
+functionAtSlot _ ExternalVTable = Nothing
+functionAtSlot slot (VTable v) = v !? slot
+
 -- | The analysis reconstructs the class hierarchy by looking at
 -- typeinfo structures (which are probably only generated when
 -- compiling with run-time type information enabled).  It also finds
 -- vtables by demangling the names of the vtables in the module.
 runCHA :: Module -> CHA
-runCHA m = foldr buildTypeMap cha0 ctors
+runCHA m = foldr buildTypeMap cha1 ctors
   where
     gvs = moduleGlobalVariables m
     ctors = moduleConstructors m
-    cha0 = foldr recordParents mempty gvs
+    cha0 = CHA mempty mempty mempty mempty m
+    cha1 = foldr recordParents cha0 gvs
 
 moduleConstructors :: Module -> [Function]
 moduleConstructors = filter isC2Constructor . moduleDefinedFunctions
@@ -131,8 +262,8 @@ buildTypeMap f cha =
       cha { typeMapping = M.insert n t (typeMapping cha) }
   where
     t = constructedType f
-    Just fname = case t of
-      TypeStruct (Just tn) _ _ -> stripPrefix "class." tn
+    fname = case t of
+      TypeStruct (Just tn) _ _ -> stripNamePrefix tn
       _ -> $failure ("Expected class type: " ++ show t)
 
 -- | Determine the parent classes for each class type (if any) and
@@ -172,23 +303,19 @@ recordVTable cha typeName (Just v) =
 -- is.
 makeVTable :: [Value] -> VTable
 makeVTable =
-  VTable . V.fromList . map unsafeToFunction . takeWhile isVTableFunctionType . dropWhile isVTableFunctionType
+  VTable . V.fromList . map unsafeToFunction . takeWhile isVTableFunctionType . dropWhile (not . isVTableFunctionType)
 
 unsafeToFunction :: Value -> Function
 unsafeToFunction v =
-  case valueContent v of
-    ConstantC ConstantValue {
-      constantInstruction = BitcastInst {
-         castedValue = (valueContent -> FunctionC f)}} -> f
+  case valueContent' v of
+    FunctionC f -> f
     _ -> $failure ("Expected vtable function entry: " ++ show v)
 
 
 isVTableFunctionType :: Value -> Bool
 isVTableFunctionType v =
-  case valueContent v of
-    ConstantC ConstantValue {
-      constantInstruction = BitcastInst {
-         castedValue = (valueContent -> FunctionC _)}} -> True
+  case valueContent' v of
+    FunctionC _ -> True
     _ -> False
 
 recordTypeInfo :: CHA -> Name -> Maybe Value -> CHA
@@ -241,9 +368,18 @@ isC2Constructor f =
     n = identifierAsString (functionName f)
     dname = demangleName n
 
+stripNamePrefix :: String -> String
+stripNamePrefix s =
+  case stripPrefix "class." s of
+    Nothing ->
+      case stripPrefix "struct." s of
+        Nothing -> s
+        Just s' -> s'
+    Just s' -> s'
+
 typeToName :: Type -> Name
 typeToName (TypeStruct (Just n) _ _) =
-  case parseTypeName n of
+  case parseTypeName (stripNamePrefix n) of
     Right tn -> tn
     Left e -> $failure e
 typeToName t = $failure ("Expected named struct type: " ++ show t)

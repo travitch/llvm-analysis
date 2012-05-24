@@ -51,8 +51,8 @@ library
                    LLVM.Analysis.ScalarEffects,
                    LLVM.Analysis.Types,
                    LLVM.Analysis.Util.Environment,
+                   LLVM.Analysis.Util.Names,
                    LLVM.Analysis.Util.Testing
-  other-modules: LLVM.Analysis.Util.Names
 
   ghc-options: -Wall -funbox-strict-fields
   ghc-prof-options: -auto-all
@@ -97,7 +97,7 @@ test-suite ClassHierarchyTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
   build-depends: base == 4.*, containers, llvm-analysis, filepath,
-                 HUnit, llvm-data-interop
+                 HUnit, llvm-data-interop, uniplate, itanium-abi
   ghc-options: -Wall -rtsopts
   main-is: ClassHierarchyTests.hs
   hs-source-dirs: tests

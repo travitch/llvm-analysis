@@ -1,0 +1,1 @@
+fromList [ ("test", fromList ["DispatchBase::f"])]

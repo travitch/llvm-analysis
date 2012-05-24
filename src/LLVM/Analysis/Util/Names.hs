@@ -5,7 +5,9 @@
 -- conversion between Strings and Names.
 module LLVM.Analysis.Util.Names (
   parseTypeName,
-  unparseTypeName
+  unparseTypeName,
+  parseFunctionName,
+  unparseFunctionName
   ) where
 
 import Prelude hiding ( (.) )
@@ -14,13 +16,26 @@ import Text.Boomerang
 import Text.Boomerang.String
 import Text.Boomerang.TH
 
-import ABI.Itanium
+import ABI.Itanium as ABI
+import LLVM.Analysis as LLVM
 
 $(derivePrinterParsers ''Name)
 $(derivePrinterParsers ''CVQualifier)
 $(derivePrinterParsers ''Prefix)
 $(derivePrinterParsers ''UnqualifiedName)
 $(derivePrinterParsers ''UName)
+
+parseFunctionName :: Function -> Either String Name
+parseFunctionName f =
+  case demangleName fname of
+    Left e -> Left e
+    Right (ABI.Function sname _) -> Right sname
+    Right n -> Left ("Unexpected name: " ++ show n)
+  where
+    fname = identifierAsString (functionName f)
+
+unparseFunctionName :: Name -> Maybe String
+unparseFunctionName = unparseTypeName
 
 parseTypeName :: String -> Either String Name
 parseTypeName s =
