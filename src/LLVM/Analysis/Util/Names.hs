@@ -32,7 +32,7 @@ unparseTypeName :: Name -> Maybe String
 unparseTypeName = unparseString name
 
 name :: PrinterParser StringError String a (Name :- a)
-name = ( rNestedName . rList qualifier . rList prefix . unqName <>
+name = ( rNestedName . rList qualifier . rList1 prefix . unqName <>
          rUnscopedName . unscopedName
        )
 
