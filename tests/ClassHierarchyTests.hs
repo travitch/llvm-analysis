@@ -66,7 +66,7 @@ functionToDemangledName f =
 
 firstCalleeTargets :: CHA -> Function -> Maybe (String, Set String)
 firstCalleeTargets cha f = do
-  case isConstructor f of
+  case isConstructor f || isVirtualThunk f of
     True -> Nothing
     False -> do
       firstCall <- find isCallInst insts
@@ -75,6 +75,19 @@ firstCalleeTargets cha f = do
   where
     insts = functionInstructions f
     fname = functionToDemangledName f
+
+isVirtualThunk :: Function -> Bool
+isVirtualThunk f =
+  case dname of
+    Left _ -> False
+    Right sname ->
+      case sname of
+        ABI.OverrideThunk _ _ -> True
+        ABI.OverrideThunkCovariant _ _ _ -> True
+        _ -> False
+  where
+    n = identifierAsString (functionName f)
+    dname = ABI.demangleName n
 
 isConstructor :: Function -> Bool
 isConstructor f =

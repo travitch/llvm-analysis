@@ -30,6 +30,7 @@ parseFunctionName f =
   case demangleName fname of
     Left e -> Left e
     Right (ABI.Function sname _) -> Right sname
+    Right (ABI.OverrideThunk _ (ABI.Function sname _)) -> Right sname
     Right n -> Left ("Unexpected name: " ++ show n)
   where
     fname = identifierAsString (functionName f)
