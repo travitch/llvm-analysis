@@ -13,6 +13,8 @@ module LLVM.Analysis.Dominance (
   -- * Types
   DominatorTree,
   PostdominatorTree,
+  HasDomTree(..),
+  HasPostdomTree(..),
   -- * Constructors
   dominators,
   immediateDominators,
@@ -46,6 +48,12 @@ import LLVM.Analysis.CFG
 -- import LLVM.Analysis.Internal.PatriciaTree
 
 type DomTreeType = Gr Instruction ()
+
+class HasDomTree a where
+  getDomTree :: a -> DominatorTree
+
+class HasPostdomTree a where
+  getPostdomTree :: a -> PostdominatorTree
 
 -- | The standard dominator tree
 data DominatorTree = DT { dtTree :: DomTreeType

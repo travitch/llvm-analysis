@@ -22,6 +22,7 @@
 module LLVM.Analysis.CDG (
   -- * Types
   CDG,
+  HasCDG(..),
   -- * Constructor
   controlDependenceGraph,
   -- * Queries
@@ -60,6 +61,9 @@ type LNodeType = LNode CDGType
 data CDG = CDG { cdgGraph :: CDGType
                , cdgCFG :: CFG
                }
+
+class HasCDG a where
+  getCDG :: a -> CDG
 
 instance HasCFG CDG where
   getCFG = cdgCFG
