@@ -40,8 +40,9 @@ import Control.DeepSeq
 import Control.Monad ( foldM )
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as M
-import Data.Set ( Set )
-import qualified Data.Set as S
+import Data.HashSet ( HashSet )
+import qualified Data.HashSet as S
+import Data.List ( sort )
 import Debug.Trace.LocationTH
 import Text.Printf
 
@@ -131,7 +132,7 @@ firstInst i = firstBlock bb
 forwardDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
                    => a -> b -> m (DataflowResult a)
 forwardDataflow analysis f =
-  dataflowAnalysis id
+  dataflowAnalysis basicBlockTerminatorInstruction id
     (basicBlockLabeledPredecessors cfg)
     (basicBlockLabeledSuccessors cfg)
     analysis cfg
@@ -145,7 +146,7 @@ forwardDataflow analysis f =
 backwardDataflow :: (Eq a, HasCFG b, DataflowAnalysis m a)
                     => a -> b -> m (DataflowResult a)
 backwardDataflow analysis f =
-  dataflowAnalysis reverse
+  dataflowAnalysis firstNonPhiInstruction reverse
     (basicBlockLabeledSuccessors cfg)
     (basicBlockLabeledPredecessors cfg)
     analysis cfg
@@ -153,11 +154,12 @@ backwardDataflow analysis f =
     cfg = getCFG f
 
 dataflowAnalysis :: forall a m . (Eq a, DataflowAnalysis m a)
-                    => ([Instruction] -> [Instruction])
+                    => (BasicBlock -> Instruction)
+                    -> ([Instruction] -> [Instruction])
                     -> (BasicBlock -> [(BasicBlock, CFGEdge)])
                     -> (BasicBlock -> [(BasicBlock, CFGEdge)])
                     -> a -> CFG -> m (DataflowResult a)
-dataflowAnalysis orderedBlockInsts blockPreds blockSuccs fact0 cfg = do
+dataflowAnalysis lastInstruction orderedBlockInsts blockPreds blockSuccs fact0 cfg = do
   let blocks = functionBody func
       insts = concatMap basicBlockInstructions blocks
       initialStates = M.fromList $ zip insts (repeat top)
@@ -180,22 +182,21 @@ dataflowAnalysis orderedBlockInsts blockPreds blockSuccs fact0 cfg = do
       (facts', nextWork') <- foldM processBlock factsAndWork work
       case S.null nextWork' of
         True -> return facts'
-        False -> dataflow (S.toList nextWork') (facts', S.empty)
+        False -> dataflow (sort (S.toList nextWork')) (facts', S.empty)
 
     -- | FIXME the ordered block instructions should probably exclude
     -- phi nodes here since we don't track facts for phi nodes.  This
     -- will cause problems for a backwards analysis.
     lookupBlockFact :: (DataflowAnalysis m a) => HashMap Instruction a -> BasicBlock -> a
     lookupBlockFact facts block =
-      let insts = orderedBlockInsts (basicBlockInstructions block)
-      in case M.lookup (last insts) facts of
+      case M.lookup (lastInstruction block) facts of
         Just fact -> fact
         Nothing -> $failure $ printf "No facts for block %s" (show (Value block))
 
     processBlock :: (DataflowAnalysis m a)
-                    => (HashMap Instruction a, Set BasicBlock)
+                    => (HashMap Instruction a, HashSet BasicBlock)
                     -> BasicBlock
-                    -> m (HashMap Instruction a, Set BasicBlock)
+                    -> m (HashMap Instruction a, HashSet BasicBlock)
     processBlock (outputFacts, nextWork) block = do
 
       -- First, match up the output facts for each incoming basic
@@ -250,7 +251,7 @@ dataflowAnalysis orderedBlockInsts blockPreds blockSuccs fact0 cfg = do
           -- Update the worklist with the successors of this block and the facts
           let succBlocks = map fst $ blockSuccs block
               nextWork' = nextWork `S.union` S.fromList succBlocks
-          in return (outputFacts', S.size nextWork' `seq` nextWork')
+          in return (outputFacts', nextWork')
       where
         lastOutputFact = lookupBlockFact outputFacts block
         preds = blockPreds block
