@@ -46,7 +46,7 @@ module LLVM.Analysis.Escape (
   argumentFptrEscapes,
   argumentWillEscape,
   instructionEscapes,
-  instructionEscapes',
+  instructionEscapesWith,
   instructionWillEscape,
   -- * Testing
   escapeResultToTestFormat,
@@ -119,16 +119,9 @@ argumentFptrEscapes er a = M.lookup a (fptrEscapeArguments er)
 argumentWillEscape :: EscapeResult -> Argument -> Maybe Instruction
 argumentWillEscape er a = M.lookup a (willEscapeArguments er)
 
--- | Determine if an instruction escapes from the scope of its
--- enclosing function.  This function does not include willEscape
--- results.
---
--- Note that this also reports escapes via function pointer
-instructionEscapes :: EscapeResult -> Instruction -> Maybe Instruction
-instructionEscapes er = instructionEscapes' er []
-
--- | A variant of 'instructionEscapes' that takes a list of values to
--- ignore in the use graph.  The set of reachable locations for the
+-- | A generalization of 'instructionEscapes'.  The first argument is
+-- a predicate that returns True if the input Value should be excluded
+-- in the Use graph.  The set of reachable locations for the
 -- input instruction is computed as normal, but the values in the
 -- @ignore@ list are removed from the set before it is used to
 -- determine what escapes.
@@ -143,35 +136,40 @@ instructionEscapes er = instructionEscapes' er []
 -- an out parameter) and to determine if they also escape via some
 -- other means.  In that case, the @ignore@ list should be just the
 -- store instruction that created the known escape.
-instructionEscapes' :: EscapeResult -> [Value] -> Instruction -> Maybe Instruction
-instructionEscapes' er ignore i =
-  case foldr inducesEscape Nothing reached of
-    Just (EscapeWitness w) -> Just w
-    Just (FptrEscapeWitness w) -> Just w
-    Just (WillEscapeWitness _) -> Nothing
-    Nothing -> Nothing
-  where
-    Just bb = instructionBasicBlock i
-    f = basicBlockFunction bb
-    errMsg = $failure ("Expected escape graph for " ++ show (functionName f))
-    g = M.lookupDefault errMsg f (escapeGraphs er)
-    reached = filter (not . (`elem` ignore) . snd) $ reachableValues i g
+instructionEscapesWith :: (Value -> Bool) -> Instruction -> EscapeResult -> Maybe Instruction
+instructionEscapesWith = instructionEscapeCore (Just . escapeWitness)
 
--- | Determine if a function value will escape through a return
--- instruction.
-instructionWillEscape :: EscapeResult -> Instruction -> Maybe Instruction
-instructionWillEscape er i =
-  case foldr inducesEscape Nothing reached of
-    Just (EscapeWitness _) -> Nothing
-    Just (FptrEscapeWitness _) -> Nothing
-    Just (WillEscapeWitness w) -> Just w
-    Nothing -> Nothing
+-- | Returns the instruction (if any) that causes the input
+-- instruction to escape.  This does *not* cover WillEscape at all.
+instructionEscapes :: Instruction -> EscapeResult -> Maybe Instruction
+instructionEscapes = instructionEscapeCore extract (const False)
+  where
+    extract (EscapeWitness w) = Just w
+    extract (FptrEscapeWitness w) = Just w
+    extract _ = Nothing
+
+-- | Returns the return instruction (if any) that causes the given
+-- instruction to be marked as WillEscape.
+instructionWillEscape :: Instruction -> EscapeResult -> Maybe Instruction
+instructionWillEscape = instructionEscapeCore extract (const False)
+  where
+    extract (WillEscapeWitness w) = Just w
+    extract _ = Nothing
+
+instructionEscapeCore :: (WitnessType -> Maybe Instruction)
+                         -> (Value -> Bool)
+                         -> Instruction
+                         -> EscapeResult
+                         -> Maybe Instruction
+instructionEscapeCore extractWitness ignoreValue i er = do
+  escType <- foldr inducesEscape Nothing reached
+  extractWitness escType
   where
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
     errMsg = $failure ("Expected escape graph for " ++ show (functionName f))
     g = M.lookupDefault errMsg f (escapeGraphs er)
-    reached = reachableValues i g
+    reached = filter (not . ignoreValue . snd) $ reachableValues i g
 
 -- | Get the list of values reachable from the given instruction in
 -- the use graph.  An instruction is not reachable from itself unless
@@ -252,9 +250,9 @@ analyzeArgument g summ a =
   where
     reached = map (safeLab $__LOCATION__ g) $ dfs [argumentUniqueId a] g
 
-data WitnessType = EscapeWitness Instruction
-                 | FptrEscapeWitness Instruction
-                 | WillEscapeWitness Instruction
+data WitnessType = EscapeWitness { escapeWitness :: Instruction }
+                 | FptrEscapeWitness { escapeWitness :: Instruction }
+                 | WillEscapeWitness { escapeWitness :: Instruction }
                  deriving (Show)
 
 -- | An instruction causes its value to escape if it is a store or a

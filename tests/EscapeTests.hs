@@ -67,7 +67,7 @@ willEscapeSummary m = willEscapeResultToTestFormat er
     extSumm _ _ = return True
 
 callInstructionEscapeSummary :: Module -> Bool
-callInstructionEscapeSummary m = isJust $ instructionEscapes er i
+callInstructionEscapeSummary m = isJust $ instructionEscapes i er
   where
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
