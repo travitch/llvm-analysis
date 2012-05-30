@@ -46,6 +46,7 @@ module LLVM.Analysis.Escape (
   argumentFptrEscapes,
   argumentWillEscape,
   instructionEscapes,
+  instructionEscapes',
   instructionWillEscape,
   -- * Testing
   escapeResultToTestFormat,
@@ -124,7 +125,26 @@ argumentWillEscape er a = M.lookup a (willEscapeArguments er)
 --
 -- Note that this also reports escapes via function pointer
 instructionEscapes :: EscapeResult -> Instruction -> Maybe Instruction
-instructionEscapes er i =
+instructionEscapes er = instructionEscapes' er []
+
+-- | A variant of 'instructionEscapes' that takes a list of values to
+-- ignore in the use graph.  The set of reachable locations for the
+-- input instruction is computed as normal, but the values in the
+-- @ignore@ list are removed from the set before it is used to
+-- determine what escapes.
+--
+-- This arrangement means that @ignore@d nodes do *not* affect the
+-- reachability computation.  That is critical for transitive
+-- assignments to be treated properly (that is, for the transitive
+-- links to be included).
+--
+-- The intended use of this variant is to issue escape queries for
+-- instructions that are known to escape via some desired means (e.g.,
+-- an out parameter) and to determine if they also escape via some
+-- other means.  In that case, the @ignore@ list should be just the
+-- store instruction that created the known escape.
+instructionEscapes' :: EscapeResult -> [Value] -> Instruction -> Maybe Instruction
+instructionEscapes' er ignore i =
   case foldr inducesEscape Nothing reached of
     Just (EscapeWitness w) -> Just w
     Just (FptrEscapeWitness w) -> Just w
@@ -135,7 +155,7 @@ instructionEscapes er i =
     f = basicBlockFunction bb
     errMsg = $failure ("Expected escape graph for " ++ show (functionName f))
     g = M.lookupDefault errMsg f (escapeGraphs er)
-    reached = reachableValues i g
+    reached = filter (not . (`elem` ignore) . snd) $ reachableValues i g
 
 -- | Determine if a function value will escape through a return
 -- instruction.
