@@ -411,7 +411,7 @@ escapeResultToTestFormat :: EscapeResult -> Map String (Set String)
 escapeResultToTestFormat er =
   foldr transform Map.empty (M.keys m)
   where
-    m = escapeArguments er
+    m = escapeArguments er `M.union` fptrEscapeArguments er
     transform a acc =
       let f = argumentFunction a
           fname = show (functionName f)
