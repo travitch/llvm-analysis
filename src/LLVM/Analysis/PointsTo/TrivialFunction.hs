@@ -57,19 +57,19 @@ trivialMayAlias _ v1 v2 = valueType v1 == valueType v2
 -- the surface types of functions.  This affects cases where function
 -- pointers are stored generically in a struct and then taken out and
 -- casted back to their original type.
-trivialPointsTo :: TrivialFunction -> Value -> PTResult PTRel
+trivialPointsTo :: TrivialFunction -> Value -> [Value]
 trivialPointsTo p@(TrivialFunction m) v =
   case valueContent v of
-    FunctionC f -> PTSet $ S.singleton (Direct (Value f))
-    ExternalFunctionC ef -> PTSet $ S.singleton (Direct (Value ef))
+    FunctionC _ -> [v]
+    ExternalFunctionC _ -> [v]
     GlobalAliasC ga -> trivialPointsTo p (Value ga)
     InstructionC BitcastInst { castedValue = c } ->
       case valueContent c of
         FunctionC _ -> trivialPointsTo p c
         ExternalFunctionC _ -> trivialPointsTo p c
         GlobalAliasC _ -> trivialPointsTo p c
-        _ -> PTSet $ S.map Direct $ M.lookupDefault S.empty (derefPointer v) m
-    _ -> PTSet $ S.map Direct $ M.lookupDefault S.empty (derefPointer v) m
+        _ -> S.toList $ M.lookupDefault S.empty (derefPointer v) m
+    _ -> S.toList $ M.lookupDefault S.empty (derefPointer v) m
 
 derefPointer :: Value -> Type
 derefPointer v = case valueType v of

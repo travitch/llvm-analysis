@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 -- | This module defines the interface to points-to analysis in this
 -- analysis framework.  Each points-to analysis returns a result
 -- object that is an instance of the 'PointsToAnalysis' typeclass; the
@@ -15,59 +14,31 @@
 module LLVM.Analysis.PointsTo (
   -- * Classes
   PointsToAnalysis(..),
-  PTResult(..),
-  PTRel(..),
-  ExternPointerDescriptor(..),
-  ExternFunctionDescriptor(..)
   ) where
 
-import Data.Set ( Set )
-import qualified Data.Set as S
-import Debug.Trace.LocationTH
-
+import Data.Maybe ( mapMaybe )
 import LLVM.Analysis
-
--- | A data type to describe complex points-to relationships.
-data PTRel = Direct !Value
-           | ArrayElt PTRel -- ^ The pointed-to entity is at an unknown index into an array
-           | FieldAccess !Int PTRel -- ^ The pointed-to entity is a field
-           deriving (Eq, Ord)
-
-instance Show PTRel where
-  show = showRel
-
-data PTResult a = PTSet (Set a) -- ^ A set of known targets
-                | UniversalSet (Set a) -- ^ The pointer can point to anything (but the set of known targets is also provided)
-
--- | These are data tags used in the user hook to provide information
--- about pointer parameters to external functions.
-data ExternPointerDescriptor = ExternNoAlias
-                             | ExternAnyAlias
-                             | ExternNewLocation
-                             | ExternNotPointer
-data ExternFunctionDescriptor = EFD { argumentEffects :: [ExternPointerDescriptor]
-                                    , returnEffect :: ExternPointerDescriptor
-                                    }
-
-showRel :: PTRel -> String
-showRel (Direct v) = case valueName v of
-  Just n -> show n
-  Nothing -> $failure ("Value has no name in points-to request: " ++ show v)
-showRel (ArrayElt p) = show p ++ "[*]"
-showRel (FieldAccess ix p) = concat [show p, ".<", show ix, ">"]
 
 -- | The interface to any points-to analysis.
 class PointsToAnalysis a where
   mayAlias :: a -> Value -> Value -> Bool
   -- ^ Check whether or not two values may alias
-  pointsTo :: a -> Value -> PTResult PTRel
-  -- ^ Retrieve the set of locations that a value may point to
-  pointsToValues :: a -> Value -> Set Value
-  pointsToValues pta v =
-    case pointsTo pta v of
-      PTSet s -> S.fold justDirect S.empty s
-      UniversalSet s -> S.fold justDirect S.empty s
+  pointsTo :: a -> Value -> [Value]
+  -- ^ Return the list of values that a LoadInst may return.  May
+  -- return targets for other values too (e.g., say that a Function
+  -- points to itself), but nothing is guaranteed.
+  resolveIndirectCall :: a -> Instruction -> [Function]
+  -- ^ Given a Call instruction, determine its possible callees.  The
+  -- default implementation just delegates the called function value
+  -- to 'pointsTo' and .
+  resolveIndirectCall pta i =
+    case i of
+      CallInst { callFunction = f } -> mapMaybe toFunction $ pointsTo pta f
+      InvokeInst { invokeFunction = f } -> mapMaybe toFunction $ pointsTo pta f
+      _ -> []
 
-justDirect :: PTRel -> Set Value -> Set Value
-justDirect (Direct v) acc = S.insert v acc
-justDirect _ acc = acc
+toFunction :: Value -> Maybe Function
+toFunction v =
+  case valueContent' v of
+    FunctionC f -> Just f
+    _ -> Nothing

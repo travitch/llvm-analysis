@@ -43,7 +43,6 @@ import Data.GraphViz
 import Data.Maybe ( mapMaybe )
 import Data.Hashable
 import qualified Data.HashSet as HS
-import qualified Data.Set as S
 import Debug.Trace.LocationTH
 
 import Data.Graph.Interface
@@ -138,7 +137,7 @@ callValueTargets (CallGraph _ pta) v =
   in case valueContent v' of
     FunctionC _ -> [v']
     ExternalFunctionC _ -> [v']
-    _ -> S.toList $ pointsToValues pta v
+    _ -> pointsTo pta v
 
 -- | Build a call graph for the given 'Module' using a pre-computed
 -- points-to analysis.  The String parameter identifies the program
@@ -218,7 +217,7 @@ buildCallEdges pta caller callInst = build' (getCallee callInst)
         -- through those to find the underlying function
         InstructionC BitcastInst { castedValue = bcv } -> build' bcv
         _ ->
-          let targets = S.toList $ pointsToValues pta (stripBitcasts calledFunc)
+          let targets = resolveIndirectCall pta callInst
               indirectEdges = map (\t -> LEdge (Edge callerId (valueUniqueId t)) IndirectCall) targets
               unknownEdge = LEdge (Edge callerId unknownNodeId) UnknownCall
           in unknownEdge : indirectEdges
