@@ -15,6 +15,7 @@ module LLVM.Analysis.AccessPath (
   abstractAccessPath,
   appendAccessPath,
   followAccessPath,
+  reduceAccessPath,
   externalizeAccessPath
   ) where
 
@@ -57,6 +58,25 @@ appendAccessPath (AbstractAccessPath bt1 et1 cs1) (AbstractAccessPath bt2 et2 cs
   case et1 == bt2 of
     True -> Just $ AbstractAccessPath bt1 et2 (cs1 ++ cs2)
     False -> Nothing
+
+-- | If the access path has more than one field access component, take
+-- the first field access and the base type to compute a new base type
+-- (the type of the indicated field) and the rest of the path
+-- components.
+--
+-- Each call reduces the access path by one component
+reduceAccessPath :: AbstractAccessPath -> Maybe AbstractAccessPath
+reduceAccessPath (AbstractAccessPath bt et (AccessField ix:AccessDeref:cs)) = do
+  newBase <- reduceBaseStruct bt ix
+  return (AbstractAccessPath newBase et cs)
+reduceAccessPath _ = Nothing
+
+reduceBaseStruct :: Type -> Int -> Maybe Type
+reduceBaseStruct bt fldNo =
+  case bt of
+    TypeStruct _ ts _ -> Just (ts !! fldNo)
+    TypePointer (TypeStruct _ ts _) _ -> Just (ts !! fldNo)
+    _ -> Nothing
 
 instance NFData AbstractAccessPath where
   rnf a@(AbstractAccessPath _ _ ts) = ts `deepseq` a `seq` ()
@@ -116,7 +136,7 @@ accessPath i =
     _ -> F.failure (NotMemoryInstruction i)
   where
     go p v =
-      case valueContent v of
+      case valueContent' v of
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = ixs
                                        } ->
