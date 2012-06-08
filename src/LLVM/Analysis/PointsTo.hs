@@ -27,6 +27,8 @@ class PointsToAnalysis a where
   -- ^ Return the list of values that a LoadInst may return.  May
   -- return targets for other values too (e.g., say that a Function
   -- points to itself), but nothing is guaranteed.
+  --
+  -- Should also give reasonable answers for globals and arguments
   resolveIndirectCall :: a -> Instruction -> [Function]
   -- ^ Given a Call instruction, determine its possible callees.  The
   -- default implementation just delegates the called function value
