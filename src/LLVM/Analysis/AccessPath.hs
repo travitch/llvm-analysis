@@ -71,11 +71,16 @@ reduceAccessPath (AbstractAccessPath bt et (AccessField ix:AccessDeref:cs)) = do
   return (AbstractAccessPath newBase et cs)
 reduceAccessPath _ = Nothing
 
+-- FIXME: Some times (e.g., pixmap), the field number is out of range.
+-- Have to figure out what could possibly cause that. Until then, just
+-- ignore those cases.  Users of this are working at best-effort anyway.
 reduceBaseStruct :: Type -> Int -> Maybe Type
 reduceBaseStruct bt fldNo =
   case bt of
-    TypeStruct _ ts _ -> Just (ts !! fldNo)
-    TypePointer (TypeStruct _ ts _) _ -> Just (ts !! fldNo)
+    TypeStruct _ ts _ ->
+      if fldNo < length ts then Just (ts !! fldNo) else Nothing
+    TypePointer (TypeStruct _ ts _) _ ->
+      if fldNo < length ts then Just (ts !! fldNo) else Nothing
     _ -> Nothing
 
 instance NFData AbstractAccessPath where
