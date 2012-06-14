@@ -1,6 +1,5 @@
 module Main ( main ) where
 
-import Data.ByteString.Char8 ( unpack )
 import Data.Set ( Set )
 import qualified Data.Set as S
 import System.FilePath
@@ -48,4 +47,4 @@ extractTraversalOrder m =
 buildSummary :: [Function] -> [Set String] -> [Set String]
 buildSummary scc summ = S.fromList fnames : summ
   where
-    fnames = map (unpack . identifierContent . functionName) scc
+    fnames = map (identifierAsString . functionName) scc
