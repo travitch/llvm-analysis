@@ -28,7 +28,7 @@ import Debug.Trace.LocationTH
 import Text.Printf
 
 import Data.Graph.Interface
-import Data.Graph.PatriciaTree
+import Data.Graph.LazyHAMT
 import Data.Graph.Algorithms.Basic
 
 import LLVM.Analysis

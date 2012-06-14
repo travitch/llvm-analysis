@@ -33,19 +33,15 @@ module LLVM.Analysis.Dominance (
   ) where
 
 import Control.Arrow
--- import Data.Graph.Inductive.Graph
--- import Data.Graph.Inductive.Query.DFS
--- import Data.Graph.Inductive.Query.Dominators
 import Data.GraphViz
 
 import Data.Graph.Interface
-import Data.Graph.PatriciaTree
+import Data.Graph.LazyHAMT
 import Data.Graph.Algorithms.Matching.DFS
 import Data.Graph.Algorithms.Matching.Dominators
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
--- import LLVM.Analysis.Internal.PatriciaTree
 
 type DomTreeType = Gr Instruction ()
 

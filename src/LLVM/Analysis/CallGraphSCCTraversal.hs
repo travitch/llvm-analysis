@@ -34,7 +34,7 @@ import LLVM.Analysis.CallGraph
 import LLVM.Analysis.Types
 
 import Data.Graph.Interface
-import Data.Graph.PatriciaTree
+import Data.Graph.LazyHAMT
 import Data.Graph.Algorithms.Matching.DFS
 
 

@@ -46,7 +46,7 @@ import qualified Data.HashSet as HS
 import Debug.Trace.LocationTH
 
 import Data.Graph.Interface
-import Data.Graph.PatriciaTree
+import Data.Graph.LazyHAMT
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo

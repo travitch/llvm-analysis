@@ -71,10 +71,11 @@ import qualified Data.Set as S
 import Debug.Trace.LocationTH
 
 import Data.Graph.Interface
-import Data.Graph.PatriciaTree
+import Data.Graph.LazyHAMT
 import Data.Graph.Algorithms.Matching.DFS
 
 import LLVM.Analysis
+import LLVM.Analysis.AccessPath
 
 -- | An opaque representation of escape information for a Module.
 data EscapeResult =
@@ -191,7 +192,19 @@ instructionInLoop i g = any (instInNonSingleton i) (scc g)
       case length component > 1 of
         False -> False
         True -> instructionUniqueId inst `elem` component
-
+{-
+data NodeType = SimpleSource Argument
+              | FieldSource ConcreteAccessPath
+                -- ^ Load (GEP Argument)
+              | CallSource Instruction
+              | FptrSink Instruction
+              | EscapeSink Instruction
+                -- ^ Passing a value to an escaping call argument
+              | FieldEscapeSink Instruction
+                -- ^ Storing a value into a field that escapes
+              | InternalNode Value
+                -- ^ Other relevant nodes that pass references around
+-}
 -- Useful type synonyms to hopefully make switching to hbgl easier
 -- later
 type UseGraph = Gr (Bool, Value) ()
