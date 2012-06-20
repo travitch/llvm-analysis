@@ -55,8 +55,16 @@ properEscapeSummary m = escapeResultToTestFormat er
   where
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
-    er = runEscapeAnalysis cg extSumm
-    extSumm _ _ = return True
+    er = runEscapeAnalysis cg externalFuncSummary
+
+
+-- | This external function summary lets us call puts and printf and
+-- marks the argument as not escaping
+externalFuncSummary :: ExternalFunction -> Int -> Identity Bool
+externalFuncSummary ef _ =
+  case identifierAsString (externalFunctionName ef) `elem` ["puts", "printf"] of
+    True -> return False
+    False -> return True
 
 -- willEscapeSummary :: Module -> Map String (Set String)
 -- willEscapeSummary m = willEscapeResultToTestFormat er
@@ -73,8 +81,7 @@ callInstructionEscapeSummary m = isJust $ instructionEscapesWith notReturn i er
   where
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
-    er = runEscapeAnalysis cg extSumm
-    extSumm _ _ = return True
+    er = runEscapeAnalysis cg externalFuncSummary
     Just i = find isCallInst (moduleInstructions m)
     notReturn ignoreInst =
       case ignoreInst of
