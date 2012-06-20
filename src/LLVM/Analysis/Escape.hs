@@ -151,9 +151,9 @@ data EscapeResult =
                  -- ^ The arguments that escape simply, mapped to the witness instruction
                , _fptrEscapeArguments :: HashMap Argument Instruction
                  -- ^ Arguments that escape via function pointers
-               , _escapeFields :: HashMap Argument [(AbstractAccessPath, Instruction)]
+               , _escapeFields :: HashMap Argument (Set (AbstractAccessPath, Instruction))
                  -- ^ Arguments that have at least one field escaping, paired with the relevant witness
-               , _fptrEscapeFields :: HashMap Argument [(AbstractAccessPath, Instruction)]
+               , _fptrEscapeFields :: HashMap Argument (Set (AbstractAccessPath, Instruction))
                }
 
 $(makeLens ''EscapeResult)
@@ -353,10 +353,10 @@ summarizeArgumentEscapes g n summ =
         TypePointer _ _ ->
           let reached = map (safeLab $__LOCATION__ g) $ dfs [unlabelNode n] g
           in case find nodeIsSink reached of
-            Just sink -> (escapeFields ^!%= HM.insertWith (++) a [(absPath, sinkInstruction sink)]) summ
+            Just sink -> (escapeFields ^!%= HM.insertWith S.union a (S.singleton (absPath, sinkInstruction sink))) summ
             Nothing -> case find nodeIsFptrSink reached of
               Nothing -> summ
-              Just fsink -> (fptrEscapeFields ^!%= HM.insertWith (++) a [(absPath, sinkInstruction fsink)]) summ
+              Just fsink -> (fptrEscapeFields ^!%= HM.insertWith S.union a (S.singleton (absPath, sinkInstruction fsink))) summ
         _ -> summ
     _ -> summ
 
@@ -426,8 +426,9 @@ takeMostSpecific ens acc =
   case ens of
     [] -> $failure "groupBy produced an empty group"
     [elt] -> elt : acc
-    elts -> maximumBy escapeStrengthOrder elts : acc
+    elts -> maximumBy escapeStrengthOrder (unique elts) : acc
   where
+    unique = S.toList . S.fromList
     -- Anything has higher precedence than an internal node.  Also,
     -- fptrescape can be superceded by any other sink.  Source nodes
     -- are superceded by sinks, though that should only happen for
@@ -710,7 +711,7 @@ checkFuncArg summ ci ces (formal, arg)
       Just _ -> (valueEscapes ^!%= HM.insert arg ci) ces
       Nothing -> case HM.lookup formal (summ ^. escapeFields) of
         Just apsAndWitnesses ->
-          let aps = map fst apsAndWitnesses
+          let aps = S.toList $ S.map fst apsAndWitnesses
           in (fieldEscapes ^!%= HM.insertWith (++) arg aps) ces
         Nothing -> case HM.lookup formal (summ ^. fptrEscapeArguments) of
           Just _ -> (fptrEscapes ^!%= HM.insert arg ci) ces
@@ -753,7 +754,7 @@ escapeResultToTestFormat er =
       let f = argumentFunction a
           fname = show (functionName f)
           aname = show (argumentName a)
-          fields = map fst fieldsAndInsts
+          fields = S.toList $ S.map fst fieldsAndInsts
           newEntries = S.fromList $ mapMaybe (toFieldRef aname) fields
       in Map.insertWith' S.union fname newEntries acc
     toFieldRef aname fld =
