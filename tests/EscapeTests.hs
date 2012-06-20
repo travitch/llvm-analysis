@@ -28,11 +28,11 @@ testDescriptors = [ TestDescriptor { testPattern = "tests/escape/proper-escapes/
                                    , testResultBuilder = properEscapeSummary
                                    , testResultComparator = assertEqual
                                    }
-                  , TestDescriptor { testPattern = "tests/escape/will-escape/*.c"
-                                   , testExpectedMapping = (<.> "expected")
-                                   , testResultBuilder = willEscapeSummary
-                                   , testResultComparator = assertEqual
-                                   }
+                  -- , TestDescriptor { testPattern = "tests/escape/will-escape/*.c"
+                  --                  , testExpectedMapping = (<.> "expected")
+                  --                  , testResultBuilder = willEscapeSummary
+                  --                  , testResultComparator = assertEqual
+                  --                  }
                   , TestDescriptor { testPattern = "tests/escape/instruction-escape/*.c"
                                    , testExpectedMapping = (<.> "expected")
                                    , testResultBuilder = callInstructionEscapeSummary
@@ -58,22 +58,28 @@ properEscapeSummary m = escapeResultToTestFormat er
     er = runEscapeAnalysis cg extSumm
     extSumm _ _ = return True
 
-willEscapeSummary :: Module -> Map String (Set String)
-willEscapeSummary m = willEscapeResultToTestFormat er
-  where
-    pta = runPointsToAnalysis m
-    cg = mkCallGraph m pta []
-    er = runEscapeAnalysis cg extSumm
-    extSumm _ _ = return True
+-- willEscapeSummary :: Module -> Map String (Set String)
+-- willEscapeSummary m = willEscapeResultToTestFormat er
+--   where
+--     pta = runPointsToAnalysis m
+--     cg = mkCallGraph m pta []
+--     er = runEscapeAnalysis cg extSumm
+--     extSumm _ _ = return True
 
+-- Test to see if the first instruction value does not escape (it is
+-- allowed to be WillEscape, so we ignore Ret instructions)
 callInstructionEscapeSummary :: Module -> Bool
-callInstructionEscapeSummary m = isJust $ instructionEscapes i er
+callInstructionEscapeSummary m = isJust $ instructionEscapesWith notReturn i er
   where
     pta = runPointsToAnalysis m
     cg = mkCallGraph m pta []
     er = runEscapeAnalysis cg extSumm
     extSumm _ _ = return True
     Just i = find isCallInst (moduleInstructions m)
+    notReturn ignoreInst =
+      case ignoreInst of
+        RetInst {} -> True
+        _ -> False
 
 moduleInstructions :: Module -> [Instruction]
 moduleInstructions =
