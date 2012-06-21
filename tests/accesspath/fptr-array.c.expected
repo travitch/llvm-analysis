@@ -1,0 +1,1 @@
+fromList [ ("@f", ("%struct.Vtbl*", [AccessField 3])) ]
