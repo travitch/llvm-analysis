@@ -1,34 +1,36 @@
 {-# LANGUAGE TemplateHaskell, ViewPatterns, FlexibleInstances, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
--- | This is a very conservative flow- and context-insensitive escape
--- analysis based on graph reachability.  The underlying graph is a used-by
--- graph.  A value gets an edge to an instruction if the instruction uses the
--- value.
+-- | This is a very conservative flow- and context-insensitive (but
+-- field-sensitive) escape analysis based on graph reachability.  The
+-- underlying graph is an escape graph where escapes are represented by
+-- sinks and arguments are sources.  For nodes A and B, there is an edge
+-- from A to B if the pointer A is stored into B.  A value escapes if any
+-- sink is reachable from it.
 --
---  * A value Escapes if a store destination uses it *OR* it is passed
---    as an argument to a function pointer.
+-- The notion of escape is very specific.  A pointer escapes if,
+-- directly or indirectly:
 --
---  * A value WillEscape if it does not Escape but it is used by a ret
---    instruction
+--  * It is stored into an argument or a field of an argument
 --
--- This graph has a few special properties and is not exactly a
--- used-by graph.  Since we only care about escape properties, store
--- destinations do not need to be represented (store x -> y cannot
--- possibly make y escape) and the value used to call a function
--- pointer does not need to be represented.
+--  * It is stored into a global or a field of a global
 --
--- This analysis assumes that arguments passed as varargs do *not*
--- escape.
+--  * It is returned from a function
 --
--- Only pointers can escape.  If a sub-component of an object escapes,
--- as in:
+--  * It is passed as an argument to a function (and escapes in the callee).
 --
--- > global = s->foo;
+-- There is a special case for the last point.  If a pointer is passed
+-- as an argument to a call through a function pointer, it techincally
+-- escapes.  Often, this is unnecessarily strict, so escapes through
+-- function pointers are classified separately so that they can be
+-- ignored if desired.  Escapes through function pointers are
+-- superceded by true escapes.
 --
--- this analysis will not report that @s@ escapes.  This type of
--- escaping can be identified by a derived analysis using the results
--- of this analysis.  This analysis will identify the loaded result of
--- @s->foo@ as escaping.
+-- Each argument to a function is represented by an ArgumentSource
+-- node.  A load of an argument field is a FieldSource.  Stores to
+-- globals and arguments are sinks.  Stores to fields of globals and
+-- arguments are also sinks.  Returns are sinks.
+--
+-- Loads create nodes, stores add edges.
 --
 -- Notes on precision:
 --
@@ -84,6 +86,50 @@ import Data.Graph.Algorithms.Matching.DFS
 
 import LLVM.Analysis
 import LLVM.Analysis.AccessPath
+
+{-
+
+Algorithm:
+
+1) Collect a @Map Instruction [AccessPath]@ that describes the fields
+of each alloca instruction passed to them that escapes.  Entries in
+this map are made for each call instruction argument that allows a(t
+least one) field to escape.
+
+> call void @fldEsc(%struct.S* %s)
+
+If this call allows the sP field of %s to escape, the resuling Map
+entry is:
+
+> %s -> [Field 0]
+
+Also collect a set of values passed to escaping function arguments.
+
+2) Populate the escape graph.  Arguments get ArgSrc nodes.  Loads of
+GEPs (rooted at arguments) get FieldSource nodes.  All other
+instructions that are pointer-typed get SimpleSrc nodes.  If the base
+of a GEP Load is in the field escape map AND the field matches one of
+the access paths in the map, make an edge from the src to a
+FieldEscapeSink.
+
+For each value in the normal escape set, make an edge from the source
+to the appropriate escapesink node.
+
+Stores add edges, loads add internal nodes.
+
+3) All ArgumentSource nodes that reach a Sink escape.  If the sink is
+a FieldEscapeSink, they escape through a field (though the distinction
+doesn't really matter).
+
+Later queries will similarly only check to see if the instruction can
+reach a sink.  There will need to be a bit of filtering done on sinks
+in the same way as now, but the filtering now has to unwrap the node
+type instead of being able to just look directly at the node Value.
+If the only reachable sink is a FptrSink, treat this as we do in the
+case where the Value is tupled with True now.
+
+
+-}
 
 -- | This is an internal structure to record how arguments to function
 -- calls in a function body let their arguments escape.  This is built
@@ -262,48 +308,6 @@ reachableValues :: Instruction -> EscapeGraph -> [NodeType]
 reachableValues i g =
   let reached = filter (/= valueUniqueId i) $ dfs [instructionUniqueId i] g
   in map (safeLab $__LOCATION__ g) reached
-
-{-
-
-1) Collect a @Map Instruction [AccessPath]@ that describes the fields
-of each alloca instruction passed to them that escapes.  Entries in
-this map are made for each call instruction argument that allows a(t
-least one) field to escape.
-
-> call void @fldEsc(%struct.S* %s)
-
-If this call allows the sP field of %s to escape, the resuling Map
-entry is:
-
-> %s -> [Field 0]
-
-Also collect a set of values passed to escaping function arguments.
-
-2) Populate the escape graph.  Arguments get ArgSrc nodes.  Loads of
-GEPs (rooted at arguments) get FieldSource nodes.  All other
-instructions that are pointer-typed get SimpleSrc nodes.  If the base
-of a GEP Load is in the field escape map AND the field matches one of
-the access paths in the map, make an edge from the src to a
-FieldEscapeSink.
-
-For each value in the normal escape set, make an edge from the source
-to the appropriate escapesink node.
-
-Stores add edges, loads add internal nodes.
-
-3) All ArgumentSource nodes that reach a Sink escape.  If the sink is
-a FieldEscapeSink, they escape through a field (though the distinction
-doesn't really matter).
-
-Later queries will similarly only check to see if the instruction can
-reach a sink.  There will need to be a bit of filtering done on sinks
-in the same way as now, but the filtering now has to unwrap the node
-type instead of being able to just look directly at the node Value.
-If the only reachable sink is a FptrSink, treat this as we do in the
-case where the Value is tupled with True now.
-
-
--}
 
 
 -- | This is the underlying bottom-up analysis to identify which
