@@ -129,14 +129,6 @@ type instead of being able to just look directly at the node Value.
 If the only reachable sink is a FptrSink, treat this as we do in the
 case where the Value is tupled with True now.
 
-
-FIXME: Arguments are sinks; when doing the reachability query for an
-argument, re-add the remove-input-node-if-not-in-cycle code.  Calls
-are also sinks (since the result pointer has to be treated as
-non-local.
-
-FIXME: Can we detect a field that escapes into an argument?
-
 -}
 
 -- | This is an internal structure to record how arguments to function
