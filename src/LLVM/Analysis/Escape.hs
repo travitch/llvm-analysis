@@ -83,6 +83,7 @@ import Text.Printf
 import Data.Graph.Interface
 import Data.Graph.LazyHAMT
 import Data.Graph.Algorithms.Matching.DFS
+import Data.Graph.Algorithms.Matching.SP
 
 import LLVM.Analysis
 import LLVM.Analysis.AccessPath
@@ -129,6 +130,13 @@ If the only reachable sink is a FptrSink, treat this as we do in the
 case where the Value is tupled with True now.
 
 
+FIXME: Arguments are sinks; when doing the reachability query for an
+argument, re-add the remove-input-node-if-not-in-cycle code.  Calls
+are also sinks (since the result pointer has to be treated as
+non-local.
+
+FIXME: Can we detect a field that escapes into an argument?
+
 -}
 
 -- | This is an internal structure to record how arguments to function
@@ -145,18 +153,25 @@ instance Default CallEscapes where
 $(makeLens ''CallEscapes)
 
 data NodeType = ArgumentSource Argument
-              | FieldSource Argument AbstractAccessPath
-                -- ^ Load (GEP Argument)
-              | CallSource Instruction
+              | FieldSource { fieldSourceArgument :: Argument
+                            , sinkInstruction :: Instruction
+                            , fieldSourcePath :: AbstractAccessPath
+                            }
+                -- ^ Load (GEP Argument).  The Instruction field is
+                -- the load instruction that generated the node; we
+                -- need this to be able to remove the node from the
+                -- reached list if it isn't in a cycle while doing
+                -- argument reachability
+              | CallSource { sinkInstruction :: Instruction }
                 -- ^ Non-void call inst
               | FptrSink { sinkInstruction :: Instruction }
                 -- ^ Indirect call inst
               | EscapeSink { sinkInstruction :: Instruction }
                 -- ^ Passing a value to an escaping call argument
-              | FieldEscapeSink { sinkInstruction :: Instruction }
-                -- ^ Storing a value into a field that escapes
               | WillEscapeSink { sinkInstruction :: Instruction }
-              | InternalNode Value
+              | InternalNode { sinkInstruction :: Instruction
+                             , internalNodeValue :: Value
+                             }
                 -- ^ Other relevant nodes that pass references around.
                 -- This can't just be an Instruction because it could
                 -- be an Argument (constants and globals don't
@@ -165,23 +180,24 @@ data NodeType = ArgumentSource Argument
 
 instance NFData NodeType where
   rnf (ArgumentSource a) = a `seq` ()
-  rnf (FieldSource a aap) = a `seq` aap `seq` ()
+  rnf (FieldSource a i aap) = a `seq` i `seq` aap `seq` ()
   rnf (CallSource i) = i `seq` ()
   rnf (FptrSink i) = i `seq` ()
   rnf (EscapeSink i) = i `seq` ()
-  rnf (FieldEscapeSink i) = i `seq` ()
   rnf (WillEscapeSink i) = i `seq` ()
-  rnf (InternalNode v) = v `seq` ()
+  rnf (InternalNode i v) = i `seq` v `seq` ()
 
 instance Labellable NodeType where
   toLabelValue (ArgumentSource a) = toLabelValue $ "Arg " ++ show a
-  toLabelValue (FieldSource a aap) = toLabelValue $ "FldSrc " ++ show a ++ "@" ++ show aap
+  toLabelValue (FieldSource a _ aap) = toLabelValue $ "FldSrc " ++ show a ++ "@" ++ show aap
   toLabelValue (CallSource i) = toLabelValue $ "CallSrc " ++ show i
   toLabelValue (FptrSink i) = toLabelValue $ "FptrSink " ++ show i
   toLabelValue (EscapeSink i) = toLabelValue $ "EscSink " ++ show i
-  toLabelValue (FieldEscapeSink i) = toLabelValue $ "FldEscSink " ++ show i
   toLabelValue (WillEscapeSink i) = toLabelValue $ "WillEscSink " ++ show i
-  toLabelValue (InternalNode v) = toLabelValue $ "Int " ++ show v
+  toLabelValue (InternalNode i v) =
+    let s :: String
+        s = printf "Int %s (from %s)" (show v) (show i)
+    in toLabelValue s
 
 -- | The acctual graph type
 type EscapeGraph = Gr NodeType ()
@@ -279,7 +295,7 @@ instructionEscapeCore :: (Instruction -> Bool)
                          -> Maybe Instruction
 instructionEscapeCore ignoreValue i er = do
   escNode <- find nodeIsAnySink reached
-  return $! sinkInstruction escNode
+  return $! sinkInstruction (nodeLabel escNode)
   where
     Just bb = instructionBasicBlock i
     f = basicBlockFunction bb
@@ -287,10 +303,9 @@ instructionEscapeCore ignoreValue i er = do
     g = HM.lookupDefault errMsg f (er ^. escapeGraphs)
     reached = filter notIgnoredSink $ reachableValues i g
     notIgnoredSink nt =
-      case nt of
+      case nodeLabel nt of
         FptrSink sink -> not (ignoreValue sink)
         EscapeSink sink -> not (ignoreValue sink)
-        FieldEscapeSink sink -> not (ignoreValue sink)
         WillEscapeSink sink -> not (ignoreValue sink)
         _ -> True
 
@@ -304,7 +319,7 @@ instructionEscapeCore ignoreValue i er = do
 --
 -- We can always remove the node because call escape nodes have
 -- negated ids?
-reachableValues :: Instruction -> EscapeGraph -> [NodeType]
+reachableValues :: Instruction -> EscapeGraph -> [EscapeNode]
 reachableValues i g =
   let reached = filter (/= valueUniqueId i) $ dfs [instructionUniqueId i] g
   in map (safeLab $__LOCATION__ g) reached
@@ -345,45 +360,109 @@ summarizeArgumentEscapes g n summ =
     ArgumentSource a ->
       case argumentType a of
         TypePointer _ _ ->
-          let reached = map (safeLab $__LOCATION__ g) $ dfs [unlabelNode n] g
+          let reached0 = dfs [unlabelNode n] g
+              reached = map (safeLab $__LOCATION__ g) $ removeValueIfNotInLoop a reached0 g
           in case find nodeIsSink reached of
-            Just sink -> (escapeArguments ^!%= HM.insert a (sinkInstruction sink)) summ
+            Just sink ->
+              case nodeLabel sink of
+                ArgumentSource _ ->
+                  let w:_ = mapMaybe isStore $ map (safeLab $__LOCATION__ g) $ sp (const 1) (unlabelNode n) (unlabelNode sink) g
+                  in (escapeArguments ^!%= HM.insert a w) summ
+                FieldSource _ fsi _ ->
+                  let ws = mapMaybe isStore $ map (safeLab $__LOCATION__ g) $ sp (const 1) (unlabelNode n) (unlabelNode sink) g
+                      w = case ws of
+                        ws1 : _ -> ws1
+                        _ -> fsi
+                  in (escapeArguments ^!%= HM.insert a w) summ
+                _ -> (escapeArguments ^!%= HM.insert a (sinkInstruction (nodeLabel sink))) summ
             Nothing -> case find nodeIsFptrSink reached of
               Nothing -> summ
-              Just fsink -> (fptrEscapeArguments ^!%= HM.insert a (sinkInstruction fsink)) summ
+              -- This can't be an argument sink
+              Just fsink -> (fptrEscapeArguments ^!%= HM.insert a (sinkInstruction (nodeLabel fsink))) summ
         _ -> summ
-    FieldSource a absPath ->
+    FieldSource a i absPath ->
       case argumentType a of
         TypePointer _ _ ->
-          let reached = map (safeLab $__LOCATION__ g) $ dfs [unlabelNode n] g
+          let reached0 = dfs [unlabelNode n] g
+              reached = map (safeLab $__LOCATION__ g) $ removeValueIfNotInLoop i reached0 g
           in case find nodeIsSink reached of
-            Just sink -> (escapeFields ^!%= HM.insertWith S.union a (S.singleton (absPath, sinkInstruction sink))) summ
+            Just sink ->
+              case nodeLabel sink of
+                ArgumentSource _ ->
+                  let w:_ = mapMaybe isStore $ map (safeLab $__LOCATION__ g) $ sp (const 1) (unlabelNode n) (unlabelNode sink) g
+                  in (escapeFields ^!%= HM.insertWith S.union a (S.singleton (absPath, w))) summ
+                FieldSource _ fsi _ ->
+                  let ws = mapMaybe isStore $ map (safeLab $__LOCATION__ g) $ sp (const 1) (unlabelNode n) (unlabelNode sink) g
+                      w = case ws of
+                        ws1 : _ -> ws1
+                        _ -> fsi
+                  in (escapeFields ^!%= HM.insertWith S.union a (S.singleton (absPath, w))) summ
+                _ -> (escapeFields ^!%= HM.insertWith S.union a (S.singleton (absPath, sinkInstruction (nodeLabel sink)))) summ
             Nothing -> case find nodeIsFptrSink reached of
               Nothing -> summ
-              Just fsink -> (fptrEscapeFields ^!%= HM.insertWith S.union a (S.singleton (absPath, sinkInstruction fsink))) summ
+              Just fsink -> (fptrEscapeFields ^!%= HM.insertWith S.union a (S.singleton (absPath, sinkInstruction (nodeLabel fsink)))) summ
         _ -> summ
     _ -> summ
 
-nodeIsSink :: NodeType -> Bool
+removeValueIfNotInLoop :: IsValue v => v -> [Int] -> EscapeGraph -> [Int]
+removeValueIfNotInLoop v reached g =
+  case valueInLoop v g of
+    True -> reached
+    False -> filter (/= valueUniqueId v) reached
+
+isStore :: EscapeNode -> Maybe Instruction
+isStore v =
+  case nodeLabel v of
+    InternalNode i _ ->
+      case valueContent' i of
+        InstructionC StoreInst {} -> Just i
+        _ -> Nothing
+    EscapeSink i ->
+      case i of
+        StoreInst {} -> Just i
+        _ -> Nothing
+    _ -> Nothing
+{-
+
+For each argument, remember which store instructions it is the value
+of.  When we get to this stage, do a reachability computation from the
+store address.  If it reaches a sink, take that store instruction as
+the witness.
+
+Collect *all* of the stores as witnesses
+-}
+-- | Return True if the given instruction is in a cycle in the use
+-- graph
+valueInLoop :: IsValue v => v -> EscapeGraph -> Bool
+valueInLoop v g = any (valueInNonSingleton v) (scc g)
+  where
+    valueInNonSingleton val component =
+      case length component > 1 of
+        False -> False
+        True -> valueUniqueId val `elem` component
+
+nodeIsSink :: EscapeNode -> Bool
 nodeIsSink t =
-  case t of
+  case nodeLabel t of
     EscapeSink _ -> True
-    FieldEscapeSink _ -> True
+    ArgumentSource _ -> True
+    FieldSource _ _ _ -> True
     _ -> False
 
-nodeIsFptrSink :: NodeType -> Bool
+nodeIsFptrSink :: EscapeNode -> Bool
 nodeIsFptrSink t =
-  case t of
+  case nodeLabel t of
     FptrSink _ -> True
     _ -> False
 
-nodeIsAnySink :: NodeType -> Bool
+nodeIsAnySink :: EscapeNode -> Bool
 nodeIsAnySink t =
-  case t of
+  case nodeLabel t of
     EscapeSink _ -> True
-    FieldEscapeSink _ -> True
     FptrSink _ -> True
     WillEscapeSink _ -> True
+    ArgumentSource _ -> True
+    FieldSource _ _ _ -> True
     _ -> False
 
 buildEscapeGraph :: CallEscapes -> Function -> EscapeGraph
@@ -413,17 +492,30 @@ buildEscapeGraph callEscapes f =
 -- | This helper needs to traverse valueEscapes and fptrEscapes and
 -- make appropriate sink nodes (and edges).  fieldEscapes are taken
 -- care of in the main function body traversal.  Note that the node
--- IDs of call sinks are negated to prevent collisions with call
--- sources.
+-- IDs of call sinks are negative to prevent collisions with real
+-- nodes.
+--
+-- Note that each actual argument sink gets a unique (negative) ID.
+-- The IDs are negative so that they do not conflict with any nodes
+-- generated from the IR more directly.  They have to be unique per
+-- actual so that an argument that escapes does not subsume another
+-- pointer argument that only escapes via a function pointer (an
+-- annotation of lesser severity).
+--
+-- FIXME: If a function has an escaping argument and some fptr escape
+-- arguments, the escape node generated here overrides the others and
+-- then all arguments become escapes.
+    -- ADD A TEST FOR THIS
 buildCallEscapeSubgraph :: CallEscapes -> ([EscapeNode], [EscapeEdge])
-buildCallEscapeSubgraph callEscapes =
-  foldr (makeCallEscape EscapeSink) s0 $ HM.toList $ callEscapes ^. valueEscapes
+buildCallEscapeSubgraph callEscapes = snd s1
   where
-    s0 = foldr (makeCallEscape FptrSink) ([], []) $ HM.toList $ callEscapes ^. fptrEscapes
-    makeCallEscape constructor (val, call) (ns, es) =
-      let newNode = LNode (-valueUniqueId call) (constructor call)
-          newEdge = LEdge (Edge (valueUniqueId val) (-valueUniqueId call)) ()
-      in (newNode : ns, newEdge : es)
+    initVal = ([-1,-2..], ([], []))
+    s0 = foldr (makeCallEscape FptrSink) initVal $ HM.toList $ callEscapes ^. fptrEscapes
+    s1 = foldr (makeCallEscape EscapeSink) s0 $ HM.toList $ callEscapes ^. valueEscapes
+    makeCallEscape constructor (val, call) (eid : rest, (ns, es)) =
+      let newNode = LNode eid (constructor call)
+          newEdge = LEdge (Edge (valueUniqueId val) eid) ()
+      in (rest, (newNode : ns, newEdge : es))
 
 takeMostSpecific :: [EscapeNode] -> [EscapeNode] -> [EscapeNode]
 takeMostSpecific ens acc =
@@ -439,9 +531,9 @@ takeMostSpecific ens acc =
     -- CallSource, but the call sinks have negated IDs
     escapeStrengthOrder nt1 nt2 =
       case (nodeLabel nt1, nodeLabel nt2) of
-        (InternalNode _, InternalNode _) -> EQ
-        (InternalNode _, _) -> LT
-        (_, InternalNode _) -> GT
+        (InternalNode _ _, InternalNode _ _) -> EQ
+        (InternalNode _ _, _) -> LT
+        (_, InternalNode _ _) -> GT
         (FptrSink _, FptrSink _) -> EQ
         (FptrSink _, _) -> LT
         (_, FptrSink _) -> GT
@@ -474,7 +566,7 @@ collectEdges :: CallEscapes -> ([EscapeNode], [EscapeEdge])
 collectEdges callEscapes acc@(ns, es) i =
   case i of
     AllocaInst {} ->
-      let newNode = toInternalNode (Value i)
+      let newNode = toInternalNode i (Value i)
       in (newNode : ns, es)
 
     -- A return node gets a WillEscapeSink.  Only make this sink if
@@ -484,7 +576,7 @@ collectEdges callEscapes acc@(ns, es) i =
       case valueType rv of
         TypePointer _ _ ->
           let newNode = LNode (instructionUniqueId i) (WillEscapeSink i)
-              rnode = toInternalNode rv
+              rnode = toInternalNode i rv
               e = LEdge (Edge (valueUniqueId rv) (instructionUniqueId i)) ()
           in (newNode : rnode : ns, e : es)
         _ -> acc
@@ -500,14 +592,14 @@ collectEdges callEscapes acc@(ns, es) i =
         TypePointer _ _ ->
           let Just apath = accessPath i
               absPath = abstractAccessPath apath
-              newNode = LNode (instructionUniqueId i) (FieldSource a absPath)
+              newNode = LNode (instructionUniqueId i) (FieldSource a i absPath)
           in (newNode : ns, es)
         _ -> acc
 
     LoadInst { } ->
       case valueType i of
         TypePointer _ _ ->
-          let newNode = toInternalNode (Value i)
+          let newNode = toInternalNode i (Value i)
           in (newNode : ns, es)
         _ -> acc
 
@@ -569,30 +661,48 @@ collectEdges callEscapes acc@(ns, es) i =
     --
     -- This case handles all escapes via assignments to fields of
     -- structures that escape via function calls.
+    --
+    -- FIXME: If base is a global or argument, this can use a plain EscapeSink
     StoreInst { storeValue = sv, storeAddress = (valueContent' -> InstructionC
       GetElementPtrInst { getElementPtrValue = base })} ->
       case valueType sv of
         TypePointer _ _ ->
-          case HM.lookup base (callEscapes ^. fieldEscapes) of
-            Nothing -> -- Just create an edge because this store into a
-                      -- GEP doesn't escape here
-              let newEdge = LEdge (Edge (valueUniqueId sv) (valueUniqueId base)) ()
-              in (ns, newEdge : es)
-            Just paths ->
-              let Just cpath = accessPath i
-                  absPath = abstractAccessPath cpath
-              in case absPath `elem` paths of
-                False ->
-                  -- This field does *not* escape in a callee, so do
-                  -- not add an edge (note, sv could still escape via
-                  -- something else).
-                  acc
-                True ->
-                  -- This field being stored to escapes in a callee,
-                  -- so the stored value escapes
-                  let newNode = LNode (valueUniqueId i) (FieldEscapeSink i)
-                      newEdge = LEdge (Edge (valueUniqueId sv) (valueUniqueId i)) ()
-                  in (newNode : ns, newEdge : es)
+          case valueContent' base of
+            ArgumentC _ ->
+              let newNode = LNode (valueUniqueId i) (EscapeSink i)
+                  newEdge = LEdge (Edge (valueUniqueId sv) (valueUniqueId i)) ()
+              in (newNode : ns, newEdge : es)
+            GlobalVariableC _ ->
+              let newNode = LNode (valueUniqueId i) (EscapeSink i)
+                  newEdge = LEdge (Edge (valueUniqueId sv) (valueUniqueId i)) ()
+              in (newNode : ns, newEdge : es)
+            ExternalValueC _ ->
+              let newNode = LNode (valueUniqueId i) (EscapeSink i)
+                  newEdge = LEdge (Edge (valueUniqueId sv) (valueUniqueId i)) ()
+              in (newNode : ns, newEdge : es)
+            _ ->
+              case HM.lookup base (callEscapes ^. fieldEscapes) of
+                Nothing -> -- Just create an edge because this store into a
+                          -- GEP doesn't escape here
+                  let newNode = toInternalNode i (Value i)
+                      newEdge1 = LEdge (Edge (valueUniqueId sv) (valueUniqueId i)) ()
+                      newEdge2 = LEdge (Edge (valueUniqueId i) (valueUniqueId base)) ()
+                  in (newNode : ns, newEdge1 : newEdge2 : es)
+                Just paths ->
+                  let Just cpath = accessPath i
+                      absPath = abstractAccessPath cpath
+                  in case absPath `elem` paths of
+                    False ->
+                      -- This field does *not* escape in a callee, so do
+                      -- not add an edge (note, sv could still escape via
+                      -- something else).
+                      acc
+                    True ->
+                      -- This field being stored to escapes in a callee,
+                      -- so the stored value escapes
+                      let newNode = LNode (valueUniqueId i) (EscapeSink i)
+                          newEdge = LEdge (Edge (valueUniqueId sv) (valueUniqueId i)) ()
+                      in (newNode : ns, newEdge : es)
         _ -> acc -- Not a pointer, so it can't escape
 
 
@@ -606,8 +716,10 @@ collectEdges callEscapes acc@(ns, es) i =
           -- a more specific type of node if we happen to find one.
           -- This will require post-processing at graph creation time
           -- to select the most specific node type with a given ID
-          let newEdge = LEdge (Edge (valueUniqueId sv) (valueUniqueId sa)) ()
-          in (ns, newEdge : es)
+          let newNode = toInternalNode i (Value i)
+              newEdge1 = LEdge (Edge (valueUniqueId sv) (valueUniqueId i)) ()
+              newEdge2 = LEdge (Edge (valueUniqueId i) (valueUniqueId sa)) ()
+          in (newNode : ns, newEdge1 : newEdge2 : es)
         _ -> acc
 
     -- FIXME: We could treat PtrToInt casts as escaping, but that
@@ -616,8 +728,8 @@ collectEdges callEscapes acc@(ns, es) i =
     -- PtrToIntInst {} -> undefined
 
     BitcastInst { castedValue = cv } ->
-      let cn = toInternalNode cv
-          ino = toInternalNode (Value i)
+      let cn = toInternalNode i cv
+          ino = toInternalNode i (Value i)
           e = toInternalEdge i cv
       in (cn : ino : ns, e : es)
 
@@ -628,22 +740,22 @@ collectEdges callEscapes acc@(ns, es) i =
     -- Note, we use the un-negated ID here to treat call instructions
     -- as sources.  When treating them as escape sinks, negate the ID.
     CallInst {} ->
-      let newNode = LNode (valueUniqueId i) (CallSource i)
+      let newNode = LNode (valueUniqueId i) (EscapeSink i)
       in (newNode : ns, es)
     InvokeInst {} ->
-      let newNode = LNode (valueUniqueId i) (CallSource i)
+      let newNode = LNode (valueUniqueId i) (EscapeSink i)
       in (newNode : ns, es)
 
     -- Instructions representing more than one value get their own
     -- node with an edge from each of their possible values.
     SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
-      let tn = toInternalNode tv
-          fn = toInternalNode fv
+      let tn = toInternalNode i tv
+          fn = toInternalNode i fv
           te = toInternalEdge i tv
           fe = toInternalEdge i fv
       in (tn : fn : ns, te : fe : es)
     PhiNode { phiIncomingValues = ivs } ->
-      let newNodes = map toInternalNode (map fst ivs)
+      let newNodes = map (toInternalNode i) (map fst ivs)
           newEdges = map (toInternalEdge i) (map fst ivs)
       in (newNodes ++ ns, newEdges ++ es)
 
@@ -652,8 +764,8 @@ collectEdges callEscapes acc@(ns, es) i =
     _ -> acc
 
 
-toInternalNode :: Value -> EscapeNode
-toInternalNode v = LNode (valueUniqueId v) (InternalNode v)
+toInternalNode :: Instruction -> Value -> EscapeNode
+toInternalNode i v = LNode (valueUniqueId v) (InternalNode i v)
 
 toInternalEdge :: (IsValue a, IsValue b) => a -> b -> EscapeEdge
 toInternalEdge i v = LEdge (Edge (valueUniqueId v) (valueUniqueId i)) ()
@@ -728,11 +840,11 @@ isPointerValue v =
     TypePointer _ _ -> True
     _ -> False
 
-safeLab :: String -> EscapeGraph -> Int -> NodeType
+safeLab :: String -> EscapeGraph -> Int -> EscapeNode
 safeLab loc g n =
   case lab g n of
     Nothing -> error (loc ++ ": missing label for use graph node")
-    Just l -> l
+    Just l -> LNode n l
 
 -- Testing
 
