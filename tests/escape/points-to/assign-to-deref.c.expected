@@ -1,8 +1,0 @@
-fromList [ ("@pp", fromList ["@p"])
-         , ("@pq", fromList ["@q"])
-         , ("@p", fromList ["@a"])
-         , ("@q", fromList ["@a", "@b", "@c"])
-         , ("%x", fromList ["@pq"])
-         , ("%y", fromList ["@q"])
-         , ("%r", fromList ["@c"])
-         ]

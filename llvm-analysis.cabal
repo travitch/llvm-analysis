@@ -43,7 +43,6 @@ library
                    LLVM.Analysis.ClassHierarchy,
                    LLVM.Analysis.Dataflow,
                    LLVM.Analysis.Dominance,
-                   LLVM.Analysis.Escape,
                    LLVM.Analysis.PointsTo,
                    LLVM.Analysis.PointsTo.AllocatorProfile,
                    LLVM.Analysis.PointsTo.TrivialFunction,
@@ -56,15 +55,6 @@ library
 
   ghc-options: -Wall -funbox-strict-fields
   ghc-prof-options: -auto-all
-
-test-suite EscapeTests
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  main-is: EscapeTests.hs
-  hs-source-dirs: tests
-  build-depends: llvm-analysis, llvm-data-interop, bytestring, mtl,
-                 base > 3 && < 5, filepath, containers, HUnit
-  ghc-options: -Wall -rtsopts
 
 test-suite CallGraphTests
   default-language: Haskell2010

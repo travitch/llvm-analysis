@@ -1,3 +1,0 @@
-fromList [ ("@fldEsc", fromList ["%s.<0>"])
-         , ("@f", fromList ["%p"])
-         ]
