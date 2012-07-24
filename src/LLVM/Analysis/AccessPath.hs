@@ -80,6 +80,8 @@ reduceAccessPath (AbstractAccessPath (TypeStruct _ ts _) et (AccessField fldNo:c
   case fldNo < length ts of
     True -> return $! AbstractAccessPath (ts !! fldNo) et cs
     False -> Nothing
+reduceAccessPath (AbstractAccessPath (TypeArray _ t) et (AccessArray:cs)) =
+  return $! AbstractAccessPath t et cs
 reduceAccessPath _ = Nothing
 
 instance NFData AbstractAccessPath where
