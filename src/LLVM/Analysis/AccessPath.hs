@@ -23,6 +23,7 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Failure hiding ( failure )
 import qualified Control.Failure as F
+import Data.Hashable
 import Data.List ( foldl' )
 import Data.Typeable
 import Debug.Trace.LocationTH
@@ -50,6 +51,10 @@ data AbstractAccessPath =
                      , abstractAccessPathComponents :: [AccessType]
                      }
   deriving (Show, Eq, Ord)
+
+instance Hashable AbstractAccessPath where
+  hash (AbstractAccessPath bt et cs) =
+    hash bt `combine` hash et `combine` hash cs
 
 appendAccessPath :: AbstractAccessPath
                     -> AbstractAccessPath
@@ -96,6 +101,10 @@ data AccessPath =
 instance NFData AccessPath where
   rnf a@(AccessPath _ _ ts) = ts `deepseq` a `seq` ()
 
+instance Hashable AccessPath where
+  hash (AccessPath bv ev cs) =
+    hash bv `combine` hash ev `combine` hash cs
+
 data AccessType = AccessField !Int
                 | AccessArray
                 | AccessDeref
@@ -104,6 +113,11 @@ data AccessType = AccessField !Int
 instance NFData AccessType where
   rnf a@(AccessField i) = i `seq` a `seq` ()
   rnf _ = ()
+
+instance Hashable AccessType where
+  hash (AccessField ix) = 1 `combine` hash ix
+  hash AccessArray = 26
+  hash AccessDeref = 300
 
 followAccessPath :: (Failure AccessPathError m) => AbstractAccessPath -> Value -> m Value
 followAccessPath aap@(AbstractAccessPath bt _ components) val =
