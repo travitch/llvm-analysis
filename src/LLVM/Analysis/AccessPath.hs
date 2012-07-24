@@ -67,13 +67,16 @@ appendAccessPath (AbstractAccessPath bt1 et1 cs1) (AbstractAccessPath bt2 et2 cs
 -- | If the access path has more than one field access component, take
 -- the first field access and the base type to compute a new base type
 -- (the type of the indicated field) and the rest of the path
--- components.
+-- components.  Also allows for the discarding of array accesses.
 --
 -- Each call reduces the access path by one component
 reduceAccessPath :: AbstractAccessPath -> Maybe AbstractAccessPath
-reduceAccessPath (AbstractAccessPath bt et (AccessField ix:AccessDeref:cs)) = do
-  newBase <- reduceBaseStruct bt ix
-  return (AbstractAccessPath newBase et cs)
+reduceAccessPath (AbstractAccessPath (TypePointer t _) et (AccessDeref:cs)) =
+  return $! AbstractAccessPath t et cs
+reduceAccessPath (AbstractAccessPath (TypeStruct _ ts _) et (AccessField fldNo:cs)) =
+  case fldNo < length ts of
+    True -> return $! AbstractAccessPath (ts !! fldNo) et cs
+    False -> Nothing
 reduceAccessPath _ = Nothing
 
 -- FIXME: Some times (e.g., pixmap), the field number is out of range.
@@ -140,8 +143,8 @@ abstractAccessPath (AccessPath v v0 p) =
   AbstractAccessPath (valueType v) (valueType v0) p
 
 accessPath :: (Failure AccessPathError m) => Instruction -> m AccessPath
-accessPath i =
-  case i of
+accessPath i = do
+  cpath <- case i of
     LoadInst { loadAddress = la } ->
       return $! go (AccessPath la la []) la
     StoreInst { storeAddress = sa } ->
@@ -153,7 +156,10 @@ accessPath i =
     GetElementPtrInst {} ->
       return $! go (AccessPath (Value i) (Value i) []) (Value i)
     _ -> F.failure (NotMemoryInstruction i)
+  return $! addBaseDeref cpath
   where
+    addBaseDeref p =
+      p { accessPathComponents = AccessDeref : accessPathComponents p }
     go p v =
       case valueContent' v of
         InstructionC GetElementPtrInst { getElementPtrValue = base
