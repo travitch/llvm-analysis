@@ -73,23 +73,14 @@ appendAccessPath (AbstractAccessPath bt1 et1 cs1) (AbstractAccessPath bt2 et2 cs
 reduceAccessPath :: AbstractAccessPath -> Maybe AbstractAccessPath
 reduceAccessPath (AbstractAccessPath (TypePointer t _) et (AccessDeref:cs)) =
   return $! AbstractAccessPath t et cs
+-- FIXME: Some times (e.g., pixmap), the field number is out of range.
+-- Have to figure out what could possibly cause that. Until then, just
+-- ignore those cases.  Users of this are working at best-effort anyway.
 reduceAccessPath (AbstractAccessPath (TypeStruct _ ts _) et (AccessField fldNo:cs)) =
   case fldNo < length ts of
     True -> return $! AbstractAccessPath (ts !! fldNo) et cs
     False -> Nothing
 reduceAccessPath _ = Nothing
-
--- FIXME: Some times (e.g., pixmap), the field number is out of range.
--- Have to figure out what could possibly cause that. Until then, just
--- ignore those cases.  Users of this are working at best-effort anyway.
-reduceBaseStruct :: Type -> Int -> Maybe Type
-reduceBaseStruct bt fldNo =
-  case bt of
-    TypeStruct _ ts _ ->
-      if fldNo < length ts then Just (ts !! fldNo) else Nothing
-    TypePointer (TypeStruct _ ts _) _ ->
-      if fldNo < length ts then Just (ts !! fldNo) else Nothing
-    _ -> Nothing
 
 instance NFData AbstractAccessPath where
   rnf a@(AbstractAccessPath _ _ ts) = ts `deepseq` a `seq` ()
