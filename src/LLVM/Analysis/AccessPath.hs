@@ -147,7 +147,7 @@ accessPath i = do
     AtomicRMWInst { atomicRMWPointer = p } ->
       return $! go (AccessPath p p []) p
     GetElementPtrInst {} ->
-      return $! go (AccessPath (Value i) (Value i) []) (Value i)
+      return $! go (AccessPath (toValue i) (toValue i) []) (toValue i)
     _ -> F.failure (NotMemoryInstruction i)
   return $! addBaseDeref cpath
   where

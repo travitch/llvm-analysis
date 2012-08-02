@@ -191,7 +191,7 @@ dataflowAnalysis lastInstruction orderedBlockInsts blockPreds blockSuccs fact0 c
     lookupBlockFact facts block =
       case M.lookup (lastInstruction block) facts of
         Just fact -> fact
-        Nothing -> $failure $ printf "No facts for block %s" (show (Value block))
+        Nothing -> $failure $ printf "No facts for block %s" (show (toValue block))
 
     processBlock :: (DataflowAnalysis m a)
                     => (HashMap Instruction a, HashSet BasicBlock)

@@ -169,7 +169,7 @@ commonPrefix l1 l2 = reverse $ go l1 l2
 
 domTreeParams :: GraphvizParams n Instruction el () Instruction
 domTreeParams =
-  nonClusteredParams { fmtNode = \(_, l) -> [ toLabel (Value l) ] }
+  nonClusteredParams { fmtNode = \(_, l) -> [ toLabel (toValue l) ] }
 
 -- Visualization
 

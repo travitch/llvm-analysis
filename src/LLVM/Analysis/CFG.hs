@@ -245,7 +245,7 @@ buildBlockGraph (nacc, eacc) bb = (newNodes ++ nacc, concat [termEdges, internal
       -- handler in the same function could pick it up...  Resolving
       -- that might require some more sophisticated analysis.
       ResumeInst {} -> []
-      _ -> $failure ("Last instruction in a block should be a terminator: " ++ show (Value termInst))
+      _ -> $failure ("Last instruction in a block should be a terminator: " ++ show (toValue termInst))
 
 
 -- buildGraph :: ([LNodeType], [[LEdgeType]]) -> Instruction -> ([LNodeType], [[LEdgeType]])
@@ -467,7 +467,7 @@ instructionReachable cfg i =
 
 cfgGraphvizParams :: GraphvizParams n Instruction CFGEdge BasicBlock Instruction
 cfgGraphvizParams =
-  nonClusteredParams { fmtNode = \(_,l) -> [toLabel (Value l)]
+  nonClusteredParams { fmtNode = \(_,l) -> [toLabel (toValue l)]
                      , fmtEdge = formatEdge
                      , clusterID = Int . basicBlockUniqueId
                      , fmtCluster = formatCluster

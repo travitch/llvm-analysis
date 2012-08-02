@@ -46,7 +46,7 @@ runPointsToAnalysis m = TrivialFunction finalMap
 -- | Add function-typed values to the result map.
 buildMap :: (IsValue a) => a -> HashMap Type (Set Value) -> HashMap Type (Set Value)
 buildMap v =
-  M.insertWith S.union vtype (S.singleton (Value v))
+  M.insertWith S.union vtype (S.singleton (toValue v))
   where
     vtype = valueType v
 
@@ -62,7 +62,7 @@ trivialPointsTo p@(TrivialFunction m) v =
   case valueContent v of
     FunctionC _ -> [v]
     ExternalFunctionC _ -> [v]
-    GlobalAliasC ga -> trivialPointsTo p (Value ga)
+    GlobalAliasC ga -> trivialPointsTo p (toValue ga)
     InstructionC BitcastInst { castedValue = c } ->
       case valueContent c of
         FunctionC _ -> trivialPointsTo p c
