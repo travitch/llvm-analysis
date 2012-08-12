@@ -113,7 +113,48 @@ scalarTransfer si i =
                   , atomicRMWValue =
       (valueContent -> ConstantC ConstantInt { constantIntValue = -1 })} ->
       recordIfAffectsArgument EffectAdd1 i si
+    StoreInst { storeAddress = sa, storeValue = sv } ->
+      case isNonAtomicAdd sa sv of
+        False ->
+          case isNonAtomicSub sa sv of
+            False -> return si
+            True -> recordIfAffectsArgument EffectSub1 i si
+        True -> recordIfAffectsArgument EffectAdd1 i si
     _ -> return si
+
+isNonAtomicSub :: (IsValue a) => Value -> a -> Bool
+isNonAtomicSub sa sv =
+  case valueContent sv of
+    InstructionC AddInst {
+      binaryLhs = (valueContent -> ConstantC ConstantInt { constantIntValue = -1 }),
+      binaryRhs = (valueContent -> InstructionC LoadInst { loadAddress = la }) } ->
+      sa == la
+    InstructionC AddInst {
+      binaryRhs = (valueContent -> ConstantC ConstantInt { constantIntValue = -1 }),
+      binaryLhs = (valueContent -> InstructionC LoadInst { loadAddress = la }) } ->
+      sa == la
+    InstructionC SubInst {
+      binaryRhs = (valueContent -> ConstantC ConstantInt { constantIntValue = 1 }),
+      binaryLhs = (valueContent -> InstructionC LoadInst { loadAddress = la }) } ->
+      sa == la
+    _ -> False
+
+isNonAtomicAdd :: (IsValue a) => Value -> a -> Bool
+isNonAtomicAdd sa sv =
+  case valueContent sv of
+    InstructionC AddInst {
+      binaryLhs = (valueContent -> ConstantC ConstantInt { constantIntValue = 1 }),
+      binaryRhs = (valueContent -> InstructionC LoadInst { loadAddress = la }) } ->
+      sa == la
+    InstructionC AddInst {
+      binaryRhs = (valueContent -> ConstantC ConstantInt { constantIntValue = 1 }),
+      binaryLhs = (valueContent -> InstructionC LoadInst { loadAddress = la }) } ->
+      sa == la
+    InstructionC SubInst {
+      binaryRhs = (valueContent -> ConstantC ConstantInt { constantIntValue = -1 }),
+      binaryLhs = (valueContent -> InstructionC LoadInst { loadAddress = la }) } ->
+      sa == la
+    _ -> False
 
 recordIfAffectsArgument :: (Monad m)
                            => (AbstractAccessPath -> ScalarEffect)
