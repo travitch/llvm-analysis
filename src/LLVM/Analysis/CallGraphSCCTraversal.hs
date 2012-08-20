@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, ExistentialQuantification #-}
+{-# LANGUAGE TemplateHaskell, RankNTypes, ExistentialQuantification #-}
 module LLVM.Analysis.CallGraphSCCTraversal (
   -- * Traversals
   callGraphSCCTraversal,
@@ -20,9 +20,9 @@ module LLVM.Analysis.CallGraphSCCTraversal (
   ) where
 
 import Control.DeepSeq
+import Control.Lens
 import Control.Monad ( foldM, replicateM )
 import Control.Monad.Par
-import Data.Lens.Common
 import Data.List ( foldl' )
 import Data.Map ( Map )
 import qualified Data.Map as M
@@ -49,22 +49,22 @@ data ComposableAnalysis compSumm funcLike =
   forall summary m . (NFData summary, Monoid summary, Eq summary, Monad m)
   => ComposableAnalysisM { analysisUnwrap :: m summary -> summary
                        , analysisFunctionM :: funcLike -> summary -> m summary
-                       , summaryLens :: Lens compSumm summary
+                       , summaryLens :: Simple Lens compSumm summary
                        }
   | forall summary deps m . (NFData summary, Monoid summary, Eq summary, Monad m)
   => ComposableAnalysisDM { analysisUnwrap :: m summary -> summary
                           , analysisFunctionDM :: deps -> funcLike -> summary -> m summary
-                          , summaryLens :: Lens compSumm summary
-                          , dependencyLens :: Lens compSumm deps
+                          , summaryLens :: Simple Lens compSumm summary
+                          , dependencyLens :: Simple Lens compSumm deps
                          }
   | forall summary . (NFData summary, Monoid summary, Eq summary)
     => ComposableAnalysis { analysisFunction :: funcLike -> summary -> summary
-                          , summaryLens :: Lens compSumm summary
+                          , summaryLens :: Simple Lens compSumm summary
                           }
   | forall summary deps . (NFData summary, Monoid summary, Eq summary)
     => ComposableAnalysisD { analysisFunctionD :: deps -> funcLike -> summary -> summary
-                           , summaryLens :: Lens compSumm summary
-                           , dependencyLens :: Lens compSumm deps
+                           , summaryLens :: Simple Lens compSumm summary
+                           , dependencyLens :: Simple Lens compSumm deps
                            }
 
 
@@ -239,23 +239,23 @@ callGraphComposeAnalysis analyses = f
                                                     , analysisFunctionM = af
                                                     , summaryLens = lns
                                                     } =
-      let inputSummary = getL lns summ
+      let inputSummary = summ ^. lns
           res = unwrap $ foldM (flip af) inputSummary funcs
       in case res == inputSummary of
         True -> summ
-        False -> applyAnalysisN funcs (setL lns res summ) a
+        False -> applyAnalysisN funcs (set lns res summ) a
     applyAnalysisN funcs summ a@ComposableAnalysisDM { analysisUnwrap = unwrap
                                                      , analysisFunctionDM = af
                                                      , summaryLens = lns
                                                      , dependencyLens = dlns
                                                      } =
-      let inputSummary = getL lns summ
-          deps = getL dlns summ
+      let inputSummary = summ ^. lns
+          deps = summ ^. dlns
           af' = af deps
           res = unwrap $ foldM (flip af') inputSummary funcs
       in case res == inputSummary of
         True -> summ
-        False -> applyAnalysisN funcs (setL lns res summ) a
+        False -> applyAnalysisN funcs (set lns res summ) a
 
 
 
@@ -264,18 +264,18 @@ callGraphComposeAnalysis analyses = f
                                                  , analysisFunctionM = af
                                                  , summaryLens = lns
                                                  } =
-      let analysisSumm = getL lns summ
+      let analysisSumm = summ ^. lns
           res = af func analysisSumm
-      in setL lns (unwrap res) summ
+      in set lns (unwrap res) summ
     applyAnalysis1 func summ ComposableAnalysisDM { analysisUnwrap = unwrap
                                                   , analysisFunctionDM = af
                                                   , summaryLens = lns
                                                   , dependencyLens = dlns
                                                   } =
-      let analysisSumm = getL lns summ
-          deps = getL dlns summ
+      let analysisSumm = summ ^. lns
+          deps = summ ^. dlns
           res = af deps func analysisSumm
-      in setL lns (unwrap res) summ
+      in set lns (unwrap res) summ
 
 -- | A monadic version of 'composableAnalysis'.  The first argument
 -- here is a function to unwrap a monadic value (something like
@@ -283,7 +283,7 @@ callGraphComposeAnalysis analyses = f
 composableAnalysisM :: (NFData summary, Monoid summary, Eq summary, Monad m, FuncLike funcLike)
                        => (m summary -> summary)
                        -> (funcLike -> summary -> m summary)
-                       -> Lens compSumm summary
+                       -> Simple Lens compSumm summary
                        -> ComposableAnalysis compSumm funcLike
 composableAnalysisM = ComposableAnalysisM
 
@@ -291,8 +291,8 @@ composableAnalysisM = ComposableAnalysisM
 composableDependencyAnalysisM :: (NFData summary, Monoid summary, Eq summary, Monad m, FuncLike funcLike)
                                  => (m summary -> summary)
                                  -> (deps -> funcLike -> summary -> m summary)
-                                 -> Lens compSumm summary
-                                 -> Lens compSumm deps
+                                 -> Simple Lens compSumm summary
+                                 -> Simple Lens compSumm deps
                                  -> ComposableAnalysis compSumm funcLike
 composableDependencyAnalysisM = ComposableAnalysisDM
 
@@ -303,7 +303,7 @@ composableDependencyAnalysisM = ComposableAnalysisDM
 -- is run.
 composableAnalysis :: (NFData summary, Monoid summary, Eq summary, FuncLike funcLike)
                           => (funcLike -> summary -> summary)
-                          -> Lens compSumm summary
+                          -> Simple Lens compSumm summary
                           -> ComposableAnalysis compSumm funcLike
 composableAnalysis = ComposableAnalysis
 
@@ -318,8 +318,8 @@ composableAnalysis = ComposableAnalysis
 -- extracts a *tuple* containing all relevant analyses.
 composableDependencyAnalysis :: (NFData summary, Monoid summary, Eq summary, FuncLike funcLike)
                           => (deps -> funcLike -> summary -> summary)
-                          -> Lens compSumm summary
-                          -> Lens compSumm deps
+                          -> Simple Lens compSumm summary
+                          -> Simple Lens compSumm deps
                           -> ComposableAnalysis compSumm funcLike
 composableDependencyAnalysis = ComposableAnalysisD
 
