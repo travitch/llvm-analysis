@@ -1,1 +1,1 @@
-fromList [ ("@f", ("[100 x i32]*", [AccessArray])) ]
+fromList [ ("@f", ("[100 x i32]*", [AccessDeref, AccessArray])) ]

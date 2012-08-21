@@ -1,1 +1,1 @@
-fromList [ ("@f", ("%struct.S*", [AccessField 0])) ]
+fromList [ ("@f", ("%struct.S*", [AccessDeref, AccessField 0])) ]
