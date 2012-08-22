@@ -16,7 +16,6 @@ module LLVM.Analysis.PointsTo (
   PointsToAnalysis(..),
   ) where
 
-import Data.Maybe ( mapMaybe )
 import LLVM.Analysis
 
 -- | The interface to any points-to analysis.
@@ -29,18 +28,12 @@ class PointsToAnalysis a where
   -- points to itself), but nothing is guaranteed.
   --
   -- Should also give reasonable answers for globals and arguments
-  resolveIndirectCall :: a -> Instruction -> [Function]
+  resolveIndirectCall :: a -> Instruction -> [Value]
   -- ^ Given a Call instruction, determine its possible callees.  The
   -- default implementation just delegates the called function value
   -- to 'pointsTo' and .
   resolveIndirectCall pta i =
     case i of
-      CallInst { callFunction = f } -> mapMaybe toFunction $ pointsTo pta f
-      InvokeInst { invokeFunction = f } -> mapMaybe toFunction $ pointsTo pta f
+      CallInst { callFunction = f } -> pointsTo pta f
+      InvokeInst { invokeFunction = f } -> pointsTo pta f
       _ -> []
-
-toFunction :: Value -> Maybe Function
-toFunction v =
-  case valueContent' v of
-    FunctionC f -> Just f
-    _ -> Nothing
