@@ -179,7 +179,7 @@ forkSCC f val0 acc (component, inVars, outVar, isRoot) = do
 -- monad and unwrap the monadic value.
 --
 -- The monadic equivalent of 'callGraphAnalysis'.
-callGraphAnalysisM :: (FuncLike funcLike, Monoid summary, Eq summary, Monad m)
+callGraphAnalysisM :: (FuncLike funcLike, Eq summary, Monad m)
                       => (m summary -> summary) -- ^ A function to unwrap a monadic result from the summary
                       -> (funcLike -> summary -> m summary) -- ^ Summary function
                       -> ([funcLike] -> summary -> summary)
@@ -198,7 +198,7 @@ callGraphAnalysisM unwrap analyzeFunc = f
 -- function.  The function is applied to each function in the SCC in
 -- an arbitrary order.  It returns the resulting summary obtained by
 -- repeated evaluation until a fixed-point is reached.
-callGraphAnalysis :: (FuncLike funcLike, Monoid summary, Eq summary)
+callGraphAnalysis :: (FuncLike funcLike, Eq summary)
                      => (funcLike -> summary -> summary)
                      -> ([funcLike] -> summary -> summary)
 callGraphAnalysis analyzeFunc = f
