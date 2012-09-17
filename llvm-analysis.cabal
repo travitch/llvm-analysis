@@ -27,7 +27,7 @@ library
                  hashable >= 1.1.2.0, unordered-containers,
                  loch-th >= 0.2, temporary >= 1.0,
                  lattices, failure >= 0.2, hashtables,
-                 lens > 1,
+                 lens > 1, ifscs,
                  llvm-base-types, hbgl, boomerang,
                  -- Testing
                  HUnit, test-framework, test-framework-hunit,
@@ -45,6 +45,7 @@ library
                    LLVM.Analysis.Dominance,
                    LLVM.Analysis.PointsTo,
                    LLVM.Analysis.PointsTo.AllocatorProfile,
+                   LLVM.Analysis.PointsTo.Andersen,
                    LLVM.Analysis.PointsTo.TrivialFunction,
                    LLVM.Analysis.NoReturn,
                    LLVM.Analysis.ScalarEffects,
@@ -90,4 +91,13 @@ test-suite ClassHierarchyTests
                  HUnit, llvm-data-interop, uniplate, itanium-abi
   ghc-options: -Wall -rtsopts
   main-is: ClassHierarchyTests.hs
+  hs-source-dirs: tests
+
+test-suite AndersenTests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  build-depends: base, containers, llvm-analysis, filepath,
+                 HUnit, llvm-data-interop
+  ghc-options: -Wall
+  main-is: AndersenTest.hs
   hs-source-dirs: tests
