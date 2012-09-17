@@ -130,21 +130,16 @@ pta m = do
     instructionConstraints acc i =
       case i of
         LoadInst { loadAddress = la } -> do
-          let c = loc la <=! ref [ universalSet, loadVar i, emptySet ] -- `debug`
-                    -- ("Load constraint: " ++ show ((loadVar i) :: SetExpression Var Constructor))
+          let c = loc la <=! ref [ universalSet, loadVar i, emptySet ]
           return $ c : acc
         StoreInst { storeAddress = sa, storeValue = sv } -> do
           f1 <- freshVariable
           f2 <- freshVariable
           let c1 = setExpFor sa <=! ref [ universalSet, universalSet, f1 ]
-              c2 = ref [ emptySet, setExpFor sv, emptySet ] <=! ref [ universalSet, f2, emptySet ] -- `debug` show (loc sv)
+              c2 = ref [ emptySet, setExpFor sv, emptySet ] <=! ref [ universalSet, f2, emptySet ]
               c3 = f2 <=! f1
           return $ c1 : c2 : c3 : acc
         _ -> return acc
-
-          -- let c1 = setExpFor sa <=! ref [ universalSet, universalSet, f1 ]
-          --     c2 = ref [ emptySet, loc sv, emptySet ] <=! ref [ universalSet, f2, emptySet ] -- `debug` show (loc sv)
-          --     c3 = f2 <=! f1
 
 
 -- Helpers
