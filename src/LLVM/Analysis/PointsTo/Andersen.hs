@@ -30,6 +30,7 @@ module LLVM.Analysis.PointsTo.Andersen (
 
 import Control.Exception
 import Control.Monad.State.Strict
+import Data.List ( sort )
 import Data.Typeable
 
 import LLVM.Analysis
@@ -92,7 +93,7 @@ pta m = do
   initConstraints <- foldM globalInitializerConstraints [] (moduleGlobalVariables m)
   funcConstraints <- foldM functionConstraints [] (moduleDefinedFunctions m)
   let is = initConstraints ++ funcConstraints
-      cs = constraintSystem is -- `debug` (unlines $ map show is)
+      cs = constraintSystem is -- `debug` (unlines $ map show (sort is))
       sol = either throwErr id (solveSystem cs)
   return $! Andersen sol
   where
@@ -130,7 +131,7 @@ pta m = do
     instructionConstraints acc i =
       case i of
         LoadInst { loadAddress = la } -> do
-          let c = loc la <=! ref [ universalSet, loadVar i, emptySet ]
+          let c = setExpFor la <=! ref [ universalSet, loadVar i, emptySet ]
           return $ c : acc
         StoreInst { storeAddress = sa, storeValue = sv } -> do
           f1 <- freshVariable
