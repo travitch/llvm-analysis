@@ -12,7 +12,7 @@ stability: experimental
 tested-with: GHC == 7.4.1
 extra-source-files: README.md
 description: A Haskell library for analyzing LLVM bitcode.  To convert
-             bitcode the format used by this library, see the
+             bitcode to the format used by this library, see the
              llvm-data-interop package.
 
              This library attempts to provide some basic program analysis
