@@ -10,6 +10,8 @@ import Test.HUnit ( assertEqual )
 
 import LLVM.Analysis
 import LLVM.Analysis.BlockReturnValue
+import LLVM.Analysis.Dominance
+import LLVM.Analysis.CFG
 import LLVM.Analysis.Util.Testing
 import LLVM.Parse
 
@@ -31,6 +33,14 @@ main = do
     opts = [ "-mem2reg", "-basicaa", "-gvn" ]
     parser = parseLLVMFile defaultParserOptions
 
+data Bundle = Bundle Function PostdominatorTree
+
+instance HasFunction Bundle where
+  getFunction (Bundle f _) = f
+
+instance HasPostdomTree Bundle where
+  getPostdomTree (Bundle _ pdt) = pdt
+
 -- Take the first function in the module and summarize it (map of
 -- block names to return values that are constant ints)
 blockRetMap :: Module -> Map String Int
@@ -38,7 +48,10 @@ blockRetMap m = foldr (recordConstIntReturn brs) mempty blocks
   where
     f1 : _ = moduleDefinedFunctions m
     blocks = functionBody f1
-    brs = hoistReturns f1
+    brs = labelBlockReturns bdl
+    pdt = postdominatorTree (reverseCFG (mkCFG f1))
+    bdl = Bundle f1 pdt
+
 
 recordConstIntReturn :: BlockReturns -> BasicBlock -> Map String Int -> Map String Int
 recordConstIntReturn brs bb m =

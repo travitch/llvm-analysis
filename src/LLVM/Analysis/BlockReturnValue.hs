@@ -1,86 +1,103 @@
+-- | Label each BasicBlock with the value it *must* return.
+--
+-- Most frontends that generate bitcode unify all of the return
+-- statements of a function and return a phi node that has a return
+-- value for each branch.  This pass ('labelBlockReturns') pushes
+-- those returns backwards through the control flow graph as labels on
+-- basic blocks.  The function 'blockReturn' gives the return value
+-- for a block, if there is a value that must be returned by that
+-- block.
+--
+-- The algorithm starts from the return instruction.  Non-phi values
+-- are propagated backwards to all reachable blocks.  Phi values are
+-- split and the algorithm propagates each phi incoming value back to
+-- the block it came from.  A value can be propagated from a block BB
+-- to its predecessor block PB if (and only if) BB postdominates PB.
+-- Intuitively, the algorithm propagates a return value to a
+-- predecessor block if that predecessor block *must* return that
+-- value (hence postdominance).
 module LLVM.Analysis.BlockReturnValue (
   BlockReturns,
-  hoistReturns,
-  blockReturn
+  labelBlockReturns,
+  blockReturn,
+  instructionReturn
   ) where
 
 import Control.Arrow ( second )
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
-import Data.Maybe ( isJust )
 import Data.Monoid
 
 import LLVM.Analysis
+import LLVM.Analysis.Dominance
 
--- Idea: start from the return instruction (the "bottom" of the
--- function) and propagate the branches of phi instructions backwards.
--- Collect these in a map and provide a lookup to see the return for a
--- given block.  They can only be pushed up through unconditional
--- branches.
---
--- Maybe a derived analysis could deal with aggregating possible
--- returns for unconditional branches.
---
--- For this analysis, if no return value makes it to the end of the
--- error checking block, it is error recovery code (also interesting).
 data BlockReturns = BlockReturns (HashMap BasicBlock Value)
 
--- First pass, make a table of all unconditional block predecessors.
--- This is needed to trace backwards...  Phi nodes include this
--- information, but returns of non-phi nodes do not.
-hoistReturns :: Function -> BlockReturns
-hoistReturns f =
+-- | Retrieve the Value that must be returned (if any) if the given
+-- BasicBlock executes.
+blockReturn :: BlockReturns -> BasicBlock -> Maybe Value
+blockReturn (BlockReturns m) bb = HM.lookup bb m
+
+-- | Return the Value that must be returned (if any) if the given
+-- Instruction is executed.
+instructionReturn :: BlockReturns -> Instruction -> Maybe Value
+instructionReturn brs i = do
+  bb <- instructionBasicBlock i
+  blockReturn brs bb
+
+-- | Label each BasicBlock with the value that it must return (if
+-- any).
+labelBlockReturns :: (HasFunction funcLike, HasPostdomTree funcLike)
+                => funcLike -> BlockReturns
+labelBlockReturns funcLike =
   case functionExitInstructions f of
     [] -> BlockReturns mempty
     exitInsts -> BlockReturns $ foldr pushReturnValues mempty exitInsts
   where
+    f = getFunction funcLike
+    pdt = getPostdomTree funcLike
     upreds = foldr addPred mempty (functionBody f)
     addPred bb ps =
-      case unconditionalTerminatorTarget bb of
-        Just t -> HM.insertWith (++) t [bb] ps
+      case basicBlockTerminatorInstruction bb of
+        UnconditionalBranchInst { unconditionalBranchTarget = t } ->
+          HM.insertWith (++) t [bb] ps
+        BranchInst { branchTrueTarget = tt, branchFalseTarget = ft } ->
+          let ps' = HM.insertWith (++) tt [bb] ps
+          in HM.insertWith (++) ft [bb] ps'
         _ -> ps
     pushReturnValues exitInst m =
       case exitInst of
         RetInst { retInstValue = Just rv } ->
           let Just b0 = instructionBasicBlock exitInst
-          in pushReturnUp (rv, b0) m
+          in pushReturnUp Nothing (rv, b0) m
         _ -> m
-    pushReturnUp (val, bb) m
-      | not (hasUnconditionalTerminator bb) && not (isExitBlock bb) = m
+    pushReturnUp prevBlock (val, bb) m
+      | not (prevTerminatorPostdominates pdt prevBlock bb) = m
       | otherwise =
         case valueContent' val of
           InstructionC PhiNode { phiIncomingValues = ivs } ->
-            foldr pushReturnUp m (map (second toBB) ivs)
+            foldr (pushReturnUp (Just bb)) m (map (second toBB) ivs)
           _ ->
             let m' = HM.insert bb val m
                 preds = HM.lookup bb upreds
-            in maybe m' (foldr pushReturnUp m' . zip (repeat val)) preds
+            in maybe m' (foldr (pushReturnUp (Just bb)) m' . zip (repeat val)) preds
 
--- FIXME: Stopping at a conditional branch is a bit too conservative.
--- We can do better with the CFG.  If the return value being
--- propagated up post-dominates *all* of the edges of a branch, then
--- it must be the return value for all of those branches.
+-- | Return True if the terminator instruction of the previous block
+-- in the traversal postdominates the terminator instruction of the
+-- current block.
+prevTerminatorPostdominates :: PostdominatorTree -> Maybe BasicBlock -> BasicBlock -> Bool
+prevTerminatorPostdominates _ Nothing _ = True
+prevTerminatorPostdominates pdt (Just prevBlock) bb =
+  postdominates pdt prevTerm bbTerm
+  where
+    prevTerm = basicBlockTerminatorInstruction prevBlock
+    bbTerm = basicBlockTerminatorInstruction bb
 
+-- | Unconditionally convert a Value to a BasicBlock.  This should
+-- always work for the second value of each Phi incoming value.  There
+-- may be some cases with blockaddresses that fail...
 toBB :: Value -> BasicBlock
 toBB v =
   case valueContent v of
     BasicBlockC bb -> bb
     _ -> error "LLVM.Analysis.BlockReturnValue.toBB: not a basic block"
-
-hasUnconditionalTerminator :: BasicBlock -> Bool
-hasUnconditionalTerminator = isJust . unconditionalTerminatorTarget
-
-unconditionalTerminatorTarget :: BasicBlock -> Maybe BasicBlock
-unconditionalTerminatorTarget bb =
-  case basicBlockTerminatorInstruction bb of
-    UnconditionalBranchInst { unconditionalBranchTarget = t } -> Just t
-    _ -> Nothing
-
-isExitBlock :: BasicBlock -> Bool
-isExitBlock bb =
-  case basicBlockTerminatorInstruction bb of
-    RetInst {} -> True
-    _ -> False
-
-blockReturn :: BlockReturns -> BasicBlock -> Maybe Value
-blockReturn (BlockReturns m) bb = HM.lookup bb m
