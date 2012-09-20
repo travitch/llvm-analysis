@@ -17,6 +17,7 @@ module LLVM.Analysis.PointsTo.Andersen (
 import Control.Exception
 import Control.Monad.State.Strict
 import Data.GraphViz
+import Data.Maybe ( mapMaybe )
 import Data.Typeable
 import System.IO.Unsafe ( unsafePerformIO )
 
@@ -26,6 +27,7 @@ import LLVM.Analysis.PointsTo
 import Constraints.Set.Solver
 
 import Debug.Trace
+debug :: a -> String -> a
 debug = flip trace
 
 -- A monad to manage fresh variable generation
@@ -48,6 +50,7 @@ data Var = Fresh !Int
          | LocationSet !Value -- The X_{l_i} variables
          | LoadedLocation !Instruction
          | ArgLocation !Argument
+         | RetLocation !Instruction
          deriving (Eq, Ord, Show, Typeable)
 
 type SetExp = SetExpression Var Constructor
@@ -66,6 +69,7 @@ andersenPointsTo (Andersen ss) v =
   where
     var = case valueContent' v of
       ArgumentC a -> ArgLocation a
+      InstructionC i@CallInst {} -> RetLocation i
       _ -> LocationSet v
     fromError :: ConstraintError Var Constructor -> [Value]
     fromError = const []
@@ -89,10 +93,12 @@ pta m = do
   where
     loadVar ldInst = setVariable (LoadedLocation ldInst)
     argVar a = setVariable (ArgLocation a)
+    returnVar i = setVariable (RetLocation i)
     ref = term Ref [Covariant, Covariant, Contravariant]
     loc val =
       let var = case valueContent' val of
             InstructionC i@LoadInst {} -> loadVar i
+            InstructionC i@CallInst {} -> returnVar i
             ArgumentC a -> argVar a
             _ -> setVariable (LocationSet val)
       in ref [ atom (Atom val), var, var ]
@@ -102,6 +108,7 @@ pta m = do
     -- new set of assignments.
     setExpFor v = case valueContent' v of
       InstructionC i@LoadInst {} -> loadVar i
+      InstructionC i@CallInst {} -> returnVar i
       ArgumentC a -> argVar a
       _ -> loc v
 
@@ -134,14 +141,24 @@ pta m = do
               c3 = f2 <=! f1
 
           return $ c1 : c2 : c3 : acc `debug` ("Inst: " ++ show i ++ "\n" ++ (unlines $ map show [c1,c2,c3]))
-        -- FIXME handle return values (assign the return value of f to i)
         CallInst { callFunction = (valueContent' -> FunctionC f)
                  , callArguments = args
                  } -> do
           let formals = functionParameters f
               actuals = map fst args
-          foldM copyActualsToFormals acc (zip actuals formals)
+          acc' <- foldM copyActualsToFormals acc (zip actuals formals)
+          case valueType i of
+            TypePointer _ _ ->
+              let rvs = mapMaybe extractRetVal (functionExitInstructions f)
+                  cs = foldr (retConstraint i) [] rvs
+              in return $ cs ++ acc'
+            _ -> return acc'
+
         _ -> return acc
+
+    retConstraint i rv acc =
+      let c = setExpFor rv <=! setExpFor (toValue i)
+      in c : acc `debug` ("RetVal " ++ show i ++ "\n" ++ (unlines $ map show [c]))
 
     -- Note the rule has to be a bit strange because the formal is an
     -- r-value (and not an l-value like everything else).  We can
@@ -153,6 +170,9 @@ pta m = do
 
 -- Helpers
 
+extractRetVal :: Instruction -> Maybe Value
+extractRetVal RetInst { retInstValue = rv } = rv
+extractRetVal _ = Nothing
 
 throwErr :: ConstraintError Var Constructor -> SolvedSystem Var Constructor
 throwErr = throw
@@ -184,6 +204,8 @@ fmtAndersenNode (_, l) =
         Just vn -> [toLabel ("X_" ++ identifierAsString vn)]
     SetVariable (ArgLocation a) ->
       [toLabel ("AL_" ++ show (argumentName a))]
+    SetVariable (RetLocation i) ->
+      [toLabel ("RV_" ++ show (valueName (callFunction i)))]
     SetVariable (LoadedLocation i) ->
       case valueName i of
         Nothing -> error "Loads should have names"
