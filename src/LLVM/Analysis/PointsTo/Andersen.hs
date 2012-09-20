@@ -3,21 +3,7 @@
 --
 -- TODO:
 --
--- * Add initial edges for struct/array constant initializers
---
--- * Add a PHI node test and a NULL pointer test
---
--- * Handle external functions (w/ hooks)
---
--- * Handle SelectInsts (of pointer type)
---
--- * Be more robust against type/memory-unsafe programs.
---
--- * Variable-length argument list functions
---
 -- * Add field sensitivity eventually. See http://delivery.acm.org/10.1145/1300000/1290524/a4-pearce.pdf?ip=128.105.181.27&acc=ACTIVE%20SERVICE&CFID=52054919&CFTOKEN=71981976&__acm__=1320350342_65be4c25a6fba7e32d7b4cd60f13fe97
---
--- * On-the-fly allocator discovery
 module LLVM.Analysis.PointsTo.Andersen (
   -- * Types
   Andersen,
@@ -30,8 +16,9 @@ module LLVM.Analysis.PointsTo.Andersen (
 
 import Control.Exception
 import Control.Monad.State.Strict
-import Data.List ( sort )
+import Data.GraphViz
 import Data.Typeable
+import System.IO.Unsafe ( unsafePerformIO )
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo
@@ -93,9 +80,9 @@ pta m = do
   initConstraints <- foldM globalInitializerConstraints [] (moduleGlobalVariables m)
   funcConstraints <- foldM functionConstraints [] (moduleDefinedFunctions m)
   let is = initConstraints ++ funcConstraints
-      cs = constraintSystem is -- `debug` (unlines $ map show (sort is))
+      cs = constraintSystem is
       sol = either throwErr id (solveSystem cs)
-  return $! Andersen sol
+  return $! Andersen sol -- `viewSystem` sol
   where
     loadVar ldInst = setVariable (LoadedLocation ldInst)
     ref = term Ref [Covariant, Covariant, Contravariant]
@@ -132,14 +119,15 @@ pta m = do
       case i of
         LoadInst { loadAddress = la } -> do
           let c = setExpFor la <=! ref [ universalSet, loadVar i, emptySet ]
-          return $ c : acc
+          return $ c : acc `debug` ("Inst: " ++ show i ++ "\n" ++ show c ++ "\n")
         StoreInst { storeAddress = sa, storeValue = sv } -> do
           f1 <- freshVariable
           f2 <- freshVariable
           let c1 = setExpFor sa <=! ref [ universalSet, universalSet, f1 ]
               c2 = ref [ emptySet, setExpFor sv, emptySet ] <=! ref [ universalSet, f2, emptySet ]
               c3 = f2 <=! f1
-          return $ c1 : c2 : c3 : acc
+
+          return $ c1 : c2 : c3 : acc `debug` ("Inst: " ++ show i ++ "\n" ++ (unlines $ map show [c1,c2,c3]))
         _ -> return acc
 
 
@@ -148,3 +136,45 @@ pta m = do
 
 throwErr :: ConstraintError Var Constructor -> SolvedSystem Var Constructor
 throwErr = throw
+
+-- Debugging
+
+viewSystem :: a -> SolvedSystem Var Constructor -> a
+viewSystem a s = unsafePerformIO $ do
+  let (ns, es) = solvedSystemGraphElems s
+      dg = graphElemsToDot andersenParams ns es
+  runGraphvizCanvas' dg Gtk
+  return a
+
+andersenParams :: GraphvizParams Int (SetExpression Var Constructor) ConstraintEdge () (SetExpression Var Constructor)
+andersenParams = defaultParams { isDirected = True
+                               , fmtNode = fmtAndersenNode
+                               , fmtEdge = fmtAndersenEdge
+                               }
+
+fmtAndersenNode :: (a, SetExpression Var Constructor) -> [Attribute]
+fmtAndersenNode (_, l) =
+  case l of
+    EmptySet -> [toLabel (show l)]
+    UniversalSet -> [toLabel (show l)]
+    SetVariable (Fresh i) -> [toLabel ("F" ++ show i)]
+    SetVariable (LocationSet v) ->
+      case valueName v of
+        Nothing -> [toLabel ("X_" ++ show v)]
+        Just vn -> [toLabel ("X_" ++ identifierAsString vn)]
+    SetVariable (LoadedLocation i) ->
+      case valueName i of
+        Nothing -> error "Loads should have names"
+        Just ln -> [toLabel ("LL_" ++ identifierAsString ln)]
+    ConstructedTerm Ref _ [ConstructedTerm (Atom v) _ _, _, _] ->
+      let vn = maybe (show v) identifierAsString (valueName v)
+      in [toLabel $ concat [ "Ref( l_", vn, ", X_", vn, ", X_", vn ]]
+    ConstructedTerm (Atom a) _ _ ->
+      [toLabel (show a)]
+    ConstructedTerm _ _ _ -> [toLabel (show l)]
+
+fmtAndersenEdge :: (a, a, ConstraintEdge) -> [Attribute]
+fmtAndersenEdge (_, _, lbl) =
+  case lbl of
+    Succ -> [style solid]
+    Pred -> [style dashed]
