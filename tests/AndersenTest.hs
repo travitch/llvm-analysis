@@ -65,6 +65,9 @@ main = do
                         ]
   withArgs [] $ testAgainstExpected opts parser testDescriptors
   where
+    -- These optimizations aren't really necessary (the algorithm
+    -- works fine with unoptimized bitcode), but comparing the results
+    -- visually is much easier with the optimized version.
     opts = [ "-mem2reg", "-basicaa", "-gvn" ]
     parser = parseLLVMFile defaultParserOptions
     expectedMapper = (<.> "expected-andersen")
