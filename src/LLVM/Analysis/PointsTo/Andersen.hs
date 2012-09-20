@@ -54,7 +54,7 @@ data Var = Fresh !Int
          deriving (Eq, Ord, Show, Typeable)
 
 type SetExp = SetExpression Var Constructor
-data Andersen = Andersen (SolvedSystem Var Constructor)
+data Andersen = Andersen !(SolvedSystem Var Constructor)
 
 instance PointsToAnalysis Andersen where
   mayAlias = andersenMayAlias
@@ -89,7 +89,7 @@ pta m = do
   let is = initConstraints ++ funcConstraints
       cs = constraintSystem is
       sol = either throwErr id (solveSystem cs)
-  return $! Andersen sol -- `viewSystem` sol
+  return $! Andersen sol
   where
     loadVar ldInst = setVariable (LoadedLocation ldInst)
     argVar a = setVariable (ArgLocation a)
@@ -149,18 +149,23 @@ pta m = do
 #endif
         CallInst { callFunction = (valueContent' -> FunctionC f)
                  , callArguments = args
-                 } -> do
-          let formals = functionParameters f
-              actuals = map fst args
-          acc' <- foldM copyActualsToFormals acc (zip actuals formals)
-          case valueType i of
-            TypePointer _ _ ->
-              let rvs = mapMaybe extractRetVal (functionExitInstructions f)
-                  cs = foldr (retConstraint i) [] rvs
-              in return $ cs ++ acc'
-            _ -> return acc'
+                 } -> directCallConstraints acc i f (map fst args)
+        InvokeInst { invokeFunction = (valueContent' -> FunctionC f)
+                   , invokeArguments = args
+                   } -> directCallConstraints acc i f (map fst args)
 
         _ -> return acc
+
+    directCallConstraints acc i f actuals = do
+      let formals = functionParameters f
+      acc' <- foldM copyActualsToFormals acc (zip actuals formals)
+      case valueType i of
+        TypePointer _ _ ->
+          let rvs = mapMaybe extractRetVal (functionExitInstructions f)
+              cs = foldr (retConstraint i) [] rvs
+          in return $ cs ++ acc'
+        _ -> return acc'
+
 
     retConstraint i rv acc =
       let c = setExpFor rv <=! setExpFor (toValue i)
