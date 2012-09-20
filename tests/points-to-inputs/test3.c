@@ -12,12 +12,14 @@ int ** pp;
 int ** ptr;
 void callee()
 {
-  *ptr = q;
+  // *ptr = q;
+  *pp = q;
 }
 
 void caller()
 {
-  ptr = pp;
+  //p = &d;
+  // ptr = pp;
 }
 
 void setup()
