@@ -25,7 +25,8 @@ extractSummary :: Module -> ExpectedResult
 extractSummary m = foldr addInfo mempty ptrs
   where
     pta = runPointsToAnalysis m
-    ptrs = map toValue (globalPointerVariables m) -- ++ map Value (functionPointerParameters m)
+    ptrs = map toValue (globalPointerVariables m) ++ formals -- ++ map Value (functionPointerParameters m)
+    formals = concatMap (map toValue . functionParameters) (moduleDefinedFunctions m)
     addInfo v r =
       let vals = pointsTo pta v
           name = maybe "???" show (valueName v)
