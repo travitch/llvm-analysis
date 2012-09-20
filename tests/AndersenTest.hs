@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module Main ( main ) where
 
 import Data.Map ( Map )
@@ -16,13 +17,24 @@ import LLVM.Analysis.PointsTo
 import LLVM.Analysis.Util.Testing
 import LLVM.Parse
 
-import Debug.Trace
-debug = flip trace
+#if defined(DEBUGGRAPH)
 
-type ExpectedResult = Map String (Set String)
+import Data.GraphViz
+import System.IO.Unsafe ( unsafePerformIO )
 
-extractSummary :: Module -> ExpectedResult
+viewConstraintGraph :: a -> Andersen -> a
+viewConstraintGraph v a = unsafePerformIO $ do
+  let dg = andersenConstraintGraph a
+  runGraphvizCanvas' dg Gtk
+  return v
+
+#endif
+
+extractSummary :: Module -> Map String (Set String)
 extractSummary m = foldr addInfo mempty ptrs
+#if defined(DEBUGGRAPH)
+                    `viewConstraintGraph` pta
+#endif
   where
     pta = runPointsToAnalysis m
     ptrs = map toValue (globalPointerVariables m) ++ formals -- ++ map Value (functionPointerParameters m)

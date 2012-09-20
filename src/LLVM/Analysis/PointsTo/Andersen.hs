@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, DeriveDataTypeable #-}
+{-# LANGUAGE ViewPatterns, DeriveDataTypeable, CPP #-}
 -- | This is a simple implementation of Andersen's points-to analysis.
 --
 -- TODO:
@@ -9,9 +9,8 @@ module LLVM.Analysis.PointsTo.Andersen (
   Andersen,
   -- * Constructor
   runPointsToAnalysis,
-  -- * Debugging aids
-  -- savePointsToGraph,
-  -- viewPointsToGraph,
+  -- * Debugging aids (note, subject to change and unstable)
+  andersenConstraintGraph
   ) where
 
 import Control.Exception
@@ -19,16 +18,17 @@ import Control.Monad.State.Strict
 import Data.GraphViz
 import Data.Maybe ( mapMaybe )
 import Data.Typeable
-import System.IO.Unsafe ( unsafePerformIO )
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo
 
 import Constraints.Set.Solver
 
+#if defined(DEBUGCONSTRAINTS)
 import Debug.Trace
 debug :: a -> String -> a
 debug = flip trace
+#endif
 
 -- A monad to manage fresh variable generation
 data ConstraintState = ConstraintState { freshIdSrc :: !Int  }
@@ -132,7 +132,10 @@ pta m = do
       case i of
         LoadInst { loadAddress = la } -> do
           let c = setExpFor la <=! ref [ universalSet, loadVar i, emptySet ]
-          return $ c : acc `debug` ("Inst: " ++ show i ++ "\n" ++ show c ++ "\n")
+          return $ c : acc
+#if defined(DEBUGCONSTRAINTS)
+            `debug` ("Inst: " ++ show i ++ "\n" ++ show c ++ "\n")
+#endif
         StoreInst { storeAddress = sa, storeValue = sv } -> do
           f1 <- freshVariable
           f2 <- freshVariable
@@ -140,7 +143,10 @@ pta m = do
               c2 = ref [ emptySet, setExpFor sv, emptySet ] <=! ref [ universalSet, f2, emptySet ]
               c3 = f2 <=! f1
 
-          return $ c1 : c2 : c3 : acc `debug` ("Inst: " ++ show i ++ "\n" ++ (unlines $ map show [c1,c2,c3]))
+          return $ c1 : c2 : c3 : acc
+#if defined(DEBUGCONSTRAINTS)
+            `debug` ("Inst: " ++ show i ++ "\n" ++ (unlines $ map show [c1,c2,c3]))
+#endif
         CallInst { callFunction = (valueContent' -> FunctionC f)
                  , callArguments = args
                  } -> do
@@ -158,7 +164,10 @@ pta m = do
 
     retConstraint i rv acc =
       let c = setExpFor rv <=! setExpFor (toValue i)
-      in c : acc `debug` ("RetVal " ++ show i ++ "\n" ++ (unlines $ map show [c]))
+      in c : acc
+#if defined(DEBUGCONSTRAINTS)
+             `debug` ("RetVal " ++ show i ++ "\n" ++ (unlines $ map show [c]))
+#endif
 
     -- Note the rule has to be a bit strange because the formal is an
     -- r-value (and not an l-value like everything else).  We can
@@ -166,7 +175,10 @@ pta m = do
     -- here because of this.
     copyActualsToFormals acc (act, frml) = do
       let c = setExpFor act <=! argVar frml
-      return $ c : acc `debug` ("Args " ++ show act ++ " -> " ++ show frml ++ "\n" ++ (unlines $ map show [c]))
+      return $ c : acc
+#if defined(DEBUGCONSTRAINTS)
+        `debug` ("Args " ++ show act ++ " -> " ++ show frml ++ "\n" ++ (unlines $ map show [c]))
+#endif
 
 -- Helpers
 
@@ -179,12 +191,10 @@ throwErr = throw
 
 -- Debugging
 
-viewSystem :: a -> SolvedSystem Var Constructor -> a
-viewSystem a s = unsafePerformIO $ do
+andersenConstraintGraph :: Andersen -> DotGraph Int
+andersenConstraintGraph (Andersen s) =
   let (ns, es) = solvedSystemGraphElems s
-      dg = graphElemsToDot andersenParams ns es
-  runGraphvizCanvas' dg Gtk
-  return a
+  in graphElemsToDot andersenParams ns es
 
 andersenParams :: GraphvizParams Int (SetExpression Var Constructor) ConstraintEdge () (SetExpression Var Constructor)
 andersenParams = defaultParams { isDirected = True
