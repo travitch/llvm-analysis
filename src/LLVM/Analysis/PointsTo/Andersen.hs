@@ -47,6 +47,7 @@ data Constructor = Ref
 data Var = Fresh !Int
          | LocationSet !Value -- The X_{l_i} variables
          | LoadedLocation !Instruction
+         | ArgLocation !Argument
          deriving (Eq, Ord, Show, Typeable)
 
 type SetExp = SetExpression Var Constructor
@@ -63,7 +64,9 @@ andersenPointsTo :: Andersen -> Value -> [Value]
 andersenPointsTo (Andersen ss) v =
   either fromError (map fromLocation) (leastSolution ss var)
   where
-    var = LocationSet v
+    var = case valueContent' v of
+      ArgumentC a -> ArgLocation a
+      _ -> LocationSet v
     fromError :: ConstraintError Var Constructor -> [Value]
     fromError = const []
     fromLocation :: SetExp -> Value
@@ -85,10 +88,12 @@ pta m = do
   return $! Andersen sol -- `viewSystem` sol
   where
     loadVar ldInst = setVariable (LoadedLocation ldInst)
+    argVar a = setVariable (ArgLocation a)
     ref = term Ref [Covariant, Covariant, Contravariant]
     loc val =
       let var = case valueContent' val of
             InstructionC i@LoadInst {} -> loadVar i
+            ArgumentC a -> argVar a
             _ -> setVariable (LocationSet val)
       in ref [ atom (Atom val), var, var ]
 
@@ -97,6 +102,7 @@ pta m = do
     -- new set of assignments.
     setExpFor v = case valueContent' v of
       InstructionC i@LoadInst {} -> loadVar i
+      ArgumentC a -> argVar a
       _ -> loc v
 
     -- FIXME This probably needs to use the type of the initializer to
@@ -128,8 +134,22 @@ pta m = do
               c3 = f2 <=! f1
 
           return $ c1 : c2 : c3 : acc `debug` ("Inst: " ++ show i ++ "\n" ++ (unlines $ map show [c1,c2,c3]))
+        -- FIXME handle return values (assign the return value of f to i)
+        CallInst { callFunction = (valueContent' -> FunctionC f)
+                 , callArguments = args
+                 } -> do
+          let formals = functionParameters f
+              actuals = map fst args
+          foldM copyActualsToFormals acc (zip actuals formals)
         _ -> return acc
 
+    -- Note the rule has to be a bit strange because the formal is an
+    -- r-value (and not an l-value like everything else).  We can
+    -- actually do the really simple thing from other formulations
+    -- here because of this.
+    copyActualsToFormals acc (act, frml) = do
+      let c = setExpFor act <=! argVar frml
+      return $ c : acc `debug` ("Args " ++ show act ++ " -> " ++ show frml ++ "\n" ++ (unlines $ map show [c]))
 
 -- Helpers
 
@@ -162,6 +182,8 @@ fmtAndersenNode (_, l) =
       case valueName v of
         Nothing -> [toLabel ("X_" ++ show v)]
         Just vn -> [toLabel ("X_" ++ identifierAsString vn)]
+    SetVariable (ArgLocation a) ->
+      [toLabel ("AL_" ++ show (argumentName a))]
     SetVariable (LoadedLocation i) ->
       case valueName i of
         Nothing -> error "Loads should have names"
