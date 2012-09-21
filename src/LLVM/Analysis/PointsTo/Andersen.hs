@@ -167,9 +167,9 @@ pta m = do
         CallInst { callFunction = (valueContent' -> ExternalFunctionC _) } -> return acc
         InvokeInst { invokeFunction = (valueContent' -> ExternalFunctionC _) } -> return acc
         CallInst { callFunction = callee, callArguments = args } ->
-          indirectCallConstraints acc i callee (map fst args)
+          indirectCallConstraints acc callee (map fst args)
         InvokeInst { invokeFunction = callee, invokeArguments = args } ->
-          indirectCallConstraints acc i callee (map fst args)
+          indirectCallConstraints acc callee (map fst args)
         SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
           foldM (valueAliasingChoise i) acc [ tv, fv ]
         PhiNode { phiIncomingValues = ivs } ->
@@ -214,7 +214,7 @@ pta m = do
     -- This may get complicated for loads of fields, but we should be
     -- able to take care of that outside of this rule.  Globals and
     -- locals are easy.
-    indirectCallConstraints acc i callee actuals = do
+    indirectCallConstraints acc callee actuals = do
       let addIndirectConstraint (ix, act) a =
             let c = setExpFor act <=! virtArgVar callee ix
             in c : a `traceConstraints` (concat ["IndirectCall ", show ix, "(", show act, ")" ], [c])
