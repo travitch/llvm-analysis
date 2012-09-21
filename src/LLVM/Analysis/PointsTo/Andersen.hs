@@ -50,6 +50,7 @@ data Var = Fresh !Int
          | LocationSet !Value -- The X_{l_i} variables
          | LoadedLocation !Instruction
          | ArgLocation !Argument
+         | VirtualArg !Value !Int
          | RetLocation !Instruction
          deriving (Eq, Ord, Show, Typeable)
 
@@ -93,8 +94,12 @@ pta m = do
   where
     loadVar ldInst = setVariable (LoadedLocation ldInst)
     argVar a = setVariable (ArgLocation a)
+    virtArgVar sa ix = setVariable (VirtualArg sa ix)
     returnVar i = setVariable (RetLocation i)
     ref = term Ref [Covariant, Covariant, Contravariant]
+    virtArgLoc sa ix =
+      let var = virtArgVar sa ix
+      in ref [ atom (Atom sa), var, var ]
     loc val =
       let var = case valueContent' val of
             InstructionC i@LoadInst {} -> loadVar i
@@ -136,14 +141,18 @@ pta m = do
 #if defined(DEBUGCONSTRAINTS)
             `debug` ("Inst: " ++ show i ++ "\n" ++ show c ++ "\n")
 #endif
+
+        -- If you store the stored address is a function type, add
+        -- inclusion edges between the virtual arguments.  If sv is a
+        -- Function, add virtual args linked to formals.
         StoreInst { storeAddress = sa, storeValue = sv } -> do
           f1 <- freshVariable
           f2 <- freshVariable
           let c1 = setExpFor sa <=! ref [ universalSet, universalSet, f1 ]
               c2 = ref [ emptySet, setExpFor sv, emptySet ] <=! ref [ universalSet, f2, emptySet ]
               c3 = f2 <=! f1
-
-          return $ c1 : c2 : c3 : acc
+          acc' <- addVirtualArgConstraints acc sa sv
+          return $ c1 : c2 : c3 : acc'
 #if defined(DEBUGCONSTRAINTS)
             `debug` ("Inst: " ++ show i ++ "\n" ++ (unlines $ map show [c1,c2,c3]))
 #endif
@@ -153,7 +162,9 @@ pta m = do
         InvokeInst { invokeFunction = (valueContent' -> FunctionC f)
                    , invokeArguments = args
                    } -> directCallConstraints acc i f (map fst args)
-
+        CallInst { callFunction = (valueContent' -> InstructionC LoadInst { loadAddress = la })
+                 , callArguments = args
+                 } -> indirectCallConstraints acc i la (map fst args)
         _ -> return acc
 
     directCallConstraints acc i f actuals = do
@@ -166,6 +177,31 @@ pta m = do
           in return $ cs ++ acc'
         _ -> return acc'
 
+    addVirtualArgConstraints acc sa sv
+      | not (isFuncPtrType (valueType sv)) = return acc
+      | otherwise =
+        case valueContent' sv of
+          -- Connect the virtuals for sa to the actuals of f
+          FunctionC f -> do
+            let formals = functionParameters f
+            foldM (constrainVirtualArg sa) acc (zip [0..] formals)
+          _ -> return acc
+
+    constrainVirtualArg sa acc (ix, frml) = do
+      let c = virtArgVar sa ix <=! argVar frml
+      return $ c : acc
+
+    -- The idea here will be that we equate the actuals with virtual
+    -- nodes for this function pointer.  For function pointer will
+    -- always be a load node so we can treat it somewhat uniformly.
+    -- This may get complicated for loads of fields, but we should be
+    -- able to take care of that outside of this rule.  Globals and
+    -- locals are easy.
+    indirectCallConstraints acc i la actuals = do
+      let addIndirectConstraint (ix, act) a =
+            (setExpFor act <=! virtArgVar la ix) : a
+      let acc' = foldr addIndirectConstraint acc (zip [0..] actuals)
+      return acc'
 
     retConstraint i rv acc =
       let c = setExpFor rv <=! setExpFor (toValue i)
@@ -186,6 +222,13 @@ pta m = do
 #endif
 
 -- Helpers
+
+isFuncPtrType :: Type -> Bool
+isFuncPtrType t =
+  case t of
+    TypeFunction _ _ _ -> True
+    TypePointer t' _ -> isFuncPtrType t'
+    _ -> False
 
 extractRetVal :: Instruction -> Maybe Value
 extractRetVal RetInst { retInstValue = rv } = rv
@@ -213,6 +256,8 @@ fmtAndersenNode (_, l) =
     EmptySet -> [toLabel (show l)]
     UniversalSet -> [toLabel (show l)]
     SetVariable (Fresh i) -> [toLabel ("F" ++ show i)]
+    SetVariable (VirtualArg sa ix) ->
+      [toLabel ("VA_" ++ show ix ++ "[" ++ show (valueName sa) ++ "]")]
     SetVariable (LocationSet v) ->
       case valueName v of
         Nothing -> [toLabel ("X_" ++ show v)]
