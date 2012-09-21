@@ -52,6 +52,7 @@ data Var = Fresh !Int
          | ArgLocation !Argument
          | VirtualArg !Value !Int
          | RetLocation !Instruction
+         | PhiCopy !Instruction
          deriving (Eq, Ord, Show, Typeable)
 
 type SetExp = SetExpression Var Constructor
@@ -95,6 +96,7 @@ pta m = do
   where
     loadVar ldInst = setVariable (LoadedLocation ldInst)
     argVar a = setVariable (ArgLocation a)
+    phiVar i = setVariable (PhiCopy i)
     virtArgVar sa ix = setVariable (VirtualArg sa ix)
     returnVar i = setVariable (RetLocation i)
     ref = term Ref [Covariant, Covariant, Contravariant]
@@ -102,6 +104,8 @@ pta m = do
       let var = case valueContent' val of
             InstructionC i@LoadInst {} -> loadVar i
             InstructionC i@CallInst {} -> returnVar i
+            InstructionC i@PhiNode {} -> phiVar i
+            InstructionC i@SelectInst {} -> phiVar i
             ArgumentC a -> argVar a
             _ -> setVariable (LocationSet val)
       in ref [ atom (Atom val), var, var ]
@@ -112,6 +116,8 @@ pta m = do
     setExpFor v = case valueContent' v of
       InstructionC i@LoadInst {} -> loadVar i
       InstructionC i@CallInst {} -> returnVar i
+      InstructionC i@PhiNode {} -> phiVar i
+      InstructionC i@SelectInst {} -> phiVar i
       ArgumentC a -> argVar a
       _ -> loc v
 
@@ -164,6 +170,10 @@ pta m = do
           indirectCallConstraints acc i callee (map fst args)
         InvokeInst { invokeFunction = callee, invokeArguments = args } ->
           indirectCallConstraints acc i callee (map fst args)
+        SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
+          foldM (valueAliasingChoise i) acc [ tv, fv ]
+        PhiNode { phiIncomingValues = ivs } ->
+          foldM (valueAliasingChoise i) acc (map fst ivs)
         _ -> return acc
 
     directCallConstraints acc i f actuals = do
@@ -231,6 +241,11 @@ pta m = do
       acc' <- addVirtualArgConstraints acc (toValue frml) act
       return $ c : acc' `traceConstraints` (concat [ "Args ", show act, " -> ", show frml ], [c])
 
+    valueAliasingChoise i acc vfrom = do
+      let c = setExpFor vfrom <=! setExpFor (toValue i)
+      acc' <- addVirtualArgConstraints acc (toValue i) vfrom
+      return $ c : acc' `traceConstraints` (concat [ "MultCopy ", show (valueName vfrom), " -> ", show (valueName i)], [c])
+
 -- Helpers
 
 {-# INLINE traceConstraints #-}
@@ -283,6 +298,7 @@ fmtAndersenNode (_, l) =
     EmptySet -> [toLabel (show l)]
     UniversalSet -> [toLabel (show l)]
     SetVariable (Fresh i) -> [toLabel ("F" ++ show i)]
+    SetVariable (PhiCopy i) -> [toLabel ("PhiCopy" ++ show i)]
     SetVariable (VirtualArg sa ix) ->
       [toLabel ("VA_" ++ show ix ++ "[" ++ show (valueName sa) ++ "]")]
     SetVariable (LocationSet v) ->
