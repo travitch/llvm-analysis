@@ -27,6 +27,7 @@ import Constraints.Set.Internal
 
 #if defined(DEBUGCONSTRAINTS)
 import Debug.Trace
+debug = flip trace
 #endif
 
 -- A monad to manage fresh variable generation
@@ -75,6 +76,7 @@ andersenPointsTo (Andersen ss) v =
     fromError = const []
     fromLocation :: SetExp -> Value
     fromLocation (ConstructedTerm Ref _ [ConstructedTerm (Atom val) _ _, _, _]) = val
+    fromLocation se = error ("Unexpected set expression in result " ++ show se)
 
 runPointsToAnalysis :: Module -> Andersen
 runPointsToAnalysis m = evalState (pta m) (ConstraintState 0)
@@ -96,9 +98,6 @@ pta m = do
     virtArgVar sa ix = setVariable (VirtualArg sa ix)
     returnVar i = setVariable (RetLocation i)
     ref = term Ref [Covariant, Covariant, Contravariant]
-    virtArgLoc sa ix =
-      let var = virtArgVar sa ix
-      in ref [ atom (Atom sa), var, var ]
     loc val =
       let var = case valueContent' val of
             InstructionC i@LoadInst {} -> loadVar i
@@ -135,8 +134,11 @@ pta m = do
     instructionConstraints acc i =
       case i of
         LoadInst { loadAddress = la } -> do
+          -- If we load a function pointer, add new virtual nodes and
+          -- link them up
           let c = setExpFor la <=! ref [ universalSet, loadVar i, emptySet ]
-          return $ c : acc `traceConstraints` ("Inst: " ++ show i, [c])
+          acc' <- addVirtualArgConstraints acc (toValue i) la
+          return $ c : acc' `traceConstraints` ("Inst: " ++ show i, [c])
 
         -- If you store the stored address is a function type, add
         -- inclusion edges between the virtual arguments.  If sv is a
@@ -155,14 +157,15 @@ pta m = do
         InvokeInst { invokeFunction = (valueContent' -> FunctionC f)
                    , invokeArguments = args
                    } -> directCallConstraints acc i f (map fst args)
-        CallInst { callFunction = (valueContent' -> InstructionC LoadInst { loadAddress = la })
-                 , callArguments = args
-                 } -> indirectCallConstraints acc i la (map fst args)
+        -- For now, don't model calls to external functions
+        CallInst { callFunction = (valueContent' -> ExternalFunctionC _) } -> return acc
+        CallInst { callFunction = callee, callArguments = args } ->
+          indirectCallConstraints acc i callee (map fst args)
         _ -> return acc
 
     directCallConstraints acc i f actuals = do
       let formals = functionParameters f
-      acc' <- foldM copyActualsToFormals acc (zip actuals formals)
+      acc' <- foldM copyActualToFormal acc (zip actuals formals)
       case valueType i of
         TypePointer _ _ ->
           let rvs = mapMaybe extractRetVal (functionExitInstructions f)
@@ -178,11 +181,19 @@ pta m = do
           FunctionC f -> do
             let formals = functionParameters f
             foldM (constrainVirtualArg sa) acc (zip [0..] formals)
-          _ -> return acc
+          -- Otherwise, copy virtuals from old ref to new ref
+          _ -> do
+            let nparams = functionTypeParameters (valueType sv)
+            foldM (virtVirtArg sa sv) acc [0..(nparams - 1)]
+
+    virtVirtArg sa sv acc ix = do
+      let c = virtArgVar sa ix <=! virtArgVar sv ix
+      return $ c : acc `traceConstraints` (concat ["VirtVirt: ", show ix, "(", show sa, " -> ", show sv, ")"], [c])
 
     constrainVirtualArg sa acc (ix, frml) = do
       let c = virtArgVar sa ix <=! argVar frml
-      return $ c : acc
+      return $ c : acc `traceConstraints` (concat ["VirtArg: ", show ix, "(", show sa, ")"], [c])
+
 
     -- The idea here will be that we equate the actuals with virtual
     -- nodes for this function pointer.  For function pointer will
@@ -190,10 +201,11 @@ pta m = do
     -- This may get complicated for loads of fields, but we should be
     -- able to take care of that outside of this rule.  Globals and
     -- locals are easy.
-    indirectCallConstraints acc i la actuals = do
+    indirectCallConstraints acc i callee actuals = do
       let addIndirectConstraint (ix, act) a =
-            (setExpFor act <=! virtArgVar la ix) : a
-      let acc' = foldr addIndirectConstraint acc (zip [0..] actuals)
+            let c = setExpFor act <=! virtArgVar callee ix
+            in c : a `traceConstraints` (concat ["IndirectCall ", show ix, "(", show act, ")" ], [c])
+          acc' = foldr addIndirectConstraint acc (zip [0..] actuals)
       return acc'
 
     retConstraint i rv acc =
@@ -204,16 +216,22 @@ pta m = do
     -- r-value (and not an l-value like everything else).  We can
     -- actually do the really simple thing from other formulations
     -- here because of this.
-    copyActualsToFormals acc (act, frml) = do
+    --
+    -- If the actual is a function (pointer) type, also add new
+    -- virtual arg nodes for the formal
+    copyActualToFormal acc (act, frml) = do
       let c = setExpFor act <=! argVar frml
-      return $ c : acc `traceConstraints` (concat [ "Args ", show act, " -> ", show frml ], [c])
+      acc' <- addVirtualArgConstraints acc (toValue frml) act
+      return $ c : acc' `traceConstraints` (concat [ "Args ", show act, " -> ", show frml ], [c])
 
 -- Helpers
 
 {-# INLINE traceConstraints #-}
-traceConstraints :: (Show c) => a -> (String, [c]) -> a
+-- | This is a debugging helper to trace the constraints that are
+-- generated.  When debugging is disabled via cabal, it is a no-op.
+traceConstraints :: a -> (String, [Inclusion Var Constructor]) -> a
 #if defined(DEBUGCONSTRAINTS)
-traceConstraints a (msg, cs) = trace (msg ++ "\n" ++ (unlines $ map show cs)) a
+traceConstraints a (msg, cs) = trace (msg ++ "\n" ++ (unlines $ map ((" "++) . show) cs)) a
 #else
 traceConstraints = const
 #endif
@@ -224,6 +242,13 @@ isFuncPtrType t =
     TypeFunction _ _ _ -> True
     TypePointer t' _ -> isFuncPtrType t'
     _ -> False
+
+functionTypeParameters :: Type -> Int
+functionTypeParameters t =
+  case t of
+    TypeFunction _ ts _ -> length ts
+    TypePointer t' _ -> functionTypeParameters t'
+    _ -> -1
 
 extractRetVal :: Instruction -> Maybe Value
 extractRetVal RetInst { retInstValue = rv } = rv
