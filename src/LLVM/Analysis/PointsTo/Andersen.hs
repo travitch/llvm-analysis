@@ -26,8 +26,6 @@ import Constraints.Set.Solver
 
 #if defined(DEBUGCONSTRAINTS)
 import Debug.Trace
-debug :: a -> String -> a
-debug = flip trace
 #endif
 
 -- A monad to manage fresh variable generation
@@ -137,10 +135,7 @@ pta m = do
       case i of
         LoadInst { loadAddress = la } -> do
           let c = setExpFor la <=! ref [ universalSet, loadVar i, emptySet ]
-          return $ c : acc
-#if defined(DEBUGCONSTRAINTS)
-            `debug` ("Inst: " ++ show i ++ "\n" ++ show c ++ "\n")
-#endif
+          return $ c : acc `traceConstraints` ("Inst: " ++ show i, [c])
 
         -- If you store the stored address is a function type, add
         -- inclusion edges between the virtual arguments.  If sv is a
@@ -152,10 +147,7 @@ pta m = do
               c2 = ref [ emptySet, setExpFor sv, emptySet ] <=! ref [ universalSet, f2, emptySet ]
               c3 = f2 <=! f1
           acc' <- addVirtualArgConstraints acc sa sv
-          return $ c1 : c2 : c3 : acc'
-#if defined(DEBUGCONSTRAINTS)
-            `debug` ("Inst: " ++ show i ++ "\n" ++ (unlines $ map show [c1,c2,c3]))
-#endif
+          return $ c1 : c2 : c3 : acc' `traceConstraints` ("Inst: " ++ show i, [c1,c2,c3])
         CallInst { callFunction = (valueContent' -> FunctionC f)
                  , callArguments = args
                  } -> directCallConstraints acc i f (map fst args)
@@ -205,10 +197,7 @@ pta m = do
 
     retConstraint i rv acc =
       let c = setExpFor rv <=! setExpFor (toValue i)
-      in c : acc
-#if defined(DEBUGCONSTRAINTS)
-             `debug` ("RetVal " ++ show i ++ "\n" ++ (unlines $ map show [c]))
-#endif
+      in c : acc `traceConstraints` (concat [ "RetVal ", show i ], [c])
 
     -- Note the rule has to be a bit strange because the formal is an
     -- r-value (and not an l-value like everything else).  We can
@@ -216,12 +205,17 @@ pta m = do
     -- here because of this.
     copyActualsToFormals acc (act, frml) = do
       let c = setExpFor act <=! argVar frml
-      return $ c : acc
-#if defined(DEBUGCONSTRAINTS)
-        `debug` ("Args " ++ show act ++ " -> " ++ show frml ++ "\n" ++ (unlines $ map show [c]))
-#endif
+      return $ c : acc `traceConstraints` (concat [ "Args ", show act, " -> ", show frml ], [c])
 
 -- Helpers
+
+{-# INLINE traceConstraints #-}
+traceConstraints :: (Show c) => a -> (String, [c]) -> a
+#if defined(DEBUGCONSTRAINTS)
+traceConstraints a (msg, cs) = trace (msg ++ "\n" ++ (unlines $ map show cs)) a
+#else
+traceConstraints a _ = a
+#endif
 
 isFuncPtrType :: Type -> Bool
 isFuncPtrType t =
