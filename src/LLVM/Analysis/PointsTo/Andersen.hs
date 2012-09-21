@@ -167,10 +167,10 @@ pta m = do
       let formals = functionParameters f
       acc' <- foldM copyActualToFormal acc (zip actuals formals)
       case valueType i of
-        TypePointer _ _ ->
+        TypePointer _ _ -> do
           let rvs = mapMaybe extractRetVal (functionExitInstructions f)
-              cs = foldr (retConstraint i) [] rvs
-          in return $ cs ++ acc'
+          cs <- foldM (retConstraint i) [] rvs
+          return $ cs ++ acc'
         _ -> return acc'
 
     addVirtualArgConstraints acc sa sv
@@ -208,9 +208,13 @@ pta m = do
           acc' = foldr addIndirectConstraint acc (zip [0..] actuals)
       return acc'
 
-    retConstraint i rv acc =
+    -- Set up constraints to propagate return values to caller
+    -- contexts (including function argument virtuals for function
+    -- pointer types).
+    retConstraint i acc rv = do
       let c = setExpFor rv <=! setExpFor (toValue i)
-      in c : acc `traceConstraints` (concat [ "RetVal ", show i ], [c])
+      acc' <- addVirtualArgConstraints acc (toValue i) rv
+      return $ c : acc' `traceConstraints` (concat [ "RetVal ", show i ], [c])
 
     -- Note the rule has to be a bit strange because the formal is an
     -- r-value (and not an l-value like everything else).  We can
