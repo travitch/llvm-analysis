@@ -18,7 +18,6 @@ import LLVM.Analysis.Util.Testing
 import LLVM.Parse
 
 #if defined(DEBUGGRAPH)
-
 import Data.GraphViz
 import System.IO.Unsafe ( unsafePerformIO )
 
@@ -27,14 +26,14 @@ viewConstraintGraph v a = unsafePerformIO $ do
   let dg = andersenConstraintGraph a
   runGraphvizCanvas' dg Gtk
   return v
-
+#else
+viewConstraintGraph :: a -> Andersen -> a
+viewConstraintGraph = const
 #endif
 
 extractSummary :: Module -> Map String (Set String)
-extractSummary m = foldr addInfo mempty ptrs
-#if defined(DEBUGGRAPH)
-                    `viewConstraintGraph` pta
-#endif
+extractSummary m =
+  foldr addInfo mempty ptrs `viewConstraintGraph` pta
   where
     pta = runPointsToAnalysis m
     ptrs = map toValue (globalPointerVariables m) ++ formals -- ++ map Value (functionPointerParameters m)
