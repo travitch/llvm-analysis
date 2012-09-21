@@ -159,7 +159,10 @@ pta m = do
                    } -> directCallConstraints acc i f (map fst args)
         -- For now, don't model calls to external functions
         CallInst { callFunction = (valueContent' -> ExternalFunctionC _) } -> return acc
+        InvokeInst { invokeFunction = (valueContent' -> ExternalFunctionC _) } -> return acc
         CallInst { callFunction = callee, callArguments = args } ->
+          indirectCallConstraints acc i callee (map fst args)
+        InvokeInst { invokeFunction = callee, invokeArguments = args } ->
           indirectCallConstraints acc i callee (map fst args)
         _ -> return acc
 
