@@ -214,7 +214,7 @@ traceConstraints :: (Show c) => a -> (String, [c]) -> a
 #if defined(DEBUGCONSTRAINTS)
 traceConstraints a (msg, cs) = trace (msg ++ "\n" ++ (unlines $ map show cs)) a
 #else
-traceConstraints a _ = a
+traceConstraints = const
 #endif
 
 isFuncPtrType :: Type -> Bool
