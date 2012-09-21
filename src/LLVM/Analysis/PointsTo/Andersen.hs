@@ -23,6 +23,7 @@ import LLVM.Analysis
 import LLVM.Analysis.PointsTo
 
 import Constraints.Set.Solver
+import Constraints.Set.Internal
 
 #if defined(DEBUGCONSTRAINTS)
 import Debug.Trace
