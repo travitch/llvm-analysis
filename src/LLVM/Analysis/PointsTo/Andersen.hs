@@ -52,6 +52,7 @@ data Var = Fresh !Int
          | ArgLocation !Argument
          | VirtualArg !Value !Int
          | RetLocation !Instruction
+         | GEPLocation !Value
          | PhiCopy !Instruction
          deriving (Eq, Ord, Show, Typeable)
 
@@ -97,6 +98,7 @@ pta m = do
     loadVar ldInst = setVariable (LoadedLocation ldInst)
     argVar a = setVariable (ArgLocation a)
     phiVar i = setVariable (PhiCopy i)
+    gepVar v = setVariable (GEPLocation v)
     virtArgVar sa ix = setVariable (VirtualArg sa ix)
     returnVar i = setVariable (RetLocation i)
     ref = term Ref [Covariant, Covariant, Contravariant]
@@ -106,6 +108,8 @@ pta m = do
             InstructionC i@CallInst {} -> returnVar i
             InstructionC i@PhiNode {} -> phiVar i
             InstructionC i@SelectInst {} -> phiVar i
+            InstructionC GetElementPtrInst { getElementPtrValue = base } ->
+              gepVar base
             ArgumentC a -> argVar a
             _ -> setVariable (LocationSet val)
       in ref [ atom (Atom val), var, var ]
@@ -157,6 +161,7 @@ pta m = do
               c3 = f2 <=! f1
           acc' <- addVirtualArgConstraints acc sa sv
           return $ c1 : c2 : c3 : acc' `traceConstraints` ("Inst: " ++ show i, [c1,c2,c3])
+
         CallInst { callFunction = (valueContent' -> FunctionC f)
                  , callArguments = args
                  } -> directCallConstraints acc i f (map fst args)
@@ -170,10 +175,20 @@ pta m = do
           indirectCallConstraints acc callee (map fst args)
         InvokeInst { invokeFunction = callee, invokeArguments = args } ->
           indirectCallConstraints acc callee (map fst args)
+
         SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
           foldM (valueAliasingChoise i) acc [ tv, fv ]
         PhiNode { phiIncomingValues = ivs } ->
           foldM (valueAliasingChoise i) acc (map fst ivs)
+
+        -- Array rule.  Equate the base of the GEP and the GEP,
+        -- effectively treating every array element as one location.
+        GetElementPtrInst { getElementPtrValue = base
+                          , getElementPtrIndices = [_]
+                          } -> do
+          let c = setExpFor base <=! setExpFor (toValue i)
+          return $ c : acc `traceConstraints` (concat ["GEP: " ++ show i], [c])
+
         _ -> return acc
 
     directCallConstraints acc i f actuals = do
@@ -246,6 +261,16 @@ pta m = do
       acc' <- addVirtualArgConstraints acc (toValue i) vfrom
       return $ c : acc' `traceConstraints` (concat [ "MultCopy ", show (valueName vfrom), " -> ", show (valueName i)], [c])
 
+-- TODO:
+--
+-- * extra function pointer indirections
+--
+-- * add support for arrays (one of the GEP forms)
+--
+-- * add support for limited field sensitity (the "field-based"
+--   analysis variant where every instance of a struct field is
+--   treated as a unit).
+
 -- Helpers
 
 {-# INLINE traceConstraints #-}
@@ -298,7 +323,8 @@ fmtAndersenNode (_, l) =
     EmptySet -> [toLabel (show l)]
     UniversalSet -> [toLabel (show l)]
     SetVariable (Fresh i) -> [toLabel ("F" ++ show i)]
-    SetVariable (PhiCopy i) -> [toLabel ("PhiCopy" ++ show i)]
+    SetVariable (PhiCopy i) -> [toLabel ("PhiCopy " ++ show i)]
+    SetVariable (GEPLocation i) -> [toLabel ("GEPLoc " ++ show i)]
     SetVariable (VirtualArg sa ix) ->
       [toLabel ("VA_" ++ show ix ++ "[" ++ show (valueName sa) ++ "]")]
     SetVariable (LocationSet v) ->
