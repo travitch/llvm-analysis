@@ -1,7 +1,7 @@
 int a;
 int c;
 
-int** arr;
+int* arr[100];
 
 int * p;
 int * r;
@@ -9,9 +9,6 @@ int * r;
 void setup()
 {
   p = &a;
-  arr[c] = p;
-}
-
-void target() {
   r = arr[a];
+  arr[c] = p;
 }

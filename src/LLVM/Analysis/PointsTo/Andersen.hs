@@ -27,7 +27,6 @@ import Constraints.Set.Internal
 
 #if defined(DEBUGCONSTRAINTS)
 import Debug.Trace
-debug = flip trace
 #endif
 
 -- A monad to manage fresh variable generation
@@ -52,7 +51,7 @@ data Var = Fresh !Int
          | ArgLocation !Argument
          | VirtualArg !Value !Int
          | RetLocation !Instruction
-         | GEPLocation !Value
+         | GEPLocation !Instruction
          | PhiCopy !Instruction
          deriving (Eq, Ord, Show, Typeable)
 
@@ -108,8 +107,7 @@ pta m = do
             InstructionC i@CallInst {} -> returnVar i
             InstructionC i@PhiNode {} -> phiVar i
             InstructionC i@SelectInst {} -> phiVar i
-            InstructionC GetElementPtrInst { getElementPtrValue = base } ->
-              gepVar base
+            InstructionC i@GetElementPtrInst {} -> gepVar i
             ArgumentC a -> argVar a
             _ -> setVariable (LocationSet val)
       in ref [ atom (Atom val), var, var ]
@@ -122,6 +120,9 @@ pta m = do
       InstructionC i@CallInst {} -> returnVar i
       InstructionC i@PhiNode {} -> phiVar i
       InstructionC i@SelectInst {} -> phiVar i
+      InstructionC i@GetElementPtrInst {} -> loc (toValue i)
+      -- InstructionC GetElementPtrInst { getElementPtrValue = base } ->
+      --   gepVar base
       ArgumentC a -> argVar a
       _ -> loc v
 
@@ -183,12 +184,49 @@ pta m = do
 
         -- Array rule.  Equate the base of the GEP and the GEP,
         -- effectively treating every array element as one location.
+        -- This particular rule deals with pointers that are treated
+        -- as arrays (the GEP has only one index).
         GetElementPtrInst { getElementPtrValue = base
                           , getElementPtrIndices = [_]
                           } -> do
-          let c = setExpFor base <=! setExpFor (toValue i)
-          return $ c : acc `traceConstraints` (concat ["GEP: " ++ show i], [c])
+          f1 <- freshVariable
+          f2 <- freshVariable
 
+          let c1 = loc (toValue i) <=! ref [ universalSet, universalSet, f1 ]
+              c2 = ref [ emptySet, setExpFor base, emptySet ] <=! ref [ universalSet, f2, emptySet ]
+              c3 = f2 <=! f1
+
+--          let c = setExpFor base <=! setExpFor (toValue i)
+          acc' <- addVirtualArgConstraints acc (toValue i) base
+          return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
+
+--           f1 <- freshVariable
+--           f2 <- freshVariable
+
+--           let -- c0 = -- loc base <=! setExpFor (toValue i)
+-- --              c1 = setExpFor (toValue i) <=! setExpFor base
+--               c1 = setExpFor base <=! ref [ universalSet, f1, emptySet ]
+--               c2 = ref [ emptySet, setExpFor base, emptySet ] <=! ref [ universalSet, f2, emptySet ]
+--               c3 = f1 <=! setExpFor (toValue i)
+--           acc' <- addVirtualArgConstraints acc (toValue i) base
+--           return $ c1 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c3])
+
+{-
+        -- This variant deals with two cases.  If the base type is an
+        -- explicit array type, this is an array rule.  Otherwise it
+        -- is a struct index.
+        GetElementPtrInst { getElementPtrValue = base
+                          , getElementPtrIndices = [ (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+                                                   , _
+                                                   ]
+                          } ->
+          case valueType base of
+            TypePointer (TypeArray _ _) _ -> do
+              let c = setExpFor base <=! setExpFor (toValue i)
+              acc' <- addVirtualArgConstraints acc (toValue i) base
+              return $ c : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c])
+            _ -> return acc
+-}
         _ -> return acc
 
     directCallConstraints acc i f actuals = do
