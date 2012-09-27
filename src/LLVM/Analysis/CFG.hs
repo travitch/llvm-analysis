@@ -22,8 +22,10 @@ module LLVM.Analysis.CFG (
   cfgGraphvizRepr
   ) where
 
+import Control.Arrow ( first )
 import Data.GraphViz
 import Data.List ( foldl' )
+import Data.Maybe ( fromMaybe )
 import Debug.Trace.LocationTH
 import Text.Printf
 
@@ -152,7 +154,7 @@ toInternalEdge (s, d) = LEdge (Edge sid did) UnconditionalEdge
     did = instructionUniqueId d
 
 buildBlockGraph :: ([LNodeType], [[LEdgeType]]) -> BasicBlock -> ([LNodeType], [[LEdgeType]])
-buildBlockGraph (nacc, eacc) bb = (newNodes ++ nacc, concat [termEdges, internalEdges] :eacc)
+buildBlockGraph (nacc, eacc) bb = (newNodes ++ nacc, (termEdges ++ internalEdges) : eacc)
   where
     blockInsts = basicBlockInstructions bb
     newNodes = map (\i -> LNode (instructionUniqueId i) i) blockInsts
@@ -232,16 +234,14 @@ toBlock cfg n =
   case lab cfg n of
     Nothing -> $failure ("Instruction missing from CFG: " ++ show n)
     Just i ->
-      case instructionBasicBlock i of
-        Nothing -> $failure ("Instruction in CFG should have a basic block: " ++ show i)
-        Just b -> b
+      let errMsg = $failure ("Instruction in CFG should have a basic block: " ++ show i)
+      in fromMaybe errMsg (instructionBasicBlock i)
 
 {-# INLINE toInstruction #-}
 toInstruction :: CFG -> NodeType -> Instruction
-toInstruction cfg nod =
-  case lab (cfgGraph cfg) nod of
-    Just v -> v
-    Nothing -> $failure ("No value for cfg node: " ++ show nod)
+toInstruction cfg nod = fromMaybe errMsg $ lab (cfgGraph cfg) nod
+  where
+    errMsg = $failure ("No value for cfg node: " ++ show nod)
 
 -- | Get all of the predecessor blocks for basic block @bb@
 --
@@ -277,7 +277,7 @@ basicBlockSuccessorEdges cfg bb =
 
 basicBlockLabeledSuccessors :: CFG -> BasicBlock -> [(BasicBlock, CFGEdge)]
 basicBlockLabeledSuccessors cfg bb =
-  map (\(n, l) -> (toBlock cfg' n, l)) ss
+  map (first (toBlock cfg')) ss
   where
     cfg' = cfgGraph cfg
     exitInst = basicBlockTerminatorInstruction bb
@@ -285,7 +285,7 @@ basicBlockLabeledSuccessors cfg bb =
 
 basicBlockLabeledPredecessors :: CFG -> BasicBlock -> [(BasicBlock, CFGEdge)]
 basicBlockLabeledPredecessors cfg bb =
-  map (\(n, l) -> (toBlock cfg' n, l)) ps
+  map (first (toBlock cfg')) ps
   where
     cfg' = cfgGraph cfg
     startInst : _ = basicBlockInstructions bb
@@ -335,3 +335,5 @@ cfgGraphvizRepr cfg = graphElemsToDot cfgGraphvizParams ns es
     g = cfgGraph cfg
     ns = map toNodeTuple (labNodes g)
     es = map toEdgeTuple (labEdges g)
+
+{-# ANN module "HLint: ignore Use if" #-}

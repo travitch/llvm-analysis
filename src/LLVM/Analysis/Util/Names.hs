@@ -48,9 +48,9 @@ unparseTypeName :: Name -> Maybe String
 unparseTypeName = unparseString name
 
 name :: PrinterParser StringError String a (Name :- a)
-name = ( rNestedName . rList qualifier . rList1 prefix . unqName <>
+name = rNestedName . rList qualifier . rList1 prefix . unqName <>
          rUnscopedName . unscopedName
-       )
+
 
 unscopedName :: PrinterParser StringError String a (UName :- a)
 unscopedName = rUName . unqName

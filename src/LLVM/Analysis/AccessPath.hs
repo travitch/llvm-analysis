@@ -231,3 +231,5 @@ gepIndexFold base indices@(ptrIx : ixs) =
         _ -> $failure ("Unexpected type in GEP: " ++ show ty)
 gepIndexFold v [] =
   $failure ("GEP instruction/base with empty index list: " ++ show v)
+
+{-# ANN module "HLint: ignore Use if" #-}

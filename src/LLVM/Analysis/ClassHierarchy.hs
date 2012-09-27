@@ -34,7 +34,7 @@ import Data.Generics.Uniplate.Data
 import Data.List ( stripPrefix )
 import Data.Map ( Map )
 import qualified Data.Map as M
-import Data.Maybe ( mapMaybe )
+import Data.Maybe ( fromMaybe, mapMaybe )
 import Data.Monoid
 import Data.Set ( Set )
 import qualified Data.Set as S
@@ -143,7 +143,7 @@ getVFuncSlot cha loadAddr thisArg =
   case valueContent loadAddr of
     -- Clang style
     InstructionC GetElementPtrInst {
-      getElementPtrIndices = [(valueContent -> ConstantC ConstantInt { constantIntValue = slotNo })],
+      getElementPtrIndices = [valueContent -> ConstantC ConstantInt { constantIntValue = slotNo }],
       getElementPtrValue =
         (valueContent -> InstructionC LoadInst {
             loadAddress =
@@ -163,8 +163,8 @@ getVFuncSlot cha loadAddr thisArg =
     InstructionC LoadInst {
       loadAddress =
          (valueContent -> InstructionC GetElementPtrInst {
-             getElementPtrIndices = [ (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
-                                    , (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+             getElementPtrIndices = [ valueContent -> ConstantC ConstantInt { constantIntValue = 0 }
+                                    , valueContent -> ConstantC ConstantInt { constantIntValue = 0 }
                                     ],
              getElementPtrValue = thisPtr})} ->
       case thisArg == thisPtr of
@@ -174,15 +174,15 @@ getVFuncSlot cha loadAddr thisArg =
     InstructionC BitcastInst {
       castedValue =
          (valueContent -> InstructionC GetElementPtrInst {
-             getElementPtrIndices = [(valueContent -> ConstantC ConstantInt { constantIntValue = offset })],
+             getElementPtrIndices = [valueContent -> ConstantC ConstantInt { constantIntValue = offset }],
              getElementPtrValue =
                (valueContent -> InstructionC BitcastInst {
                    castedValue =
                       (valueContent -> InstructionC LoadInst {
                           loadAddress =
                              (valueContent -> InstructionC GetElementPtrInst {
-                                 getElementPtrIndices = [ (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
-                                                        , (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+                                 getElementPtrIndices = [ valueContent -> ConstantC ConstantInt { constantIntValue = 0 }
+                                                        , valueContent -> ConstantC ConstantInt { constantIntValue = 0 }
                                                         ],
                                  getElementPtrValue = thisPtr})})})})} ->
       case thisArg == thisPtr of
@@ -353,7 +353,7 @@ addChild thisType parentType =
 constructedType :: Function -> Type
 constructedType f =
   case map argumentType $ functionParameters f of
-    (TypePointer t@(TypeStruct (Just _) _ _) _):_ -> t
+    TypePointer t@(TypeStruct (Just _) _ _) _ : _ -> t
     t -> $failure ("Expected pointer to struct type: " ++ show t)
 
 -- Helpers
@@ -372,14 +372,14 @@ isC2Constructor f =
     n = identifierAsString (functionName f)
     dname = demangleName n
 
+-- | Strip a prefix, operating as the identity if the input string did
+-- not have the prefix.
+stripPrefix' :: String -> String -> String
+stripPrefix' pfx s = fromMaybe s (stripPrefix pfx s)
+
 stripNamePrefix :: String -> String
-stripNamePrefix s =
-  case stripPrefix "class." s of
-    Nothing ->
-      case stripPrefix "struct." s of
-        Nothing -> s
-        Just s' -> s'
-    Just s' -> s'
+stripNamePrefix =
+  stripPrefix' "struct." . stripPrefix' "class."
 
 typeToName :: Type -> Name
 typeToName (TypeStruct (Just n) _ _) =
@@ -389,7 +389,7 @@ typeToName (TypeStruct (Just n) _ _) =
 typeToName t = $failure ("Expected named struct type: " ++ show t)
 
 nameToString :: Name -> String
-nameToString n = maybe errMsg id (unparseTypeName n)
+nameToString n = fromMaybe errMsg (unparseTypeName n)
   where
     errMsg = error ("Could not encode name as string: " ++ show n)
 
@@ -411,3 +411,5 @@ classHierarchyToTestFormat cha =
     mapify (ty, subtypes) =
       let ss = S.map nameToString subtypes
       in M.insertWith S.union (nameToString ty) ss
+
+{-# ANN module "HLint: ignore Use if" #-}

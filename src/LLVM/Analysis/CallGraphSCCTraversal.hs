@@ -26,6 +26,7 @@ import Control.Monad.Par
 import Data.List ( foldl' )
 import Data.Map ( Map )
 import qualified Data.Map as M
+import Data.Maybe ( fromMaybe )
 import Data.Monoid
 import Debug.Trace.LocationTH
 
@@ -92,11 +93,14 @@ callGraphSCCTraversal callgraph f seed =
   -- NOTE now not reversing the SCC list because it is now a right
   -- fold
   where
-    g = projectDefinedFunctions $ callGraphRepr callgraph
-    cg :: SCCGraph
-    cg = condense g
+    cg = definedCallGraph callgraph
     sccList = topsort' cg
     applyAnalysis component = f (map (\(LNode _ func) -> fromFunction func) component)
+
+-- | The projection of the call graph containing only defined
+-- functions (no externals)
+definedCallGraph :: CallGraph -> SCCGraph
+definedCallGraph = condense . projectDefinedFunctions . callGraphRepr
 
 -- | Just like 'callGraphSCCTraversal', except strongly-connected
 -- components are analyzed in parallel.  Each component is analyzed as
@@ -130,9 +134,7 @@ parallelCallGraphSCCTraversal callgraph f seed = runPar $ do
   finalVals <- mapM get rootOutVars
   return $! mconcat finalVals
   where
-    g = projectDefinedFunctions $ callGraphRepr callgraph
-    cg :: SCCGraph
-    cg = condense g
+    cg = definedCallGraph callgraph
 
 type FunctionGraph = Gr Function ()
 type SCCGraph = Gr [LNode FunctionGraph] ()
@@ -277,6 +279,8 @@ callGraphComposeAnalysis analyses = f
           res = af deps func analysisSumm
       in set lns (unwrap res) summ
 
+
+
 -- | A monadic version of 'composableAnalysis'.  The first argument
 -- here is a function to unwrap a monadic value (something like
 -- runIdentity or runReader).
@@ -352,7 +356,11 @@ nodeIsDefined m n =
     _ -> False
 
 getDep :: Map Int c -> Int -> c
-getDep m n =
-  case M.lookup n m of
-    Nothing -> $failure ("Missing expected output var for node: " ++ show n)
-    Just v -> v
+getDep m n = fromMaybe errMsg (M.lookup n m)
+  where
+    errMsg = $failure ("Missing expected output var for node: " ++ show n)
+
+-- Some of the type signatures have redundant brackets to emphasize
+-- that they are intended to be partially applied.
+{-# ANN module "HLint: ignore Redundant bracket" #-}
+{-# ANN module "HLint: ignore Use if" #-}

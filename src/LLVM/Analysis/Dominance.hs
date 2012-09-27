@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, TypeFamilies #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | Tools to compute dominance information for functions.  Includes
 -- postdominators.
 --
@@ -73,18 +73,18 @@ dominators CFG { cfgGraph = g, cfgEntryNode = root } =
 
 immediatePostdominators :: RCFG -> [(Instruction, Instruction)]
 immediatePostdominators RCFG { rcfgGraph = g, rcfgFunction = f } =
-  map (toInst g *** toInst g) (concat gs) -- (iDom g root)
+  map (toInst g *** toInst g) (concat gs)
   where
     roots = functionExitInstructions f
-    gs = map (\r -> iDom g (instructionUniqueId r)) roots
+    gs = map (iDom g . instructionUniqueId) roots
 
 -- | Get a mapping from Instructions to each of their postdominators
 postdominators :: RCFG -> [(Instruction, [Instruction])]
 postdominators RCFG { rcfgGraph = g, rcfgFunction = f } =
-  map (toInst g *** map (toInst g)) (concat gs) -- (dom g root)
+  map (toInst g *** map (toInst g)) (concat gs)
   where
     roots = functionExitInstructions f
-    gs = map (\r -> dom g (instructionUniqueId r)) roots
+    gs = map (dom g . instructionUniqueId) roots
 
 toInst :: (InspectableGraph gr) => gr -> Node gr -> NodeLabel gr
 toInst gr n =
@@ -118,7 +118,10 @@ buildEdges :: (Graph gr, EdgeLabel gr ~ (), Node gr ~ UniqueId)
               => [(Instruction, Instruction)]
               -> [LEdge gr]
 buildEdges =
-  map (\(a,b) -> LEdge (Edge a b) ()) . map (instructionUniqueId *** instructionUniqueId)
+  map (toLEdge . (instructionUniqueId *** instructionUniqueId))
+--  map (\(a,b) -> LEdge (Edge a b) ()) . map (instructionUniqueId *** instructionUniqueId)
+  where
+    toLEdge (a,b) = LEdge (Edge a b) ()
 
 -- | Check whether n dominates m
 dominates :: DominatorTree -> Instruction -> Instruction -> Bool
@@ -186,3 +189,5 @@ postdomTreeGraphvizRepr dt = graphElemsToDot domTreeParams ns es
     g = pdtTree dt
     ns = map toNodeTuple (labNodes g)
     es = map toEdgeTuple (labEdges g)
+
+{-# ANN module "HLint: ignore Use if" #-}

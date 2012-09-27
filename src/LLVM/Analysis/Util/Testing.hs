@@ -166,3 +166,5 @@ buildModule optOpts parseFile inputFilePath =
               optify optOpts baseFname optFname
               parseResult <- parseFile optFname
               either $failure return parseResult
+
+{-# ANN module "HLint: ignore Use if" #-}

@@ -33,6 +33,11 @@ import LLVM.Analysis.Dominance
 
 data BlockReturns = BlockReturns (HashMap BasicBlock Value)
 
+instance Monoid BlockReturns where
+  mempty = BlockReturns mempty
+  mappend (BlockReturns b1) (BlockReturns b2) =
+    BlockReturns (b1 `mappend` b2)
+
 -- | Retrieve the Value that must be returned (if any) if the given
 -- BasicBlock executes.
 blockReturn :: BlockReturns -> BasicBlock -> Maybe Value
@@ -76,7 +81,7 @@ labelBlockReturns funcLike =
       | otherwise =
         case valueContent' val of
           InstructionC PhiNode { phiIncomingValues = ivs } ->
-            foldr (pushReturnUp (Just bb)) m (map (second toBB) ivs)
+            foldr (pushReturnUp (Just bb) . second toBB) m ivs
           _ ->
             let m' = HM.insert bb val m
                 preds = HM.lookup bb upreds

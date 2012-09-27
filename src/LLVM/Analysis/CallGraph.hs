@@ -224,8 +224,8 @@ buildCallEdges pta caller callInst = build' (getCallee callInst)
 
 cgGraphvizParams :: GraphvizParams n CallNode CallEdge () CallNode
 cgGraphvizParams =
-  nonClusteredParams { fmtNode = \(_,l) -> [toLabel (l)]
-                     , fmtEdge = \(_,_,l) -> [toLabel (l)]
+  nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
+                     , fmtEdge = \(_,_,l) -> [toLabel l]
                      }
 
 cgGraphvizRepr :: CallGraph -> DotGraph Int

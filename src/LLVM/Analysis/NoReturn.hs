@@ -91,3 +91,5 @@ dispatchCall ri v =
         True -> return $! RI True
         False -> return ri
     _ -> return ri
+
+{-# ANN module "HLint: ignore Use if" #-}

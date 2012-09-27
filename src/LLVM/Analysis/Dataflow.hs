@@ -120,9 +120,9 @@ instance (NFData a) => NFData (DataflowResult a) where
 -- list if doing a backwards analysis
 dataflowResult :: DataflowResult a -> Instruction -> a
 dataflowResult (DataflowResult m) i =
-  case M.lookup i m of
-    Nothing -> $failure ("Instruction " ++ show i ++ " has no dataflow result")
-    Just r -> r
+  M.lookupDefault errMsg i m
+  where
+    errMsg = $failure ("Instruction " ++ show i ++ " has no dataflow result")
 
 firstInst :: Instruction -> Bool
 firstInst i = firstBlock bb
@@ -189,9 +189,9 @@ dataflowAnalysis lastInstruction orderedBlockInsts blockPreds blockSuccs fact0 c
     -- will cause problems for a backwards analysis.
     lookupBlockFact :: (DataflowAnalysis m a) => HashMap Instruction a -> BasicBlock -> a
     lookupBlockFact facts block =
-      case M.lookup (lastInstruction block) facts of
-        Just fact -> fact
-        Nothing -> $failure $ printf "No facts for block %s" (show (toValue block))
+      M.lookupDefault errMsg (lastInstruction block) facts
+      where
+        errMsg = $failure $ printf "No facts for block %s" (show (toValue block))
 
     processBlock :: (DataflowAnalysis m a)
                     => (HashMap Instruction a, HashSet BasicBlock)
@@ -269,3 +269,5 @@ firstBlock bb = bb == fb
   where
     f = basicBlockFunction bb
     fb : _ = functionBody f
+
+{-# ANN module "HLint: ignore Use if" #-}
