@@ -130,7 +130,8 @@ mkCFG func = CFG { cfgGraph = g
                  }
   where
     entryVal = functionEntryInstruction func
-    exitVal = functionExitInstruction func
+    -- FIXME: there can possibly be more than one exit inst...
+    Just exitVal = functionExitInstruction func
 
     g = mkGraph cfgNodes (concat cfgEdges)
     (cfgNodes, cfgEdges) = foldl' buildBlockGraph ([], []) (functionBody func)
