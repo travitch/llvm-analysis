@@ -79,8 +79,8 @@ labelBlockReturns funcLike =
       let Just b0 = instructionBasicBlock exitInst
       in case exitInst of
         RetInst { retInstValue = Just rv } ->
-          pushReturnUp Nothing (rv, b0) (m, HS.insert b0 vis)
-        _ -> (m, HS.insert b0 vis)
+          pushReturnUp Nothing (rv, b0) (m, vis)
+        _ -> (m, vis)
     pushReturnUp prevBlock (val, bb) acc@(m, vis)
       | HS.member bb vis = acc
       | not (prevTerminatorPostdominates pdt prevBlock bb) = (m, HS.insert bb vis)
