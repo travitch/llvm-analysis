@@ -26,9 +26,12 @@ module LLVM.Analysis.BlockReturnValue (
 import Control.Arrow ( second )
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Monoid
 
 import LLVM.Analysis
+import LLVM.Analysis.CFG
+
 import LLVM.Analysis.Dominance
 
 data BlockReturns = BlockReturns (HashMap BasicBlock Value)
@@ -52,15 +55,17 @@ instructionReturn brs i = do
 
 -- | Label each BasicBlock with the value that it must return (if
 -- any).
-labelBlockReturns :: (HasFunction funcLike, HasPostdomTree funcLike)
+labelBlockReturns :: (HasFunction funcLike, HasPostdomTree funcLike, HasCFG funcLike)
                 => funcLike -> BlockReturns
 labelBlockReturns funcLike =
   case functionExitInstructions f of
     [] -> BlockReturns mempty
-    exitInsts -> BlockReturns $ foldr pushReturnValues mempty exitInsts
+    exitInsts -> BlockReturns $ fst $ foldr pushReturnValues (mempty, mempty) exitInsts
   where
     f = getFunction funcLike
     pdt = getPostdomTree funcLike
+    -- FIXME: Depend on the CFG instead of recomputing predecessors
+    -- here.
     upreds = foldr addPred mempty (functionBody f)
     addPred bb ps =
       case basicBlockTerminatorInstruction bb of
@@ -70,22 +75,25 @@ labelBlockReturns funcLike =
           let ps' = HM.insertWith (++) tt [bb] ps
           in HM.insertWith (++) ft [bb] ps'
         _ -> ps
-    pushReturnValues exitInst m =
-      case exitInst of
+    pushReturnValues exitInst (m, vis) =
+      let Just b0 = instructionBasicBlock exitInst
+      in case exitInst of
         RetInst { retInstValue = Just rv } ->
-          let Just b0 = instructionBasicBlock exitInst
-          in pushReturnUp Nothing (rv, b0) m
-        _ -> m
-    pushReturnUp prevBlock (val, bb) m
-      | not (prevTerminatorPostdominates pdt prevBlock bb) = m
+          pushReturnUp Nothing (rv, b0) (m, HS.insert b0 vis)
+        _ -> (m, HS.insert b0 vis)
+    pushReturnUp prevBlock (val, bb) acc@(m, vis)
+      | HS.member bb vis = acc
+      | not (prevTerminatorPostdominates pdt prevBlock bb) = (m, HS.insert bb vis)
       | otherwise =
         case valueContent' val of
           InstructionC PhiNode { phiIncomingValues = ivs } ->
-            foldr (pushReturnUp (Just bb) . second toBB) m ivs
+            let vis' = HS.insert bb vis
+            in foldr (pushReturnUp (Just bb) . second toBB) (m, vis') ivs
           _ ->
             let m' = HM.insert bb val m
+                vis' = HS.insert bb vis
                 preds = HM.lookup bb upreds
-            in maybe m' (foldr (pushReturnUp (Just bb)) m' . zip (repeat val)) preds
+            in maybe (m', vis') (foldr (pushReturnUp (Just bb)) (m', vis') . zip (repeat val)) preds
 
 -- | Return True if the terminator instruction of the previous block
 -- in the traversal postdominates the terminator instruction of the
