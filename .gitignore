@@ -1,4 +1,4 @@
-dist/
+dist*/
 /src/Data/LLVM/AssemblyParser
 /src/Data/LLVM/AssemblyParser.hi
 /src/Data/LLVM/AssemblyParser.o
