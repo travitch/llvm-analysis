@@ -1,6 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses, BangPatterns, NoMonomorphismRestriction #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 -- | This module defines an interface for intra-procedural dataflow
 -- analysis (forward and backward).
 --
@@ -43,7 +42,6 @@ import qualified Data.HashMap.Strict as M
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
 import Data.List ( sort )
-import Debug.Trace.LocationTH
 import Text.Printf
 
 import LLVM.Analysis
@@ -122,7 +120,7 @@ dataflowResult :: DataflowResult a -> Instruction -> a
 dataflowResult (DataflowResult m) i =
   M.lookupDefault errMsg i m
   where
-    errMsg = $failure ("Instruction " ++ show i ++ " has no dataflow result")
+    errMsg = error ("LLVM.Analysis.Dataflow.dataflowResult: Instruction " ++ show i ++ " has no dataflow result")
 
 firstInst :: Instruction -> Bool
 firstInst i = firstBlock bb
@@ -191,7 +189,7 @@ dataflowAnalysis lastInstruction orderedBlockInsts blockPreds blockSuccs fact0 c
     lookupBlockFact facts block =
       M.lookupDefault errMsg (lastInstruction block) facts
       where
-        errMsg = $failure $ printf "No facts for block %s" (show (toValue block))
+        errMsg = error $ printf "LLVM.Analysis.Dataflow.dataflowAnalysis.lookupBlockFact: No facts for block %s" (show (toValue block))
 
     processBlock :: (DataflowAnalysis m a)
                     => (HashMap Instruction a, HashSet BasicBlock)

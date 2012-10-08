@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 -- | This module defines a class hierarchy analysis for C++.
 --
 -- This analysis operates entirely at the bitcode level and does not
@@ -40,7 +40,6 @@ import Data.Set ( Set )
 import qualified Data.Set as S
 import Data.Vector ( Vector, (!?) )
 import qualified Data.Vector as V
-import Debug.Trace.LocationTH
 
 import LLVM.Analysis hiding ( (!?) )
 import LLVM.Analysis.Util.Names
@@ -261,14 +260,14 @@ moduleConstructors = filter isC2Constructor . moduleDefinedFunctions
 buildTypeMap :: Function -> CHA -> CHA
 buildTypeMap f cha =
   case parseTypeName fname of
-    Left e -> $failure e
+    Left e -> error ("LLVM.Analysis.ClassHierarchy.buildTypeMap: " ++ e)
     Right n ->
       cha { typeMapping = M.insert n t (typeMapping cha) }
   where
     t = constructedType f
     fname = case t of
       TypeStruct (Just tn) _ _ -> stripNamePrefix tn
-      _ -> $failure ("Expected class type: " ++ show t)
+      _ -> error ("LLVM.Analysis.ClassHierarchy.buildTypeMap: Expected class type: " ++ show t)
 
 -- | Determine the parent classes for each class type (if any) and
 -- record them in the class hierarchy analysis summary.  This
@@ -282,10 +281,10 @@ recordParents gv acc =
       case structuredName of
         VirtualTable (ClassEnumType typeName) ->
           recordVTable acc typeName (globalVariableInitializer gv)
-        VirtualTable tn -> $failure ("Expected a class name for virtual table: " ++ show tn)
+        VirtualTable tn -> error ("LLVM.Analysis.ClassHierarchy.recordParents: Expected a class name for virtual table: " ++ show tn)
         TypeInfo (ClassEnumType typeName) ->
           recordTypeInfo acc typeName (globalVariableInitializer gv)
-        TypeInfo tn -> $failure ("Expected a class name for typeinfo: " ++ show tn)
+        TypeInfo tn -> error ("LLVM.Analysis.ClassHierarchy.recordParents: Expected a class name for typeinfo: " ++ show tn)
         _ -> acc
   where
     n = identifierAsString (globalVariableName gv)
@@ -313,7 +312,7 @@ unsafeToFunction :: Value -> Function
 unsafeToFunction v =
   case valueContent' v of
     FunctionC f -> f
-    _ -> $failure ("Expected vtable function entry: " ++ show v)
+    _ -> error ("LLVM.Analysis.ClassHierarchy.unsafeToFunction: Expected vtable function entry: " ++ show v)
 
 
 isVTableFunctionType :: Value -> Bool
@@ -331,7 +330,7 @@ recordTypeInfo cha name (Just tbl) =
       in cha { parentMap = M.insertWith' S.union name (S.fromList parentClassNames) (parentMap cha)
              , childrenMap = foldr (addChild name) (childrenMap cha) parentClassNames
              }
-    _ -> $failure ("Expected typeinfo literal " ++ show tbl)
+    _ -> error ("LLVM.Analysis.ClassHierarchy.recordTypeInfo: Expected typeinfo literal " ++ show tbl)
 
 toParentClassName :: Value -> Maybe Name
 toParentClassName v =
@@ -354,7 +353,7 @@ constructedType :: Function -> Type
 constructedType f =
   case map argumentType $ functionParameters f of
     TypePointer t@(TypeStruct (Just _) _ _) _ : _ -> t
-    t -> $failure ("Expected pointer to struct type: " ++ show t)
+    t -> error ("LLVM.Analysis.ClassHierarchy.constructedType: Expected pointer to struct type: " ++ show t)
 
 -- Helpers
 
@@ -385,8 +384,8 @@ typeToName :: Type -> Name
 typeToName (TypeStruct (Just n) _ _) =
   case parseTypeName (stripNamePrefix n) of
     Right tn -> tn
-    Left e -> $failure e
-typeToName t = $failure ("Expected named struct type: " ++ show t)
+    Left e -> error ("LLVM.Analysis.ClassHierarchy.typeToName: " ++ e)
+typeToName t = error ("LLVM.Analysis.ClassHierarchy.typeToName: Expected named struct type: " ++ show t)
 
 nameToString :: Name -> String
 nameToString n = fromMaybe errMsg (unparseTypeName n)

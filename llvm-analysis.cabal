@@ -23,11 +23,9 @@ library
   build-depends: base > 3 && < 5, array, bytestring, containers,
                  deepseq, process, filepath, directory, vector >= 0.9,
                  mtl > 2, filemanip >= 0.3.5.2, monad-par >= 0.1,
-                 graphviz >= 2999.12.0.3, data-default >= 0.3,
+                 graphviz >= 2999.12.0.3, temporary >= 1.0, lens > 1,
                  hashable >= 1.1.2.0, unordered-containers,
-                 loch-th >= 0.2, temporary >= 1.0,
                  lattices, failure >= 0.2, hashtables,
-                 lens > 1,
                  llvm-base-types, hbgl, boomerang,
                  -- Testing
                  HUnit, test-framework, test-framework-hunit,

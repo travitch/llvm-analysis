@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, TemplateHaskell #-}
+{-# LANGUAGE ExistentialQuantification #-}
 -- | This module defines control flow graphs over the LLVM IR.
 module LLVM.Analysis.CFG (
   -- * Types
@@ -26,7 +26,6 @@ import Control.Arrow ( first )
 import Data.GraphViz
 import Data.List ( foldl' )
 import Data.Maybe ( fromMaybe )
-import Debug.Trace.LocationTH
 import Text.Printf
 
 import Data.Graph.Interface
@@ -212,7 +211,7 @@ buildBlockGraph (nacc, eacc) bb = (newNodes ++ nacc, (termEdges ++ internalEdges
       -- handler in the same function could pick it up...  Resolving
       -- that might require some more sophisticated analysis.
       ResumeInst {} -> []
-      _ -> $failure ("Last instruction in a block should be a terminator: " ++ show (toValue termInst))
+      _ -> error ("LLVM.Analysis.CFG.buildBlockGraph: Last instruction in a block should be a terminator: " ++ show (toValue termInst))
 
 -- | Only BasicBlocks are targets of jumps.  This function finds the
 -- identifier for the given block.
@@ -233,16 +232,16 @@ indirectEdge thisNodeId addr target =
 toBlock :: CFGType -> NodeType -> BasicBlock
 toBlock cfg n =
   case lab cfg n of
-    Nothing -> $failure ("Instruction missing from CFG: " ++ show n)
+    Nothing -> error ("LLVM.Analysis.CFG.toBlock: Instruction missing from CFG: " ++ show n)
     Just i ->
-      let errMsg = $failure ("Instruction in CFG should have a basic block: " ++ show i)
+      let errMsg = error ("LLVM.Analysis.CFG.toBlock: Instruction in CFG should have a basic block: " ++ show i)
       in fromMaybe errMsg (instructionBasicBlock i)
 
 {-# INLINE toInstruction #-}
 toInstruction :: CFG -> NodeType -> Instruction
 toInstruction cfg nod = fromMaybe errMsg $ lab (cfgGraph cfg) nod
   where
-    errMsg = $failure ("No value for cfg node: " ++ show nod)
+    errMsg = error ("LLVM.Analysis.CFG.toInstruction: No value for cfg node: " ++ show nod)
 
 -- | Get all of the predecessor blocks for basic block @bb@
 --

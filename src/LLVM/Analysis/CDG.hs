@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts #-}
 -- | Control Dependence Graphs for the LLVM IR
 --
 -- This module follows the definition of control dependence of Cytron et al
@@ -40,7 +40,6 @@ import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
 import Data.List ( foldl' )
 import Data.Maybe ( fromMaybe )
-import Debug.Trace.LocationTH
 
 import Data.Graph.Interface
 import Data.Graph.LazyHAMT
@@ -84,9 +83,9 @@ controlDependencies :: CDG -> Instruction -> [Instruction]
 controlDependencies (CDG g _) i =
   case deps of
     _ : rest -> rest
-    _ -> $failure $ "Instruction should at least be reachable from itself: " ++ show i
+    _ -> error ("LLVM.Analysis.CDG.controlDependencies: Instruction should at least be reachable from itself: " ++ show i)
   where
-    deps = map (safeLab $__LOCATION__ g) $ dfs [instructionUniqueId i] g
+    deps = map (safeLab "LLVM.Analysis.CDG.controlDependnecies.deps" g) $ dfs [instructionUniqueId i] g
 
 safeLab :: (Show (Node gr), InspectableGraph gr)
            => String -> gr -> Node gr -> NodeLabel gr
@@ -98,7 +97,7 @@ safeLab loc g n = fromMaybe errMsg (lab g n)
 -- dependent upon.
 directControlDependencies :: CDG -> Instruction -> [Instruction]
 directControlDependencies (CDG g _) i =
-  map (safeLab $__LOCATION__ g) $ suc g (instructionUniqueId i)
+  map (safeLab "LLVM.Analysis.CDG.directControlDependencies" g) $ suc g (instructionUniqueId i)
 
 -- | Construct the control dependence graph for a function (from its
 -- CFG).  This follows the construction from chapter 9 of the
@@ -128,7 +127,8 @@ controlDependenceGraph cfg = CDG (mkGraph ns es) cfg
 
     g = cfgGraph cfg
     pdt = postdominatorTree (reverseCFG cfg)
-    cfgEdges = map (\(Edge src dst) -> (safeLab $__LOCATION__ g src, safeLab $__LOCATION__ g dst)) (edges g)
+    eloc = "LLVM.Analysis.CDG.controlDependenceGraph.cfgEdges"
+    cfgEdges = map (\(Edge src dst) -> (safeLab eloc g src, safeLab eloc g dst)) (edges g)
     -- cfgEdges = map ((safeLab $__LOCATION__ g) *** (safeLab $__LOCATION__ g)) (edges g)
     -- | All of the edges in the CFG m->n such that n does not
     -- postdominate m

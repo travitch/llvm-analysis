@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, ExistentialQuantification, TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies, ExistentialQuantification #-}
 -- | This module defines a call graph and related functions.  The call
 -- graph is a static view of the calls between functions in a
 -- 'Module'.  The nodes of the graph are global functions and the
@@ -43,7 +43,6 @@ import Data.GraphViz
 import Data.Maybe ( mapMaybe )
 import Data.Hashable
 import qualified Data.HashSet as HS
-import Debug.Trace.LocationTH
 
 import Data.Graph.Interface
 import Data.Graph.LazyHAMT
@@ -126,7 +125,7 @@ callInstructionTargets cg (CallInst { callFunction = f }) =
 callInstructionTargets cg (InvokeInst { invokeFunction = f}) =
   callValueTargets cg f
 callInstructionTargets _ i =
-  $failure ("Expected a Call or Invoke instruction: " ++ show i)
+  error ("LLVM.Analysis.CallGraph.callInstructionTargets: Expected a Call or Invoke instruction: " ++ show i)
 
 -- | Given the value called by a Call or Invoke instruction, return
 -- all of the possible Functions or ExternalFunctions that it could
@@ -199,7 +198,7 @@ buildFuncEdges pta f = concat es
 getCallee :: Instruction -> Value
 getCallee CallInst { callFunction = f } = f
 getCallee InvokeInst { invokeFunction = f } = f
-getCallee i = $failure ("Expected a function in getCallee: " ++ show i)
+getCallee i = error ("LLVM.Analysis.CallGraph.getCallee: Expected a function in getCallee: " ++ show i)
 
 buildCallEdges :: (PointsToAnalysis a) => a -> Function -> Instruction -> [LEdge CG]
 buildCallEdges pta caller callInst = build' (getCallee callInst)

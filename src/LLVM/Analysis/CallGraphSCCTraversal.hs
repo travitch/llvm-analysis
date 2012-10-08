@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, RankNTypes, ExistentialQuantification #-}
+{-# LANGUAGE RankNTypes, ExistentialQuantification #-}
 module LLVM.Analysis.CallGraphSCCTraversal (
   -- * Traversals
   callGraphSCCTraversal,
@@ -28,7 +28,6 @@ import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
 import Data.Monoid
-import Debug.Trace.LocationTH
 
 import LLVM.Analysis
 import LLVM.Analysis.CallGraph
@@ -358,7 +357,7 @@ nodeIsDefined m n =
 getDep :: Map Int c -> Int -> c
 getDep m n = fromMaybe errMsg (M.lookup n m)
   where
-    errMsg = $failure ("Missing expected output var for node: " ++ show n)
+    errMsg = error ("LLVM.Analysis.CallGraphSCCTraversal.getDep: Missing expected output var for node: " ++ show n)
 
 -- Some of the type signatures have redundant brackets to emphasize
 -- that they are intended to be partially applied.
