@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, TypeOperators #-}
+{-# LANGUAGE TypeOperators #-}
 -- | Utilities to parse the type names used by LLVM.  Names are parsed
 -- into the representation used by the Itanium ABI package.  This
 -- representation can deal with namespace qualified names and supports
@@ -14,16 +14,9 @@ import Prelude hiding ( (.) )
 import Control.Category ( (.) )
 import Text.Boomerang
 import Text.Boomerang.String
-import Text.Boomerang.TH
 
 import ABI.Itanium as ABI
 import LLVM.Analysis as LLVM
-
-$(derivePrinterParsers ''Name)
-$(derivePrinterParsers ''CVQualifier)
-$(derivePrinterParsers ''Prefix)
-$(derivePrinterParsers ''UnqualifiedName)
-$(derivePrinterParsers ''UName)
 
 parseFunctionName :: Function -> Either String Name
 parseFunctionName f =
@@ -48,20 +41,20 @@ unparseTypeName :: Name -> Maybe String
 unparseTypeName = unparseString name
 
 name :: PrinterParser StringError String a (Name :- a)
-name = ( rNestedName . rList qualifier . rList1 prefix . unqName <>
-         rUnscopedName . unscopedName
-       )
+name = ABI.rNestedName . rList qualifier . rList1 prefix . unqName <>
+         ABI.rUnscopedName . unscopedName
+
 
 unscopedName :: PrinterParser StringError String a (UName :- a)
-unscopedName = rUName . unqName
+unscopedName = ABI.rUName . unqName
 
 unqName :: PrinterParser StringError String a (UnqualifiedName :- a)
-unqName = rSourceName . rList1 (satisfy (/= ':'))
+unqName = ABI.rSourceName . rList1 (satisfy (/= ':'))
 
 -- Just a hack since we know we won't have qualifiers.  It is fine if
 -- it always fails because the empty list is allowed
 qualifier :: PrinterParser StringError String a (CVQualifier :- a)
-qualifier = rConst . lit "@@INVALID@@"
+qualifier = ABI.rConst . lit "@@INVALID@@"
 
 prefix :: PrinterParser StringError String a (Prefix :- a)
-prefix = rUnqualifiedPrefix . unqName . lit "::"
+prefix = ABI.rUnqualifiedPrefix . unqName . lit "::"

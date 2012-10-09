@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts #-}
 -- | Control Dependence Graphs for the LLVM IR
 --
 -- This module follows the definition of control dependence of Cytron et al
@@ -39,7 +39,7 @@ import qualified Data.HashMap.Strict as M
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
 import Data.List ( foldl' )
-import Debug.Trace.LocationTH
+import Data.Maybe ( fromMaybe )
 
 import Data.Graph.Interface
 import Data.Graph.LazyHAMT
@@ -83,22 +83,21 @@ controlDependencies :: CDG -> Instruction -> [Instruction]
 controlDependencies (CDG g _) i =
   case deps of
     _ : rest -> rest
-    _ -> $failure $ "Instruction should at least be reachable from itself: " ++ show i
+    _ -> error ("LLVM.Analysis.CDG.controlDependencies: Instruction should at least be reachable from itself: " ++ show i)
   where
-    deps = map (safeLab $__LOCATION__ g) $ dfs [instructionUniqueId i] g
+    deps = map (safeLab "LLVM.Analysis.CDG.controlDependnecies.deps" g) $ dfs [instructionUniqueId i] g
 
 safeLab :: (Show (Node gr), InspectableGraph gr)
            => String -> gr -> Node gr -> NodeLabel gr
-safeLab loc g n =
-  case lab g n of
-    Nothing -> error (loc ++ ": missing label for CDG node " ++ show n)
-    Just l -> l
+safeLab loc g n = fromMaybe errMsg (lab g n)
+  where
+    errMsg = error (loc ++ ": missing label for CDG node " ++ show n)
 
 -- | Get the list of instructions that @i@ is directly control
 -- dependent upon.
 directControlDependencies :: CDG -> Instruction -> [Instruction]
 directControlDependencies (CDG g _) i =
-  map (safeLab $__LOCATION__ g) $ suc g (instructionUniqueId i)
+  map (safeLab "LLVM.Analysis.CDG.directControlDependencies" g) $ suc g (instructionUniqueId i)
 
 -- | Construct the control dependence graph for a function (from its
 -- CFG).  This follows the construction from chapter 9 of the
@@ -128,7 +127,8 @@ controlDependenceGraph cfg = CDG (mkGraph ns es) cfg
 
     g = cfgGraph cfg
     pdt = postdominatorTree (reverseCFG cfg)
-    cfgEdges = map (\(Edge src dst) -> ((safeLab $__LOCATION__ g src), (safeLab $__LOCATION__ g dst))) (edges g)
+    eloc = "LLVM.Analysis.CDG.controlDependenceGraph.cfgEdges"
+    cfgEdges = map (\(Edge src dst) -> (safeLab eloc g src, safeLab eloc g dst)) (edges g)
     -- cfgEdges = map ((safeLab $__LOCATION__ g) *** (safeLab $__LOCATION__ g)) (edges g)
     -- | All of the edges in the CFG m->n such that n does not
     -- postdominate m
@@ -141,7 +141,7 @@ isNotPostdomEdge pdt (m, n) = not (postdominates pdt n m)
 
 -- | Add an edge from @dependent@ to each @m@ it is control dependent on
 toEdge :: [LEdgeType] -> Instruction -> HashSet Instruction -> [LEdgeType]
-toEdge acc dependent ms = S.foldr (toE dependent) acc ms
+toEdge acc dependent = S.foldr (toE dependent) acc
   where
     toE n m a = LEdge (Edge (instructionUniqueId n) (instructionUniqueId m)) () : a
 

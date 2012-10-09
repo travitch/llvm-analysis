@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, TemplateHaskell #-}
+{-# LANGUAGE ExistentialQuantification #-}
 -- | Various functions to help test this library and analyses based on
 -- it.
 --
@@ -43,9 +43,6 @@ module LLVM.Analysis.Util.Testing (
   ) where
 
 import Control.Monad ( when )
-
-import Debug.Trace.LocationTH
-
 import System.Exit ( ExitCode(ExitSuccess) )
 import System.FilePath
 import System.FilePath.Glob
@@ -121,7 +118,7 @@ optify args inp optFile = do
   let cmd = proc opt ("-o" : optFile : inp : args)
   (_, _, _, p) <- createProcess cmd
   rc <- waitForProcess p
-  when (rc /= ExitSuccess) ($failure ("Could not optimize " ++ inp))
+  when (rc /= ExitSuccess) (error ("LLVM.Analysis.Util.Testing.optify: Could not optimize " ++ inp))
 
 -- | Given an input file, bitcode parsing function, and options to
 -- pass to opt, return a Module.  The input file can be C, C++, or
@@ -138,31 +135,33 @@ buildModule optOpts parseFile inputFilePath =
     ".C" -> clangBuilder inputFilePath "clang++"
     ".cxx" -> clangBuilder inputFilePath "clang++"
     ".cpp" -> clangBuilder inputFilePath "clang++"
-    _ -> $failure ("No build method for test input " ++ inputFilePath)
+    _ -> error ("LLVM.Analysis.Util.Testing.buildModule: No build method for test input " ++ inputFilePath)
   where
     simpleBuilder inp =
       case null optOpts of
         True -> do
           parseResult <- parseFile inp
-          either $failure return parseResult
+          either (error . ("LLVM.Analysis.Util.Testing.buildModule.simpleBuilder: " ++)) return parseResult
         False ->
           withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
             optify optOpts inp optFname
             parseResult <- parseFile optFname
-            either $failure return parseResult
+            either (error . ("LLVM.Analysis.Util.Testing.buildModule.simpleBuilder: " ++)) return parseResult
 
     clangBuilder inp driver =
       withSystemTempFile ("base_" ++ takeFileName inp) $ \baseFname _ -> do
         let baseCmd = proc driver ["-emit-llvm", "-o" , baseFname, "-c", inp]
         (_, _, _, p) <- createProcess baseCmd
         rc <- waitForProcess p
-        when (rc /= ExitSuccess) ($failure ("Could not compile input to bitcode: " ++ inp))
+        when (rc /= ExitSuccess) (error ("LLVM.Analysis.Util.Testing.buildModule.clangBuilder: Could not compile input to bitcode: " ++ inp))
         case null optOpts of
           True -> do
             parseResult <- parseFile baseFname
-            either $failure return parseResult
+            either (error . ("LLVM.Analysis.Util.Testing.buildModule.clangBuilder: " ++)) return parseResult
           False ->
             withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
               optify optOpts baseFname optFname
               parseResult <- parseFile optFname
-              either $failure return parseResult
+              either (error . ("LLVM.Analysis.Util.Testing.buildModule.clangBuilder: " ++)) return parseResult
+
+{-# ANN module "HLint: ignore Use if" #-}

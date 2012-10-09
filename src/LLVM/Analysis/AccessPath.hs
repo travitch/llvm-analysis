@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, DeriveDataTypeable, FlexibleContexts #-}
+{-# LANGUAGE DeriveDataTypeable, FlexibleContexts #-}
 -- | This module defines an abstraction over field accesses of
 -- structures called AccessPaths.  A concrete access path is rooted at
 -- a value, while an abstract access path is rooted at a type.  Both
@@ -26,7 +26,6 @@ import qualified Control.Failure as F
 import Data.Hashable
 import Data.List ( foldl' )
 import Data.Typeable
-import Debug.Trace.LocationTH
 
 import LLVM.Analysis
 
@@ -126,7 +125,9 @@ followAccessPath aap@(AbstractAccessPath bt _ components) val =
       case valueContent' v of
         ConstantC ConstantStruct { constantStructValues = vs } ->
           case ix < length vs of
-            False -> $failure ("Invalid access path: " ++ show aap ++ " / " ++ show val)
+            False -> error $ concat [ "LLVM.Analysis.AccessPath.followAccessPath.walk: "
+                                    ," Invalid access path: ", show aap, " / ", show val
+                                    ]
             True -> walk rest (vs !! ix)
         _ -> F.failure (NonConstantInPath aap val)
     walk _ _ = F.failure (CannotFollowPath aap val)
@@ -203,7 +204,7 @@ externalizeAccessPath accPath = do
 
 derefPointerType :: Type -> Type
 derefPointerType (TypePointer p _) = p
-derefPointerType t = $failure ("Type is not a pointer type: " ++ show t)
+derefPointerType t = error ("LLVM.Analysis.AccessPath.derefPointerType: Type is not a pointer type: " ++ show t)
 
 gepIndexFold :: Value -> [Value] -> [AccessType]
 gepIndexFold base indices@(ptrIx : ixs) =
@@ -227,7 +228,9 @@ gepIndexFold base indices@(ptrIx : ixs) =
             ConstantC ConstantInt { constantIntValue = fldNo } ->
               let fieldNumber = fromIntegral fldNo
               in (ts !! fieldNumber, AccessField fieldNumber : acc)
-            _ -> $failure ("Invalid non-constant GEP index for struct: " ++ show ty)
-        _ -> $failure ("Unexpected type in GEP: " ++ show ty)
+            _ -> error ("LLVM.Analysis.AccessPath.gepIndexFold.walkGep: Invalid non-constant GEP index for struct: " ++ show ty)
+        _ -> error ("LLVM.Analysis.AccessPath.gepIndexFold.walkGep: Unexpected type in GEP: " ++ show ty)
 gepIndexFold v [] =
-  $failure ("GEP instruction/base with empty index list: " ++ show v)
+  error ("LLVM.Analysis.AccessPath.gepIndexFold: GEP instruction/base with empty index list: " ++ show v)
+
+{-# ANN module "HLint: ignore Use if" #-}

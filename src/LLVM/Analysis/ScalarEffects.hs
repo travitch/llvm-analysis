@@ -89,7 +89,7 @@ scalarEffectAnalysis funcLike summ = do
 
 discardNothings :: HashMap Argument ScalarEffect
                    -> Argument
-                   -> (Maybe ScalarEffect)
+                   -> Maybe ScalarEffect
                    -> HashMap Argument ScalarEffect
 discardNothings acc _ Nothing = acc
 discardNothings acc a (Just e) = HM.insert a e acc
@@ -172,3 +172,5 @@ recordIfAffectsArgument con i si =
             SITop -> return $! SI $ HM.insert a e HM.empty
             SI m -> return $! SI $ HM.insert a e m
         _ -> return si
+
+{-# ANN module "HLint: ignore Use if" #-}

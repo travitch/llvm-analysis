@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 -- | This module defines a class hierarchy analysis for C++.
 --
 -- This analysis operates entirely at the bitcode level and does not
@@ -34,13 +34,12 @@ import Data.Generics.Uniplate.Data
 import Data.List ( stripPrefix )
 import Data.Map ( Map )
 import qualified Data.Map as M
-import Data.Maybe ( mapMaybe )
+import Data.Maybe ( fromMaybe, mapMaybe )
 import Data.Monoid
 import Data.Set ( Set )
 import qualified Data.Set as S
 import Data.Vector ( Vector, (!?) )
 import qualified Data.Vector as V
-import Debug.Trace.LocationTH
 
 import LLVM.Analysis hiding ( (!?) )
 import LLVM.Analysis.Util.Names
@@ -143,7 +142,7 @@ getVFuncSlot cha loadAddr thisArg =
   case valueContent loadAddr of
     -- Clang style
     InstructionC GetElementPtrInst {
-      getElementPtrIndices = [(valueContent -> ConstantC ConstantInt { constantIntValue = slotNo })],
+      getElementPtrIndices = [valueContent -> ConstantC ConstantInt { constantIntValue = slotNo }],
       getElementPtrValue =
         (valueContent -> InstructionC LoadInst {
             loadAddress =
@@ -163,8 +162,8 @@ getVFuncSlot cha loadAddr thisArg =
     InstructionC LoadInst {
       loadAddress =
          (valueContent -> InstructionC GetElementPtrInst {
-             getElementPtrIndices = [ (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
-                                    , (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+             getElementPtrIndices = [ valueContent -> ConstantC ConstantInt { constantIntValue = 0 }
+                                    , valueContent -> ConstantC ConstantInt { constantIntValue = 0 }
                                     ],
              getElementPtrValue = thisPtr})} ->
       case thisArg == thisPtr of
@@ -174,15 +173,15 @@ getVFuncSlot cha loadAddr thisArg =
     InstructionC BitcastInst {
       castedValue =
          (valueContent -> InstructionC GetElementPtrInst {
-             getElementPtrIndices = [(valueContent -> ConstantC ConstantInt { constantIntValue = offset })],
+             getElementPtrIndices = [valueContent -> ConstantC ConstantInt { constantIntValue = offset }],
              getElementPtrValue =
                (valueContent -> InstructionC BitcastInst {
                    castedValue =
                       (valueContent -> InstructionC LoadInst {
                           loadAddress =
                              (valueContent -> InstructionC GetElementPtrInst {
-                                 getElementPtrIndices = [ (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
-                                                        , (valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+                                 getElementPtrIndices = [ valueContent -> ConstantC ConstantInt { constantIntValue = 0 }
+                                                        , valueContent -> ConstantC ConstantInt { constantIntValue = 0 }
                                                         ],
                                  getElementPtrValue = thisPtr})})})})} ->
       case thisArg == thisPtr of
@@ -261,14 +260,14 @@ moduleConstructors = filter isC2Constructor . moduleDefinedFunctions
 buildTypeMap :: Function -> CHA -> CHA
 buildTypeMap f cha =
   case parseTypeName fname of
-    Left e -> $failure e
+    Left e -> error ("LLVM.Analysis.ClassHierarchy.buildTypeMap: " ++ e)
     Right n ->
       cha { typeMapping = M.insert n t (typeMapping cha) }
   where
     t = constructedType f
     fname = case t of
       TypeStruct (Just tn) _ _ -> stripNamePrefix tn
-      _ -> $failure ("Expected class type: " ++ show t)
+      _ -> error ("LLVM.Analysis.ClassHierarchy.buildTypeMap: Expected class type: " ++ show t)
 
 -- | Determine the parent classes for each class type (if any) and
 -- record them in the class hierarchy analysis summary.  This
@@ -282,10 +281,10 @@ recordParents gv acc =
       case structuredName of
         VirtualTable (ClassEnumType typeName) ->
           recordVTable acc typeName (globalVariableInitializer gv)
-        VirtualTable tn -> $failure ("Expected a class name for virtual table: " ++ show tn)
+        VirtualTable tn -> error ("LLVM.Analysis.ClassHierarchy.recordParents: Expected a class name for virtual table: " ++ show tn)
         TypeInfo (ClassEnumType typeName) ->
           recordTypeInfo acc typeName (globalVariableInitializer gv)
-        TypeInfo tn -> $failure ("Expected a class name for typeinfo: " ++ show tn)
+        TypeInfo tn -> error ("LLVM.Analysis.ClassHierarchy.recordParents: Expected a class name for typeinfo: " ++ show tn)
         _ -> acc
   where
     n = identifierAsString (globalVariableName gv)
@@ -313,7 +312,7 @@ unsafeToFunction :: Value -> Function
 unsafeToFunction v =
   case valueContent' v of
     FunctionC f -> f
-    _ -> $failure ("Expected vtable function entry: " ++ show v)
+    _ -> error ("LLVM.Analysis.ClassHierarchy.unsafeToFunction: Expected vtable function entry: " ++ show v)
 
 
 isVTableFunctionType :: Value -> Bool
@@ -331,7 +330,7 @@ recordTypeInfo cha name (Just tbl) =
       in cha { parentMap = M.insertWith' S.union name (S.fromList parentClassNames) (parentMap cha)
              , childrenMap = foldr (addChild name) (childrenMap cha) parentClassNames
              }
-    _ -> $failure ("Expected typeinfo literal " ++ show tbl)
+    _ -> error ("LLVM.Analysis.ClassHierarchy.recordTypeInfo: Expected typeinfo literal " ++ show tbl)
 
 toParentClassName :: Value -> Maybe Name
 toParentClassName v =
@@ -353,8 +352,8 @@ addChild thisType parentType =
 constructedType :: Function -> Type
 constructedType f =
   case map argumentType $ functionParameters f of
-    (TypePointer t@(TypeStruct (Just _) _ _) _):_ -> t
-    t -> $failure ("Expected pointer to struct type: " ++ show t)
+    TypePointer t@(TypeStruct (Just _) _ _) _ : _ -> t
+    t -> error ("LLVM.Analysis.ClassHierarchy.constructedType: Expected pointer to struct type: " ++ show t)
 
 -- Helpers
 
@@ -372,24 +371,24 @@ isC2Constructor f =
     n = identifierAsString (functionName f)
     dname = demangleName n
 
+-- | Strip a prefix, operating as the identity if the input string did
+-- not have the prefix.
+stripPrefix' :: String -> String -> String
+stripPrefix' pfx s = fromMaybe s (stripPrefix pfx s)
+
 stripNamePrefix :: String -> String
-stripNamePrefix s =
-  case stripPrefix "class." s of
-    Nothing ->
-      case stripPrefix "struct." s of
-        Nothing -> s
-        Just s' -> s'
-    Just s' -> s'
+stripNamePrefix =
+  stripPrefix' "struct." . stripPrefix' "class."
 
 typeToName :: Type -> Name
 typeToName (TypeStruct (Just n) _ _) =
   case parseTypeName (stripNamePrefix n) of
     Right tn -> tn
-    Left e -> $failure e
-typeToName t = $failure ("Expected named struct type: " ++ show t)
+    Left e -> error ("LLVM.Analysis.ClassHierarchy.typeToName: " ++ e)
+typeToName t = error ("LLVM.Analysis.ClassHierarchy.typeToName: Expected named struct type: " ++ show t)
 
 nameToString :: Name -> String
-nameToString n = maybe errMsg id (unparseTypeName n)
+nameToString n = fromMaybe errMsg (unparseTypeName n)
   where
     errMsg = error ("Could not encode name as string: " ++ show n)
 
@@ -411,3 +410,5 @@ classHierarchyToTestFormat cha =
     mapify (ty, subtypes) =
       let ss = S.map nameToString subtypes
       in M.insertWith S.union (nameToString ty) ss
+
+{-# ANN module "HLint: ignore Use if" #-}
