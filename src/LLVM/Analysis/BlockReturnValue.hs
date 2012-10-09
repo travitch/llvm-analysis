@@ -36,6 +36,11 @@ import LLVM.Analysis.Dominance
 
 data BlockReturns = BlockReturns (HashMap BasicBlock Value)
 
+instance Show BlockReturns where
+  show (BlockReturns m) = unlines $ map showPair (HM.toList m)
+    where
+      showPair (bb, v) = show (basicBlockName bb) ++ ": " ++ show v
+
 instance Monoid BlockReturns where
   mempty = BlockReturns mempty
   mappend (BlockReturns b1) (BlockReturns b2) =
