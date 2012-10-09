@@ -33,13 +33,16 @@ main = do
     opts = [ "-mem2reg", "-basicaa", "-gvn" ]
     parser = parseLLVMFile defaultParserOptions
 
-data Bundle = Bundle Function PostdominatorTree
+data Bundle = Bundle Function PostdominatorTree CFG
 
 instance HasFunction Bundle where
-  getFunction (Bundle f _) = f
+  getFunction (Bundle f _ _) = f
 
 instance HasPostdomTree Bundle where
-  getPostdomTree (Bundle _ pdt) = pdt
+  getPostdomTree (Bundle _ pdt _) = pdt
+
+instance HasCFG Bundle where
+  getCFG (Bundle _ _ cfg) = cfg
 
 -- Take the first function in the module and summarize it (map of
 -- block names to return values that are constant ints)
@@ -49,8 +52,9 @@ blockRetMap m = foldr (recordConstIntReturn brs) mempty blocks
     f1 : _ = moduleDefinedFunctions m
     blocks = functionBody f1
     brs = labelBlockReturns bdl
-    pdt = postdominatorTree (reverseCFG (mkCFG f1))
-    bdl = Bundle f1 pdt
+    cfg = mkCFG f1
+    pdt = postdominatorTree (reverseCFG cfg)
+    bdl = Bundle f1 pdt cfg
 
 
 recordConstIntReturn :: BlockReturns -> BasicBlock -> Map String Int -> Map String Int
