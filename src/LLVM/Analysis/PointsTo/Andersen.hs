@@ -27,7 +27,6 @@ import Constraints.Set.Internal
 
 #if defined(DEBUGCONSTRAINTS)
 import Debug.Trace
-debug = flip trace
 #endif
 
 -- A monad to manage fresh variable generation
@@ -108,9 +107,9 @@ pta m = do
             InstructionC i@CallInst {} -> returnVar i
             InstructionC i@PhiNode {} -> phiVar i
             InstructionC i@SelectInst {} -> phiVar i
-            InstructionC i@GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
+            InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
               gepVar la
-            InstructionC i@GetElementPtrInst { getElementPtrValue = base } ->
+            InstructionC GetElementPtrInst { getElementPtrValue = base } ->
               gepVar base
             ArgumentC a -> argVar a
             _ -> setVariable (LocationSet val)
@@ -124,9 +123,9 @@ pta m = do
       InstructionC i@CallInst {} -> returnVar i
       InstructionC i@PhiNode {} -> phiVar i
       InstructionC i@SelectInst {} -> phiVar i
-      InstructionC i@GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
+      InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
         gepVar la
-      InstructionC i@GetElementPtrInst { getElementPtrValue = base } ->
+      InstructionC GetElementPtrInst { getElementPtrValue = base } ->
         gepVar base
 
 --      InstructionC i@GetElementPtrInst {} -> loc (toValue i)
@@ -202,7 +201,7 @@ pta m = do
         -- graph.  It may be possible to keep it entirely local with
         -- extra variables as is done for function pointers.
         GetElementPtrInst { getElementPtrValue = (valueContent' ->
-          InstructionC li@LoadInst { loadAddress = la })
+          InstructionC LoadInst { loadAddress = la })
                           , getElementPtrIndices = [_]
                           } -> do
           f1 <- freshVariable
@@ -220,7 +219,7 @@ pta m = do
                                                    , _
                                                    ]
                           } ->
-          case valueType base `debug` show (valueType base) of
+          case valueType base of
             TypePointer (TypeArray _ _) _ -> do
               f1 <- freshVariable
               f2 <- freshVariable
@@ -235,30 +234,6 @@ pta m = do
             -- This case is actually a struct field reference, so fill
             -- that in later
             _ -> return acc
-
---         GetElementPtrInst { getElementPtrValue = base
---                           , getElementPtrIndices = [_]
---                           } -> do
---           f1 <- freshVariable
---           f2 <- freshVariable
-
---           let c1 = loc (toValue i) <=! ref [ universalSet, universalSet, f1 ]
---               c2 = ref [ emptySet, setExpFor base, emptySet ] <=! ref [ universalSet, f2, emptySet ]
---               c3 = f2 <=! f1
-
---           acc' <- addVirtualArgConstraints acc (toValue i) base
---           return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
-
---           f1 <- freshVariable
---           f2 <- freshVariable
-
---           let -- c0 = -- loc base <=! setExpFor (toValue i)
--- --              c1 = setExpFor (toValue i) <=! setExpFor base
---               c1 = setExpFor base <=! ref [ universalSet, f1, emptySet ]
---               c2 = ref [ emptySet, setExpFor base, emptySet ] <=! ref [ universalSet, f2, emptySet ]
---               c3 = f1 <=! setExpFor (toValue i)
---           acc' <- addVirtualArgConstraints acc (toValue i) base
---           return $ c1 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c3])
 
         _ -> return acc
 
