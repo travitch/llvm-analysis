@@ -27,6 +27,7 @@ import Constraints.Set.Internal
 
 #if defined(DEBUGCONSTRAINTS)
 import Debug.Trace
+debug = flip trace
 #endif
 
 -- A monad to manage fresh variable generation
@@ -109,6 +110,8 @@ pta m = do
             InstructionC i@SelectInst {} -> phiVar i
             InstructionC i@GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
               gepVar la
+            InstructionC i@GetElementPtrInst { getElementPtrValue = base } ->
+              gepVar base
             ArgumentC a -> argVar a
             _ -> setVariable (LocationSet val)
       in ref [ atom (Atom val), var, var ]
@@ -123,6 +126,8 @@ pta m = do
       InstructionC i@SelectInst {} -> phiVar i
       InstructionC i@GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
         gepVar la
+      InstructionC i@GetElementPtrInst { getElementPtrValue = base } ->
+        gepVar base
 
 --      InstructionC i@GetElementPtrInst {} -> loc (toValue i)
       -- InstructionC GetElementPtrInst { getElementPtrValue = base } ->
@@ -190,13 +195,18 @@ pta m = do
         -- effectively treating every array element as one location.
         -- This particular rule deals with pointers that are treated
         -- as arrays (the GEP has only one index).
+        --
+        -- Note that this rule looks into the base of the GEP deeply
+        -- and is not totally local.  This seemed necessary to hook
+        -- the constraints into the proper place in the constraint
+        -- graph.  It may be possible to keep it entirely local with
+        -- extra variables as is done for function pointers.
         GetElementPtrInst { getElementPtrValue = (valueContent' ->
           InstructionC li@LoadInst { loadAddress = la })
                           , getElementPtrIndices = [_]
                           } -> do
           f1 <- freshVariable
           f2 <- freshVariable
-          f3 <- freshVariable
 
           let c1 = loc (toValue i) <=! ref [ universalSet, universalSet, f1 ]
               c2 = ref [ emptySet, setExpFor la, emptySet ] <=! ref [ universalSet, f2, emptySet ]
@@ -204,6 +214,27 @@ pta m = do
 
           acc' <- addVirtualArgConstraints acc (toValue i) la
           return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
+
+        GetElementPtrInst { getElementPtrValue = base,
+                            getElementPtrIndices = [(valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
+                                                   , _
+                                                   ]
+                          } ->
+          case valueType base `debug` show (valueType base) of
+            TypePointer (TypeArray _ _) _ -> do
+              f1 <- freshVariable
+              f2 <- freshVariable
+
+              let c1 = loc (toValue i) <=! ref [ universalSet, universalSet, f1 ]
+                  c2 = ref [ emptySet, setExpFor base, emptySet ] <=! ref [ universalSet, f2, emptySet ]
+                  c3 = f2 <=! f1
+
+              acc' <- addVirtualArgConstraints acc (toValue i) base
+              return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
+
+            -- This case is actually a struct field reference, so fill
+            -- that in later
+            _ -> return acc
 
 --         GetElementPtrInst { getElementPtrValue = base
 --                           , getElementPtrIndices = [_]
