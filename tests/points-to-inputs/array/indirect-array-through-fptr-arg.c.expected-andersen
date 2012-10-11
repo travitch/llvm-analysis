@@ -1,0 +1,7 @@
+fromList [ ("@gfp", fromList ["@target1"])
+         , ("%theptr", fromList ["@r"])
+         , ("%arg", fromList ["@store"])
+         , ("@p", fromList ["@a"])
+         , ("@store", fromList ["@a"])
+         , ("@r", fromList ["@a"])
+         ]
