@@ -66,7 +66,7 @@ main :: IO ()
 main = do
   args <- getArgs
   let pattern = case args of
-        [] -> "tests/points-to-inputs/*.c"
+        [] -> "tests/points-to-inputs/*/*.c"
         [infile] -> infile
         _ -> error "Only one argument allowed"
       testDescriptors = [ TestDescriptor { testPattern = pattern
