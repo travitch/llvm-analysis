@@ -45,6 +45,7 @@ freshVariable = do
 data Constructor = Ref
                  | Atom !Value
                  deriving (Eq, Ord, Show, Typeable)
+
 data Var = Fresh !Int
          | LocationSet !Value -- The X_{l_i} variables
          | LoadedLocation !Instruction
@@ -107,10 +108,10 @@ pta m = do
             InstructionC i@CallInst {} -> returnVar i
             InstructionC i@PhiNode {} -> phiVar i
             InstructionC i@SelectInst {} -> phiVar i
-            InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
-              gepVar la
+            -- InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
+            --   gepVar la
             InstructionC GetElementPtrInst { getElementPtrValue = base } ->
-              gepVar base
+              gepVar (getTargetIfLoad base)
             ArgumentC a -> argVar a
             _ -> setVariable (LocationSet val)
       in ref [ atom (Atom val), var, var ]
@@ -123,18 +124,15 @@ pta m = do
       InstructionC i@CallInst {} -> returnVar i
       InstructionC i@PhiNode {} -> phiVar i
       InstructionC i@SelectInst {} -> phiVar i
-      InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
-        gepVar la
+      -- InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
+      --   gepVar la
       InstructionC GetElementPtrInst { getElementPtrValue = base } ->
-        gepVar base
+        gepVar (getTargetIfLoad base)
 
---      InstructionC i@GetElementPtrInst {} -> loc (toValue i)
-      -- InstructionC GetElementPtrInst { getElementPtrValue = base } ->
-      --   gepVar base
       ArgumentC a -> argVar a
       _ -> loc v
 
-    -- FIXME This probably needs to use the type of the initializer to
+     -- FIXME This probably needs to use the type of the initializer to
     -- determine if the initializer is a copy of another global or an
     -- address to a specific location
     globalInitializerConstraints acc global =
@@ -156,7 +154,7 @@ pta m = do
           -- If we load a function pointer, add new virtual nodes and
           -- link them up
           let c = setExpFor la <=! ref [ universalSet, loadVar i, emptySet ]
-          acc' <- addVirtualArgConstraints acc (toValue i) la
+          acc' <- addVirtualConstraints acc (toValue i) la
           return $ c : acc' `traceConstraints` ("Inst: " ++ show i, [c])
 
         -- If you store the stored address is a function type, add
@@ -168,7 +166,7 @@ pta m = do
           let c1 = setExpFor sa <=! ref [ universalSet, universalSet, f1 ]
               c2 = ref [ emptySet, setExpFor sv, emptySet ] <=! ref [ universalSet, f2, emptySet ]
               c3 = f2 <=! f1
-          acc' <- addVirtualArgConstraints acc sa sv
+          acc' <- addVirtualConstraints acc sa sv
           return $ c1 : c2 : c3 : acc' `traceConstraints` ("Inst: " ++ show i, [c1,c2,c3])
 
         CallInst { callFunction = (valueContent' -> FunctionC f)
@@ -211,7 +209,20 @@ pta m = do
               c2 = ref [ emptySet, setExpFor la, emptySet ] <=! ref [ universalSet, f2, emptySet ]
               c3 = f2 <=! f1
 
-          acc' <- addVirtualArgConstraints acc (toValue i) la
+          acc' <- addVirtualConstraints acc (toValue i) la
+          return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
+
+        GetElementPtrInst { getElementPtrValue = base
+                          , getElementPtrIndices = [_]
+                          } -> do
+          f1 <- freshVariable
+          f2 <- freshVariable
+
+          let c1 = loc (toValue i) <=! ref [ universalSet, universalSet, f1 ]
+              c2 = ref [ emptySet, loc base, emptySet ] <=! ref [ universalSet, f2, emptySet ]
+              c3 = f2 <=! f1
+
+          acc' <- addVirtualConstraints acc (toValue i) base
           return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
 
         GetElementPtrInst { getElementPtrValue = base,
@@ -228,7 +239,7 @@ pta m = do
                   c2 = ref [ emptySet, setExpFor base, emptySet ] <=! ref [ universalSet, f2, emptySet ]
                   c3 = f2 <=! f1
 
-              acc' <- addVirtualArgConstraints acc (toValue i) base
+              acc' <- addVirtualConstraints acc (toValue i) base
               return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
 
             -- This case is actually a struct field reference, so fill
@@ -246,6 +257,21 @@ pta m = do
           cs <- foldM (retConstraint i) [] rvs
           return $ cs ++ acc'
         _ -> return acc'
+
+    -- FIXME try adding virtual array constraints that are propagated
+    -- everywhere; the base one should probably refer to the thing
+    -- that is an array.  This might let us avoid extra cases and
+    -- treat GEP instructions individually again.  If it works, it should
+    -- also fix test case store-ptr-to-arg-array.c
+
+    addVirtualConstraints acc0 dst src = do
+      acc1 <- addVirtualArgConstraints acc0 dst src
+--      acc2 <- addArrayConstraints acc1 dst src
+      return acc1
+
+    -- addArrayConstraints acc dst src = do
+    --   let c = arrayVar dst <=! arrayVar src
+    --   return $ c : acc `traceConstraints` (concat ["ArrayVar: ", show src, " -> ", show dst], [c])
 
     addVirtualArgConstraints acc sa sv
       | not (isFuncPtrType (valueType sv)) = return acc
@@ -287,7 +313,7 @@ pta m = do
     -- pointer types).
     retConstraint i acc rv = do
       let c = setExpFor rv <=! setExpFor (toValue i)
-      acc' <- addVirtualArgConstraints acc (toValue i) rv
+      acc' <- addVirtualConstraints acc (toValue i) rv
       return $ c : acc' `traceConstraints` (concat [ "RetVal ", show i ], [c])
 
     -- Note the rule has to be a bit strange because the formal is an
@@ -299,13 +325,19 @@ pta m = do
     -- virtual arg nodes for the formal
     copyActualToFormal acc (act, frml) = do
       let c = setExpFor act <=! argVar frml
-      acc' <- addVirtualArgConstraints acc (toValue frml) act
+      acc' <- addVirtualConstraints acc (toValue frml) act
       return $ c : acc' `traceConstraints` (concat [ "Args ", show act, " -> ", show frml ], [c])
 
     valueAliasingChoise i acc vfrom = do
       let c = setExpFor vfrom <=! setExpFor (toValue i)
-      acc' <- addVirtualArgConstraints acc (toValue i) vfrom
+      acc' <- addVirtualConstraints acc (toValue i) vfrom
       return $ c : acc' `traceConstraints` (concat [ "MultCopy ", show (valueName vfrom), " -> ", show (valueName i)], [c])
+
+getTargetIfLoad :: Value -> Value
+getTargetIfLoad v =
+  case valueContent' v of
+    InstructionC LoadInst { loadAddress = la } -> la
+    _ -> v
 
 -- TODO:
 --
