@@ -108,8 +108,6 @@ pta m = do
             InstructionC i@CallInst {} -> returnVar i
             InstructionC i@PhiNode {} -> phiVar i
             InstructionC i@SelectInst {} -> phiVar i
-            -- InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
-            --   gepVar la
             InstructionC GetElementPtrInst { getElementPtrValue = base } ->
               gepVar (getTargetIfLoad base)
             ArgumentC a -> argVar a
@@ -124,11 +122,18 @@ pta m = do
       InstructionC i@CallInst {} -> returnVar i
       InstructionC i@PhiNode {} -> phiVar i
       InstructionC i@SelectInst {} -> phiVar i
-      -- InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' ->  InstructionC LoadInst { loadAddress = la })} ->
-      --   gepVar la
       InstructionC GetElementPtrInst { getElementPtrValue = base } ->
         gepVar (getTargetIfLoad base)
-
+      ConstantC ConstantValue { constantInstruction = (valueContent' ->
+        InstructionC GetElementPtrInst { getElementPtrValue = base
+                                       , getElementPtrIndices = is
+                                       })} ->
+        case valueType base of
+          TypePointer (TypeArray _ _) _ ->
+            case all isConstantZero is of
+              True -> setVariable (LocationSet base)
+              False -> loc v
+          _ -> loc v
       ArgumentC a -> argVar a
       _ -> loc v
 
@@ -332,6 +337,12 @@ pta m = do
       let c = setExpFor vfrom <=! setExpFor (toValue i)
       acc' <- addVirtualConstraints acc (toValue i) vfrom
       return $ c : acc' `traceConstraints` (concat [ "MultCopy ", show (valueName vfrom), " -> ", show (valueName i)], [c])
+
+isConstantZero :: Value -> Bool
+isConstantZero v =
+  case valueContent' v of
+    ConstantC ConstantInt { constantIntValue = 0 } -> True
+    _ -> False
 
 getTargetIfLoad :: Value -> Value
 getTargetIfLoad v =
