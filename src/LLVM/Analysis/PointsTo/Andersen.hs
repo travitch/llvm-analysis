@@ -124,6 +124,9 @@ pta m = do
       InstructionC i@SelectInst {} -> phiVar i
       InstructionC GetElementPtrInst { getElementPtrValue = base } ->
         gepVar (getTargetIfLoad base)
+      -- This case is a bit of a hack to deal with the conversion from
+      -- an array type to a pointer to the first element (using a
+      -- constant GEP with all zero indices).
       ConstantC ConstantValue { constantInstruction = (valueContent' ->
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = is
