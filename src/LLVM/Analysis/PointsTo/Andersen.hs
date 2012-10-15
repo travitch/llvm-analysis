@@ -54,6 +54,7 @@ data Var = Fresh !Int
          | RetLocation !Instruction
          | GEPLocation !Value
          | PhiCopy !Instruction
+         | FieldLoc !Type !Int
          deriving (Eq, Ord, Show, Typeable)
 
 type SetExp = SetExpression Var Constructor
@@ -122,8 +123,19 @@ pta m = do
       InstructionC i@CallInst {} -> returnVar i
       InstructionC i@PhiNode {} -> phiVar i
       InstructionC i@SelectInst {} -> phiVar i
-      InstructionC GetElementPtrInst { getElementPtrValue = base } ->
-        gepVar (getTargetIfLoad base)
+      -- Simple case of a pointer base used as an array
+      -- InstructionC GetElementPtrInst { getElementPtrValue = base
+      --                                , getElementPtrIndices = [_]
+      --                                } ->
+      --   gepVar (getTargetIfLoad base)
+      InstructionC GetElementPtrInst { getElementPtrValue = base
+                                     , getElementPtrIndices = ixs
+                                     } ->
+        case isArrayAccess base ixs of
+          True -> gepVar (getTargetIfLoad base)
+          False ->
+            let var = setVariable $ toFieldVar base ixs
+            in ref [ atom (Atom v), var, var ]
       -- This case is a bit of a hack to deal with the conversion from
       -- an array type to a pointer to the first element (using a
       -- constant GEP with all zero indices).
@@ -341,6 +353,20 @@ pta m = do
       acc' <- addVirtualConstraints acc (toValue i) vfrom
       return $ c : acc' `traceConstraints` (concat [ "MultCopy ", show (valueName vfrom), " -> ", show (valueName i)], [c])
 
+toFieldVar :: Value -> [Value] -> Var
+toFieldVar base (_:ix:ixs) =
+  case (valueType base, valueContent' ix) of
+    (TypePointer t _, ConstantC ConstantInt { constantIntValue = iv }) ->
+      FieldLoc t (fromIntegral iv)
+    _ -> undefined
+
+isArrayAccess :: Value -> [Value] -> Bool
+isArrayAccess base ixs =
+  case (valueType base, ixs) of
+    (_, [_]) -> True
+    (TypePointer (TypeArray _ _) _, _) -> True
+    _ -> False
+
 isConstantZero :: Value -> Bool
 isConstantZero v =
   case valueContent' v of
@@ -414,6 +440,7 @@ fmtAndersenNode (_, l) =
   case l of
     EmptySet -> [toLabel (show l)]
     UniversalSet -> [toLabel (show l)]
+    SetVariable (FieldLoc t ix) -> [toLabel ("Field_" ++ show t ++ "<" ++ show ix ++ ">")]
     SetVariable (Fresh i) -> [toLabel ("F" ++ show i)]
     SetVariable (PhiCopy i) -> [toLabel ("PhiCopy " ++ show i)]
     SetVariable (GEPLocation i) -> [toLabel ("GEPLoc " ++ show i)]
