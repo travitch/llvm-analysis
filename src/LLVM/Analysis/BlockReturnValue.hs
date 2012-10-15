@@ -69,17 +69,8 @@ labelBlockReturns funcLike =
   where
     f = getFunction funcLike
     pdt = getPostdomTree funcLike
-    -- FIXME: Depend on the CFG instead of recomputing predecessors
-    -- here.
-    upreds = foldr addPred mempty (functionBody f)
-    addPred bb ps =
-      case basicBlockTerminatorInstruction bb of
-        UnconditionalBranchInst { unconditionalBranchTarget = t } ->
-          HM.insertWith (++) t [bb] ps
-        BranchInst { branchTrueTarget = tt, branchFalseTarget = ft } ->
-          let ps' = HM.insertWith (++) tt [bb] ps
-          in HM.insertWith (++) ft [bb] ps'
-        _ -> ps
+    cfg = getCFG funcLike
+
     pushReturnValues exitInst (m, vis) =
       let Just b0 = instructionBasicBlock exitInst
       in case exitInst of
@@ -97,8 +88,8 @@ labelBlockReturns funcLike =
           _ ->
             let m' = HM.insert bb val m
                 vis' = HS.insert bb vis
-                preds = HM.lookup bb upreds
-            in maybe (m', vis') (foldr (pushReturnUp (Just bb)) (m', vis') . zip (repeat val)) preds
+                preds = basicBlockPredecessors cfg bb
+            in foldr (pushReturnUp (Just bb)) (m', vis') (zip (repeat val) preds)
 
 -- | Return True if the terminator instruction of the previous block
 -- in the traversal postdominates the terminator instruction of the
