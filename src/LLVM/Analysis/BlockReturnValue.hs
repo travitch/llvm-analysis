@@ -20,13 +20,17 @@ module LLVM.Analysis.BlockReturnValue (
   BlockReturns,
   labelBlockReturns,
   blockReturn,
-  instructionReturn
+  blockReturns,
+  instructionReturn,
+  instructionReturns
   ) where
 
 import Control.Arrow ( second )
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
+import Data.HashSet ( HashSet )
 import qualified Data.HashSet as HS
+import Data.Maybe ( mapMaybe )
 import Data.Monoid
 
 import LLVM.Analysis
@@ -34,22 +38,28 @@ import LLVM.Analysis.CFG
 
 import LLVM.Analysis.Dominance
 
-data BlockReturns = BlockReturns (HashMap BasicBlock Value)
+data BlockReturns = BlockReturns (HashMap BasicBlock Value) (HashMap BasicBlock (HashSet Value))
 
 instance Show BlockReturns where
-  show (BlockReturns m) = unlines $ map showPair (HM.toList m)
+  show (BlockReturns _ m) = unlines $ map showPair (HM.toList m)
     where
-      showPair (bb, v) = show (basicBlockName bb) ++ ": " ++ show v
+      showPair (bb, vs) = show (basicBlockName bb) ++ ": " ++ show vs
 
 instance Monoid BlockReturns where
-  mempty = BlockReturns mempty
-  mappend (BlockReturns b1) (BlockReturns b2) =
-    BlockReturns (b1 `mappend` b2)
+  mempty = BlockReturns mempty mempty
+  mappend (BlockReturns b1 bs1) (BlockReturns b2 bs2) =
+    BlockReturns (b1 `mappend` b2) (HM.unionWith HS.union bs1 bs2)
 
 -- | Retrieve the Value that must be returned (if any) if the given
 -- BasicBlock executes.
 blockReturn :: BlockReturns -> BasicBlock -> Maybe Value
-blockReturn (BlockReturns m) bb = HM.lookup bb m
+blockReturn (BlockReturns m _) bb = HM.lookup bb m
+
+-- | Builds on the results from 'blockReturn' and reports *all* of the
+-- values that each block can return (results may not include the
+-- final block).
+blockReturns :: BlockReturns -> BasicBlock -> [Value]
+blockReturns (BlockReturns _ m) bb = maybe [] HS.toList (HM.lookup bb m)
 
 -- | Return the Value that must be returned (if any) if the given
 -- Instruction is executed.
@@ -58,18 +68,32 @@ instructionReturn brs i = do
   bb <- instructionBasicBlock i
   blockReturn brs bb
 
+instructionReturns :: BlockReturns -> Instruction -> [Value]
+instructionReturns brs i = blockReturns brs bb
+  where
+    Just bb = instructionBasicBlock i
+
 -- | Label each BasicBlock with the value that it must return (if
 -- any).
 labelBlockReturns :: (HasFunction funcLike, HasPostdomTree funcLike, HasCFG funcLike)
                 => funcLike -> BlockReturns
 labelBlockReturns funcLike =
   case functionExitInstructions f of
-    [] -> BlockReturns mempty
-    exitInsts -> BlockReturns $ fst $ foldr pushReturnValues (mempty, mempty) exitInsts
+    [] -> BlockReturns mempty mempty
+    exitInsts ->
+      let s0 = (mempty, mempty)
+          singleBlockRets = fst $ foldr pushReturnValues s0 exitInsts
+          -- Traverse the list of basic blocks in reverse order
+          -- (bottom up) to accumulate as many returns as is
+          -- reasonable.
+          cs0 = fmap HS.singleton singleBlockRets -- convert to list values
+          compositeRets = foldr accumulateSuccReturns cs0 (reverse blocks)
+      in BlockReturns singleBlockRets compositeRets
   where
     f = getFunction funcLike
     pdt = getPostdomTree funcLike
     cfg = getCFG funcLike
+    blocks = functionBody f
 
     pushReturnValues exitInst (m, vis) =
       let Just b0 = instructionBasicBlock exitInst
@@ -79,7 +103,8 @@ labelBlockReturns funcLike =
         _ -> (m, vis)
     pushReturnUp prevBlock (val, bb) acc@(m, vis)
       | HS.member bb vis = acc
-      | not (prevTerminatorPostdominates pdt prevBlock bb) = (m, HS.insert bb vis)
+      | not (prevTerminatorPostdominates pdt prevBlock bb) =
+        (m, HS.insert bb vis)
       | otherwise =
         case valueContent' val of
           InstructionC PhiNode { phiIncomingValues = ivs } ->
@@ -90,6 +115,13 @@ labelBlockReturns funcLike =
                 vis' = HS.insert bb vis
                 preds = basicBlockPredecessors cfg bb
             in foldr (pushReturnUp (Just bb)) (m', vis') (zip (repeat val) preds)
+
+    accumulateSuccReturns b acc =
+      let succs = basicBlockSuccessors cfg b
+          succRets = mapMaybe (\s -> HM.lookup s acc) succs
+      in case null succRets of
+        True -> acc
+        False -> HM.insert b (mconcat succRets) acc
 
 -- | Return True if the terminator instruction of the previous block
 -- in the traversal postdominates the terminator instruction of the

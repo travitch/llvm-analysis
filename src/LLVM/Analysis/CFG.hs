@@ -294,7 +294,6 @@ instructionReachable cfg i =
     f = basicBlockFunction bb
     firstBlock : _ = functionBody f
 
-
 -- Visualization
 
 cfgGraphvizParams :: GraphvizParams n Instruction CFGEdge BasicBlock Instruction
