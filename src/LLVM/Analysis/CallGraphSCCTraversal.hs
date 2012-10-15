@@ -350,8 +350,8 @@ edgeIsBetweenDefined m (LEdge (Edge src dst) _) =
 
 nodeIsDefined :: Map Int CallNode -> Int -> Bool
 nodeIsDefined m n =
-  case m M.! n of
-    DefinedFunction _ -> True
+  case M.lookup n m of
+    Just (DefinedFunction _) -> True
     _ -> False
 
 getDep :: Map Int c -> Int -> c

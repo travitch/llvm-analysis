@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, ExistentialQuantification #-}
+{-# LANGUAGE TypeFamilies, ExistentialQuantification, OverloadedStrings #-}
 -- | This module defines a call graph and related functions.  The call
 -- graph is a static view of the calls between functions in a
 -- 'Module'.  The nodes of the graph are global functions and the
@@ -42,10 +42,15 @@ module LLVM.Analysis.CallGraph (
 import Data.GraphViz
 import Data.Maybe ( mapMaybe )
 import Data.Hashable
+import Data.HashSet ( HashSet )
 import qualified Data.HashSet as HS
+import Data.HashMap.Strict ( HashMap )
+import qualified Data.HashMap.Strict as HM
+import Data.Monoid
 
 import Data.Graph.Interface
 import Data.Graph.LazyHAMT
+import Data.Graph.Algorithms.Matching.DFS ( scc )
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo
@@ -221,14 +226,34 @@ buildCallEdges pta caller callInst = build' (getCallee callInst)
               unknownEdge = LEdge (Edge callerId unknownNodeId) UnknownCall
           in unknownEdge : indirectEdges
 
-cgGraphvizParams :: GraphvizParams n CallNode CallEdge () CallNode
-cgGraphvizParams =
-  nonClusteredParams { fmtNode = \(_,l) -> [toLabel l]
-                     , fmtEdge = \(_,_,l) -> [toLabel l]
-                     }
+cgGraphvizParams :: HashMap Int Int -> HashSet Int -> GraphvizParams Int CallNode CallEdge Int CallNode
+cgGraphvizParams compMap singletons =
+  defaultParams { fmtNode = \(_,l) -> [toLabel l]
+                , fmtEdge = \(_,_,l) -> [toLabel l]
+                , clusterBy = clusterByFunc
+                , clusterID = clusterIDFunc
+                }
+  where
+    clusterIDFunc cid =
+      case cid `HS.member` singletons of
+        True -> Str ""
+        False -> Int cid
+    clusterByFunc n@(nid, _) =
+      let cid = HM.lookupDefault (-1) nid compMap
+      in case cid `HS.member` singletons of
+        True -> N n
+        False -> C cid (N n)
 
 cgGraphvizRepr :: CallGraph -> DotGraph Int
-cgGraphvizRepr (CallGraph g _) = graphElemsToDot cgGraphvizParams ns es
+cgGraphvizRepr (CallGraph g _) =
+  graphElemsToDot (cgGraphvizParams compMap singletons) ns es
   where
     ns = map toNodeTuple $ labNodes g
     es = map toEdgeTuple $ labEdges g
+    comps = zip [0..] $ scc g
+    singletons = HS.fromList $ map fst $ filter ((==0) . length . snd) comps
+    compMap = foldr assignComponent mempty comps
+
+assignComponent :: (Int, [Int]) -> HashMap Int Int -> HashMap Int Int
+assignComponent (compId, nodeIds) acc =
+  foldr (\nid -> HM.insert nid compId) acc nodeIds
