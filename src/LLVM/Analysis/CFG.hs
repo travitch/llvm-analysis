@@ -144,9 +144,6 @@ reverseCFG g = RCFG { rcfgGraph = grev (cfgGraph g)
                     , rcfgExitNode = cfgEntryNode g
                     }
 
-callEdgeNStub :: a -> Maybe b
-callEdgeNStub _ = Nothing
-
 toInternalEdge :: (Instruction, Instruction) -> LEdge CFGType
 toInternalEdge (s, d) = LEdge (Edge sid did) UnconditionalEdge
   where
@@ -236,12 +233,6 @@ toBlock cfg n =
     Just i ->
       let errMsg = error ("LLVM.Analysis.CFG.toBlock: Instruction in CFG should have a basic block: " ++ show i)
       in fromMaybe errMsg (instructionBasicBlock i)
-
-{-# INLINE toInstruction #-}
-toInstruction :: CFG -> NodeType -> Instruction
-toInstruction cfg nod = fromMaybe errMsg $ lab (cfgGraph cfg) nod
-  where
-    errMsg = error ("LLVM.Analysis.CFG.toInstruction: No value for cfg node: " ++ show nod)
 
 -- | Get all of the predecessor blocks for basic block @bb@
 --
