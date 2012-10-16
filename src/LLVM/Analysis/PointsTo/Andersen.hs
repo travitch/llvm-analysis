@@ -16,7 +16,7 @@ module LLVM.Analysis.PointsTo.Andersen (
 import Control.Exception
 import Control.Monad.State.Strict
 import Data.GraphViz
-import Data.Maybe ( isNothing, mapMaybe )
+import Data.Maybe ( fromMaybe, isNothing, mapMaybe )
 import Data.Typeable
 
 import LLVM.Analysis
@@ -101,7 +101,6 @@ pta m = do
     argVar a = setVariable (ArgLocation a)
     phiVar i = setVariable (PhiCopy i)
     gepVar v = setVariable (GEPLocation v)
-    -- FIXME This might need special treatment if sa is a field ref
     virtArgVar sa ix =
       case valueContent' sa of
         InstructionC GetElementPtrInst { getElementPtrValue = base
@@ -112,63 +111,57 @@ pta m = do
         _ -> setVariable (VirtualArg sa ix)
     returnVar i = setVariable (RetLocation i)
     ref = term Ref [Covariant, Covariant, Contravariant]
-    -- FIXME factor out this pattern match into something of type
-    --
-    -- > Value -> Maybe SetExp
-    --
-    -- It returns Nothing if the cases do not match; then loc and
-    -- setExpFor can handle that case separately as needed (make a new
-    -- setVar or call loc, respectively).  This will eliminate a lot of
-    -- duplication
     loc val =
-      let var = case valueContent' val of
-            InstructionC i@LoadInst {} -> loadVar i
-            InstructionC i@CallInst {} -> returnVar i
-            InstructionC i@PhiNode {} -> phiVar i
-            InstructionC i@SelectInst {} -> phiVar i
-            InstructionC GetElementPtrInst { getElementPtrValue = base } ->
-              gepVar (getTargetIfLoad base)
-            ArgumentC a -> argVar a
-            _ -> setVariable (LocationSet val)
-      in ref [ atom (Atom val), var, var ]
+      let svar = fromMaybe (setVariable (LocationSet val)) (setVarFor val)
+      in ref [ atom (Atom val), svar, svar ]
 
     -- FIXME Test taking and storing the address of a field (and then
     -- using it)
+    --
+    -- Also test embedded structs
+
+    setVarFor v =
+      case valueContent' v of
+        InstructionC i@LoadInst {} -> return $ loadVar i
+        InstructionC i@CallInst {} -> return $ returnVar i
+        InstructionC i@InvokeInst {} -> return $ returnVar i
+        InstructionC i@PhiNode {} -> return $ phiVar i
+        InstructionC i@SelectInst {} -> return $ phiVar i
+        InstructionC GetElementPtrInst { getElementPtrValue = base } ->
+          return $ gepVar (getTargetIfLoad base)
+        ArgumentC a -> return $ argVar a
+        _ -> Nothing
 
     -- Have to be careful handling phi nodes - those will actually need to
     -- generate many constraints, and the rule for each one can generate a
     -- new set of assignments.
-    setExpFor v = case valueContent' v of
-      InstructionC i@LoadInst {} -> loadVar i
-      InstructionC i@CallInst {} -> returnVar i
-      InstructionC i@PhiNode {} -> phiVar i
-      InstructionC i@SelectInst {} -> phiVar i
-      InstructionC GetElementPtrInst { getElementPtrValue = base
-                                     , getElementPtrIndices = ixs
-                                     } ->
-        case isArrayAccess base ixs of
-          True -> gepVar (getTargetIfLoad base)
-          False ->
-            let Just fv = toFieldVar base ixs
-                var = setVariable fv
-            in ref [ atom (Atom v), var, var ]
-      -- This case is a bit of a hack to deal with the conversion from
-      -- an array type to a pointer to the first element (using a
-      -- constant GEP with all zero indices).
-      ConstantC ConstantValue { constantInstruction = (valueContent' ->
+    setExpFor v =
+      case valueContent' v of
         InstructionC GetElementPtrInst { getElementPtrValue = base
-                                       , getElementPtrIndices = is
-                                       })} ->
-        case valueType base of
-          TypePointer (TypeArray _ _) _ ->
-            case all isConstantZero is of
-              True -> setVariable (LocationSet base)
-              False -> loc v
-          _ -> loc v
-      ArgumentC a -> argVar a
-      _ -> loc v
+                                       , getElementPtrIndices = ixs
+                                       } ->
+          case isArrayAccess base ixs of
+            True -> gepVar (getTargetIfLoad base)
+            False ->
+              let Just fv = toFieldVar base ixs
+                  var = setVariable fv
+              in ref [ atom (Atom v), var, var ]
+        -- This case is a bit of a hack to deal with the conversion from
+        -- an array type to a pointer to the first element (using a
+        -- constant GEP with all zero indices).
+        ConstantC ConstantValue { constantInstruction = (valueContent' ->
+          InstructionC GetElementPtrInst { getElementPtrValue = base
+                                         , getElementPtrIndices = is
+                                         })} ->
+          case valueType base of
+            TypePointer (TypeArray _ _) _ ->
+              case all isConstantZero is of
+                True -> setVariable (LocationSet base)
+                False -> loc v
+            _ -> loc v
+        _ -> fromMaybe (loc v) (setVarFor v)
 
-     -- FIXME This probably needs to use the type of the initializer to
+    -- FIXME This probably needs to use the type of the initializer to
     -- determine if the initializer is a copy of another global or an
     -- address to a specific location
     globalInitializerConstraints acc global =
