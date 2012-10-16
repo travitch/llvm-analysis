@@ -150,6 +150,8 @@ pta m = do
                                        , getElementPtrIndices = ixs
                                        } ->
           case fieldDescriptor base ixs of
+            -- If we couldn't compute a field descriptor, this is an
+            -- array.
             Nothing -> gepVar (getTargetIfLoad base)
             Just (t, ix) ->
               let var = setVariable (FieldLoc t ix)
