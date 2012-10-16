@@ -153,6 +153,9 @@ pta m = do
             -- If we couldn't compute a field descriptor, this is an
             -- array.
             Nothing -> gepVar (getTargetIfLoad base)
+            -- If this is a field access, treat it as the location for
+            -- all slots of the given index in that type (one slot for
+            -- all instances).
             Just (t, ix) ->
               let var = setVariable (FieldLoc t ix)
               in ref [ atom (Atom v), var, var ]
@@ -226,6 +229,11 @@ pta m = do
           foldM (valueAliasingChoise i) acc [ tv, fv ]
         PhiNode { phiIncomingValues = ivs } ->
           foldM (valueAliasingChoise i) acc (map fst ivs)
+
+        -- FIXME: Add a case handling bitcasts.  If one type is
+        -- bitcast to a related type, add equivalences between all of
+        -- their respective fields.  Relation is by structural
+        -- subtyping.
 
         -- Array rule.  Equate the base of the GEP and the GEP,
         -- effectively treating every array element as one location.
