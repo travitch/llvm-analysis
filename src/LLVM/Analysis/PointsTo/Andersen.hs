@@ -123,11 +123,6 @@ pta m = do
       InstructionC i@CallInst {} -> returnVar i
       InstructionC i@PhiNode {} -> phiVar i
       InstructionC i@SelectInst {} -> phiVar i
-      -- Simple case of a pointer base used as an array
-      -- InstructionC GetElementPtrInst { getElementPtrValue = base
-      --                                , getElementPtrIndices = [_]
-      --                                } ->
-      --   gepVar (getTargetIfLoad base)
       InstructionC GetElementPtrInst { getElementPtrValue = base
                                      , getElementPtrIndices = ixs
                                      } ->
@@ -382,12 +377,6 @@ getTargetIfLoad v =
 -- TODO:
 --
 -- * extra function pointer indirections
---
--- * add support for arrays (one of the GEP forms)
---
--- * add support for limited field sensitity (the "field-based"
---   analysis variant where every instance of a struct field is
---   treated as a unit).
 
 -- Helpers
 
