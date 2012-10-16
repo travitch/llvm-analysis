@@ -334,8 +334,9 @@ pta m = do
             foldM (virtVirtArg sa sv) acc [0..(nparams - 1)]
 
     virtVirtArg sa sv acc ix = do
-      let c = virtArgVar sa ix <=! virtArgVar sv ix
-      return $ c : acc `traceConstraints` (concat ["VirtVirt: ", show ix, "(", show sa, " -> ", show sv, ")"], [c])
+      let c1 = virtArgVar sa ix <=! virtArgVar sv ix
+          c2 = virtArgVar sv ix <=! virtArgVar sa ix
+      return $ c1 : c2 : acc `traceConstraints` (concat ["VirtVirt: ", show ix, "(", show sa, " -> ", show sv, ")"], [c1, c2])
 
     constrainVirtualArg sa acc (ix, frml) = do
       let c = virtArgVar sa ix <=! argVar frml
