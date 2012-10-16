@@ -16,7 +16,7 @@ module LLVM.Analysis.PointsTo.Andersen (
 import Control.Exception
 import Control.Monad.State.Strict
 import Data.GraphViz
-import Data.Maybe ( fromMaybe, isNothing, mapMaybe )
+import Data.Maybe ( fromMaybe, mapMaybe )
 import Data.Typeable
 
 import LLVM.Analysis
@@ -126,6 +126,8 @@ pta m = do
     -- using it)
     --
     -- Also test embedded structs
+    --
+    -- Test funcptrs stored in an array (all should match on call)
 
     setVarFor v =
       case valueContent' v of
@@ -147,11 +149,10 @@ pta m = do
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = ixs
                                        } ->
-          case isArrayAccess base ixs of
-            True -> gepVar (getTargetIfLoad base)
-            False ->
-              let Just fv = toFieldVar base ixs
-                  var = setVariable fv
+          case fieldDescriptor base ixs of
+            Nothing -> gepVar (getTargetIfLoad base)
+            Just (t, ix) ->
+              let var = setVariable (FieldLoc t ix)
               in ref [ atom (Atom v), var, var ]
         -- This case is a bit of a hack to deal with the conversion from
         -- an array type to a pointer to the first element (using a
@@ -369,11 +370,6 @@ pta m = do
       acc' <- addVirtualConstraints acc (toValue i) vfrom
       return $ c : acc' `traceConstraints` (concat [ "MultCopy ", show (valueName vfrom), " -> ", show (valueName i)], [c])
 
-toFieldVar :: Value -> [Value] -> Maybe Var
-toFieldVar base ixs = do
-  (t, ix) <- fieldDescriptor base ixs
-  return $! FieldLoc t ix
-
 -- | Return the innermost type and the index into that type accessed
 -- by the GEP instruction with the given base and indices.
 fieldDescriptor :: Value -> [Value] -> Maybe (Type, Int)
@@ -410,9 +406,6 @@ walkType t (ix:ixs) =
             False -> error ("LLVM.Analysis.PointsTo.Andersen.walkType: index out of range " ++ show iv ++ " in " ++ show t)
         _ -> error ("LLVM.Analysis.PointsTo.Andersen.walkType: non-constant index " ++ show ix ++ " in " ++ show t)
     _ -> error ("LLVM.Analysis.PointsTo.Andersen.walkType: unexpected type " ++ show ix ++ " in " ++ show t)
-
-isArrayAccess :: Value -> [Value] -> Bool
-isArrayAccess base ixs = isNothing (fieldDescriptor base ixs)
 
 isConstantZero :: Value -> Bool
 isConstantZero v =
