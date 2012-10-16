@@ -101,13 +101,20 @@ pta m = do
     argVar a = setVariable (ArgLocation a)
     phiVar i = setVariable (PhiCopy i)
     gepVar v = setVariable (GEPLocation v)
+    -- If the location the function pointer is being stored to is a
+    -- struct field, we need a special virtual argument that
+    -- references the struct field instead of the value (because
+    -- struct fields are treated differently from other values - every
+    -- instance of a struct field maps to the same struct field slot
+    -- indexed by type/position).
     virtArgVar sa ix =
       case valueContent' sa of
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = ixs
                                        } ->
-          let Just (t, fldno) = fieldDescriptor base ixs
-          in setVariable (VirtualFieldArg t fldno ix)
+          case fieldDescriptor base ixs of
+            Just (t, fldno) -> setVariable (VirtualFieldArg t fldno ix)
+            Nothing -> setVariable (VirtualArg sa ix)
         _ -> setVariable (VirtualArg sa ix)
     returnVar i = setVariable (RetLocation i)
     ref = term Ref [Covariant, Covariant, Contravariant]
