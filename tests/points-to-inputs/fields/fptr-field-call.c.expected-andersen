@@ -1,0 +1,4 @@
+fromList [ ("@storage", fromList ["@a"])
+         , ("%p", fromList ["@a"])
+         , ("%back", fromList ["@storage"])
+         ]

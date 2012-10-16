@@ -16,7 +16,7 @@ module LLVM.Analysis.PointsTo.Andersen (
 import Control.Exception
 import Control.Monad.State.Strict
 import Data.GraphViz
-import Data.Maybe ( mapMaybe )
+import Data.Maybe ( isNothing, mapMaybe )
 import Data.Typeable
 
 import LLVM.Analysis
@@ -51,6 +51,7 @@ data Var = Fresh !Int
          | LoadedLocation !Instruction
          | ArgLocation !Argument
          | VirtualArg !Value !Int
+         | VirtualFieldArg !Type !Int !Int
          | RetLocation !Instruction
          | GEPLocation !Value
          | PhiCopy !Instruction
@@ -100,9 +101,25 @@ pta m = do
     argVar a = setVariable (ArgLocation a)
     phiVar i = setVariable (PhiCopy i)
     gepVar v = setVariable (GEPLocation v)
-    virtArgVar sa ix = setVariable (VirtualArg sa ix)
+    -- FIXME This might need special treatment if sa is a field ref
+    virtArgVar sa ix =
+      case valueContent' sa of
+        InstructionC GetElementPtrInst { getElementPtrValue = base
+                                       , getElementPtrIndices = ixs
+                                       } ->
+          let Just (t, fldno) = fieldDescriptor base ixs
+          in setVariable (VirtualFieldArg t fldno ix)
+        _ -> setVariable (VirtualArg sa ix)
     returnVar i = setVariable (RetLocation i)
     ref = term Ref [Covariant, Covariant, Contravariant]
+    -- FIXME factor out this pattern match into something of type
+    --
+    -- > Value -> Maybe SetExp
+    --
+    -- It returns Nothing if the cases do not match; then loc and
+    -- setExpFor can handle that case separately as needed (make a new
+    -- setVar or call loc, respectively).  This will eliminate a lot of
+    -- duplication
     loc val =
       let var = case valueContent' val of
             InstructionC i@LoadInst {} -> loadVar i
@@ -114,6 +131,9 @@ pta m = do
             ArgumentC a -> argVar a
             _ -> setVariable (LocationSet val)
       in ref [ atom (Atom val), var, var ]
+
+    -- FIXME Test taking and storing the address of a field (and then
+    -- using it)
 
     -- Have to be careful handling phi nodes - those will actually need to
     -- generate many constraints, and the rule for each one can generate a
@@ -129,7 +149,8 @@ pta m = do
         case isArrayAccess base ixs of
           True -> gepVar (getTargetIfLoad base)
           False ->
-            let var = setVariable $ toFieldVar base ixs
+            let Just fv = toFieldVar base ixs
+                var = setVariable fv
             in ref [ atom (Atom v), var, var ]
       -- This case is a bit of a hack to deal with the conversion from
       -- an array type to a pointer to the first element (using a
@@ -348,19 +369,50 @@ pta m = do
       acc' <- addVirtualConstraints acc (toValue i) vfrom
       return $ c : acc' `traceConstraints` (concat [ "MultCopy ", show (valueName vfrom), " -> ", show (valueName i)], [c])
 
-toFieldVar :: Value -> [Value] -> Var
-toFieldVar base (_:ix:ixs) =
-  case (valueType base, valueContent' ix) of
-    (TypePointer t _, ConstantC ConstantInt { constantIntValue = iv }) ->
-      FieldLoc t (fromIntegral iv)
-    _ -> undefined
+toFieldVar :: Value -> [Value] -> Maybe Var
+toFieldVar base ixs = do
+  (t, ix) <- fieldDescriptor base ixs
+  return $! FieldLoc t ix
+
+-- | Return the innermost type and the index into that type accessed
+-- by the GEP instruction with the given base and indices.
+fieldDescriptor :: Value -> [Value] -> Maybe (Type, Int)
+fieldDescriptor base ixs =
+  case (valueType base, ixs) of
+    -- A pointer being accessed as an array
+    (_, [_]) -> Nothing
+    -- An actual array type (first index should be zero here)
+    (TypePointer (TypeArray _ _) _, (valueContent' -> ConstantC ConstantInt { constantIntValue = 0 }):_) ->
+      Nothing
+    -- It doesn't matter what the first index is; even if it isn't
+    -- zero (as in it *is* an array access), we only care about the
+    -- ultimate field access and not the array.  Raw arrays are taken
+    -- care of above.
+    (TypePointer t _, _:rest) -> return $ walkType t rest
+    _ -> Nothing
+
+walkType :: Type -> [Value] -> (Type, Int)
+walkType t [] = error ("LLVM.Analysis.PointsTo.Andersen.walkType: expected non-empty index list for " ++ show t)
+walkType t [(valueContent -> ConstantC ConstantInt { constantIntValue = iv })] =
+  (t, fromIntegral iv)
+walkType t (ix:ixs) =
+  case t of
+    -- We can ignore inner array indices since we only care about the
+    -- terminal struct index.  Note that if there are no further
+    -- struct types (e.g., this is an array member of a struct), we
+    -- need to return the index of the array... FIXME
+    TypeArray _ t' -> walkType t' ixs
+    TypeStruct _ ts _ ->
+      case valueContent ix of
+        ConstantC ConstantInt { constantIntValue = (fromIntegral -> iv) } ->
+          case iv < length ts of
+            True -> walkType (ts !! iv) ixs
+            False -> error ("LLVM.Analysis.PointsTo.Andersen.walkType: index out of range " ++ show iv ++ " in " ++ show t)
+        _ -> error ("LLVM.Analysis.PointsTo.Andersen.walkType: non-constant index " ++ show ix ++ " in " ++ show t)
+    _ -> error ("LLVM.Analysis.PointsTo.Andersen.walkType: unexpected type " ++ show ix ++ " in " ++ show t)
 
 isArrayAccess :: Value -> [Value] -> Bool
-isArrayAccess base ixs =
-  case (valueType base, ixs) of
-    (_, [_]) -> True
-    (TypePointer (TypeArray _ _) _, _) -> True
-    _ -> False
+isArrayAccess base ixs = isNothing (fieldDescriptor base ixs)
 
 isConstantZero :: Value -> Bool
 isConstantZero v =
@@ -429,12 +481,15 @@ fmtAndersenNode (_, l) =
   case l of
     EmptySet -> [toLabel (show l)]
     UniversalSet -> [toLabel (show l)]
-    SetVariable (FieldLoc t ix) -> [toLabel ("Field_" ++ show t ++ "<" ++ show ix ++ ">")]
+    SetVariable (FieldLoc t ix) ->
+      [toLabel ("Field_" ++ show t ++ "<" ++ show ix ++ ">")]
     SetVariable (Fresh i) -> [toLabel ("F" ++ show i)]
     SetVariable (PhiCopy i) -> [toLabel ("PhiCopy " ++ show i)]
     SetVariable (GEPLocation i) -> [toLabel ("GEPLoc " ++ show i)]
     SetVariable (VirtualArg sa ix) ->
       [toLabel ("VA_" ++ show ix ++ "[" ++ show (valueName sa) ++ "]")]
+    SetVariable (VirtualFieldArg t fld ix) ->
+      [toLabel ("VAField_" ++ show ix ++ "[" ++ show t ++ ".<" ++ show fld ++ ">]")]
     SetVariable (LocationSet v) ->
       case valueName v of
         Nothing -> [toLabel ("X_" ++ show v)]
