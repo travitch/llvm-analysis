@@ -125,9 +125,10 @@ pta m = do
     -- FIXME Test taking and storing the address of a field (and then
     -- using it)
     --
-    -- Also test embedded structs
+    -- Also test embedded structs.  Include some interspersed arrays?
     --
     -- Test funcptrs stored in an array (all should match on call)
+    -- Still need a few more.
 
     setVarFor v =
       case valueContent' v of
