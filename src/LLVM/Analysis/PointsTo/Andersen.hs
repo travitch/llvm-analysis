@@ -9,6 +9,7 @@ module LLVM.Analysis.PointsTo.Andersen (
   Andersen,
   -- * Constructor
   runPointsToAnalysis,
+  runPointsToAnalysisWith,
   -- * Debugging aids (note, subject to change and unstable)
   andersenConstraintGraph
   ) where
@@ -90,13 +91,19 @@ andersenPointsTo (Andersen ss) v =
     fromLocation se = error ("Unexpected set expression in result " ++ show se)
 
 runPointsToAnalysis :: Module -> Andersen
-runPointsToAnalysis m = evalState (pta m) (ConstraintState 0)
+runPointsToAnalysis = runPointsToAnalysisWith (const False)
+
+runPointsToAnalysisWith :: (Value -> Bool) -> Module -> Andersen
+runPointsToAnalysisWith ignore m = evalState (pta ignore m) (ConstraintState 0)
+
+-- For any load of a field access (or perhaps any field GEP), add an
+-- inclusion that maps it to the virtual ?
 
 -- | Generate constraints and solve the system.  Any system we
 -- generate should be solvable if we are generating the correct
 -- constraints, so convert solving failures into an IO exception.
-pta :: Module -> ConstraintGen Andersen
-pta m = do
+pta :: (Value -> Bool) -> Module -> ConstraintGen Andersen
+pta ignore m = do
   initConstraints <- foldM globalInitializerConstraints [] (moduleGlobalVariables m)
   funcConstraints <- foldM functionConstraints [] (moduleDefinedFunctions m)
   let is = initConstraints ++ funcConstraints
@@ -108,6 +115,7 @@ pta m = do
     argVar a = setVariable (ArgLocation a)
     phiVar i = setVariable (PhiCopy i)
     gepVar v = setVariable (GEPLocation v)
+
     -- If the location the function pointer is being stored to is a
     -- struct field, we need a special virtual argument that
     -- references the struct field instead of the value (because
@@ -179,7 +187,12 @@ pta m = do
               case all isConstantZero is of
                 True -> setVariable (LocationSet base)
                 False -> loc v
-            _ -> loc v
+            _ ->
+              case fieldDescriptor base is of
+                Nothing -> gepVar (getTargetIfLoad base)
+                Just (t, ix) ->
+                  let var = setVariable (FieldLoc t ix)
+                  in ref [ atom (Atom v), var, var ]
         _ -> fromMaybe (loc v) (setVarFor v)
 
     -- FIXME This probably needs to use the type of the initializer to
@@ -200,38 +213,44 @@ pta m = do
     functionConstraints acc = foldM instructionConstraints acc . functionInstructions
     instructionConstraints acc i =
       case i of
-        LoadInst { loadAddress = la } -> do
-          -- If we load a function pointer, add new virtual nodes and
-          -- link them up
-          let c = setExpFor la <=! ref [ universalSet, loadVar i, emptySet ]
-          acc' <- addVirtualConstraints acc (toValue i) la
-          return $ c : acc' `traceConstraints` ("Inst: " ++ show i, [c])
+        LoadInst { loadAddress = la }
+          | ignore la -> return acc
+          | otherwise -> do
+            -- If we load a function pointer, add new virtual nodes and
+            -- link them up
+            let c = setExpFor la <=! ref [ universalSet, loadVar i, emptySet ]
+            acc' <- addVirtualConstraints acc (toValue i) la
+            return $ c : acc' `traceConstraints` ("Inst: " ++ show i, [c])
 
         -- If you store the stored address is a function type, add
         -- inclusion edges between the virtual arguments.  If sv is a
         -- Function, add virtual args linked to formals.
-        StoreInst { storeAddress = sa, storeValue = sv } -> do
-          f1 <- freshVariable
-          f2 <- freshVariable
-          let c1 = setExpFor sa <=! ref [ universalSet, universalSet, f1 ]
-              c2 = ref [ emptySet, setExpFor sv, emptySet ] <=! ref [ universalSet, f2, emptySet ]
-              c3 = f2 <=! f1
-          acc' <- addVirtualConstraints acc sa sv
-          return $ c1 : c2 : c3 : acc' `traceConstraints` ("Inst: " ++ show i, [c1,c2,c3])
+        StoreInst { storeAddress = sa, storeValue = sv }
+          | ignore sa || ignore sv -> return acc
+          | otherwise -> do
+            f1 <- freshVariable
+            f2 <- freshVariable
+            let c1 = setExpFor sa <=! ref [ universalSet, universalSet, f1 ]
+                c2 = ref [ emptySet, setExpFor sv, emptySet ] <=! ref [ universalSet, f2, emptySet ]
+                c3 = f2 <=! f1
+            acc' <- addVirtualConstraints acc sa sv
+            return $ c1 : c2 : c3 : acc' `traceConstraints` ("Inst: " ++ show i, [c1,c2,c3])
 
         CallInst { callFunction = (valueContent' -> FunctionC f)
-                 , callArguments = args
-                 } -> directCallConstraints acc i f (map fst args)
+                 , callArguments = (map fst -> args)
+                 } -> directCallConstraints acc i f args
         InvokeInst { invokeFunction = (valueContent' -> FunctionC f)
-                   , invokeArguments = args
-                   } -> directCallConstraints acc i f (map fst args)
+                   , invokeArguments = (map fst -> args)
+                   } -> directCallConstraints acc i f args
         -- For now, don't model calls to external functions
-        CallInst { callFunction = (valueContent' -> ExternalFunctionC _) } -> return acc
-        InvokeInst { invokeFunction = (valueContent' -> ExternalFunctionC _) } -> return acc
-        CallInst { callFunction = callee, callArguments = args } ->
-          indirectCallConstraints acc callee (map fst args)
-        InvokeInst { invokeFunction = callee, invokeArguments = args } ->
-          indirectCallConstraints acc callee (map fst args)
+        CallInst { callFunction = (valueContent' -> ExternalFunctionC _) } ->
+          return acc
+        InvokeInst { invokeFunction = (valueContent' -> ExternalFunctionC _) } ->
+          return acc
+        CallInst { callFunction = callee, callArguments = (map fst -> args) } ->
+          indirectCallConstraints acc callee args
+        InvokeInst { invokeFunction = callee, invokeArguments = (map fst -> args) } ->
+          indirectCallConstraints acc callee args
 
         SelectInst { selectTrueValue = tv, selectFalseValue = fv } ->
           foldM (valueAliasingChoise i) acc [ tv, fv ]
@@ -256,29 +275,33 @@ pta m = do
         GetElementPtrInst { getElementPtrValue = (valueContent' ->
           InstructionC LoadInst { loadAddress = la })
                           , getElementPtrIndices = [_]
-                          } -> do
-          f1 <- freshVariable
-          f2 <- freshVariable
+                          }
+          | ignore la || ignore (toValue i) -> return acc
+          | otherwise -> do
+            f1 <- freshVariable
+            f2 <- freshVariable
 
-          let c1 = loc (toValue i) <=! ref [ universalSet, universalSet, f1 ]
-              c2 = ref [ emptySet, setExpFor la, emptySet ] <=! ref [ universalSet, f2, emptySet ]
-              c3 = f2 <=! f1
+            let c1 = loc (toValue i) <=! ref [ universalSet, universalSet, f1 ]
+                c2 = ref [ emptySet, setExpFor la, emptySet ] <=! ref [ universalSet, f2, emptySet ]
+                c3 = f2 <=! f1
 
-          acc' <- addVirtualConstraints acc (toValue i) la
-          return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
+            acc' <- addVirtualConstraints acc (toValue i) la
+            return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
 
         GetElementPtrInst { getElementPtrValue = base
                           , getElementPtrIndices = [_]
-                          } -> do
-          f1 <- freshVariable
-          f2 <- freshVariable
+                          }
+          | ignore base || ignore (toValue i) -> return acc
+          | otherwise -> do
+            f1 <- freshVariable
+            f2 <- freshVariable
 
-          let c1 = loc (toValue i) <=! ref [ universalSet, universalSet, f1 ]
-              c2 = ref [ emptySet, loc base, emptySet ] <=! ref [ universalSet, f2, emptySet ]
-              c3 = f2 <=! f1
+            let c1 = loc (toValue i) <=! ref [ universalSet, universalSet, f1 ]
+                c2 = ref [ emptySet, loc base, emptySet ] <=! ref [ universalSet, f2, emptySet ]
+                c3 = f2 <=! f1
 
-          acc' <- addVirtualConstraints acc (toValue i) base
-          return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
+            acc' <- addVirtualConstraints acc (toValue i) base
+            return $ c1 : c2 : c3 : acc' `traceConstraints` (concat ["GEP: " ++ show i], [c1,c2,c3])
 
         GetElementPtrInst { getElementPtrValue = base,
                             getElementPtrIndices = [(valueContent -> ConstantC ConstantInt { constantIntValue = 0 })
@@ -307,7 +330,7 @@ pta m = do
       let formals = functionParameters f
       acc' <- foldM copyActualToFormal acc (zip actuals formals)
       case valueType i of
-        TypePointer _ _ -> do
+        TypePointer _ _ | not (ignore (toValue i)) -> do
           let rvs = mapMaybe extractRetVal (functionExitInstructions f)
           cs <- foldM (retConstraint i) [] rvs
           return $ cs ++ acc'
@@ -359,18 +382,21 @@ pta m = do
     -- locals are easy.
     indirectCallConstraints acc callee actuals = do
       let addIndirectConstraint (ix, act) a =
-            let c = setExpFor act <=! virtArgVar callee ix
-            in c : a `traceConstraints` (concat ["IndirectCall ", show ix, "(", show act, ")" ], [c])
+            if ignore act then a
+            else let c = setExpFor act <=! virtArgVar callee ix
+                 in c : a `traceConstraints` (concat ["IndirectCall ", show ix, "(", show act, ")" ], [c])
           acc' = foldr addIndirectConstraint acc (zip [0..] actuals)
       return acc'
 
     -- Set up constraints to propagate return values to caller
     -- contexts (including function argument virtuals for function
     -- pointer types).
-    retConstraint i acc rv = do
-      let c = setExpFor rv <=! setExpFor (toValue i)
-      acc' <- addVirtualConstraints acc (toValue i) rv
-      return $ c : acc' `traceConstraints` (concat [ "RetVal ", show i ], [c])
+    retConstraint i acc rv
+      | ignore rv = return acc
+      | otherwise = do
+        let c = setExpFor rv <=! setExpFor (toValue i)
+        acc' <- addVirtualConstraints acc (toValue i) rv
+        return $ c : acc' `traceConstraints` (concat [ "RetVal ", show i ], [c])
 
     -- Note the rule has to be a bit strange because the formal is an
     -- r-value (and not an l-value like everything else).  We can
@@ -379,15 +405,19 @@ pta m = do
     --
     -- If the actual is a function (pointer) type, also add new
     -- virtual arg nodes for the formal
-    copyActualToFormal acc (act, frml) = do
-      let c = setExpFor act <=! argVar frml
-      acc' <- addVirtualConstraints acc (toValue frml) act
-      return $ c : acc' `traceConstraints` (concat [ "Args ", show act, " -> ", show frml ], [c])
+    copyActualToFormal acc (act, frml)
+      | ignore act = return acc
+      | otherwise = do
+        let c = setExpFor act <=! argVar frml
+        acc' <- addVirtualConstraints acc (toValue frml) act
+        return $ c : acc' `traceConstraints` (concat [ "Args ", show act, " -> ", show frml ], [c])
 
-    valueAliasingChoise i acc vfrom = do
-      let c = setExpFor vfrom <=! setExpFor (toValue i)
-      acc' <- addVirtualConstraints acc (toValue i) vfrom
-      return $ c : acc' `traceConstraints` (concat [ "MultCopy ", show (valueName vfrom), " -> ", show (valueName i)], [c])
+    valueAliasingChoise i acc vfrom
+      | ignore (toValue i) = return acc
+      | otherwise = do
+        let c = setExpFor vfrom <=! setExpFor (toValue i)
+        acc' <- addVirtualConstraints acc (toValue i) vfrom
+        return $ c : acc' `traceConstraints` (concat [ "MultCopy ", show (valueName vfrom), " -> ", show (valueName i)], [c])
 
 -- | Return the innermost type and the index into that type accessed
 -- by the GEP instruction with the given base and indices.
