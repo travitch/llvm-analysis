@@ -1,0 +1,3 @@
+fromList [ ("@target", fromList ["@a"])
+         , ("@pp", fromList ["%1"])
+         ]
