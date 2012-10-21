@@ -75,6 +75,13 @@ andersenPointsTo (Andersen ss) v =
     var = case valueContent' v of
       ArgumentC a -> ArgLocation a
       InstructionC i@CallInst {} -> RetLocation i
+      InstructionC i@InvokeInst {} -> RetLocation i
+      InstructionC i@LoadInst {} -> LoadedLocation i
+      InstructionC i@SelectInst {} -> PhiCopy i
+      InstructionC i@PhiNode {} -> PhiCopy i
+      InstructionC GetElementPtrInst { getElementPtrValue = base } ->
+        -- should be a FieldLoc
+        GEPLocation (getTargetIfLoad base)
       _ -> LocationSet v
     fromError :: ConstraintError Var Constructor -> [Value]
     fromError = const []
