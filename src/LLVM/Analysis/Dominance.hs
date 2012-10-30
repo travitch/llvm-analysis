@@ -51,6 +51,15 @@ class HasDomTree a where
 class HasPostdomTree a where
   getPostdomTree :: a -> PostdominatorTree
 
+instance HasDomTree CFG where
+  getDomTree = dominatorTree
+
+instance HasPostdomTree CFG where
+  getPostdomTree = postdominatorTree . reverseCFG
+
+instance HasPostdomTree RCFG where
+  getPostdomTree = postdominatorTree
+
 -- | The standard dominator tree
 data DominatorTree = DT { dtTree :: DomTreeType
                         , dtRoot :: Instruction
