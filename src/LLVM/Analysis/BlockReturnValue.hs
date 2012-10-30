@@ -18,6 +18,7 @@
 -- value (hence postdominance).
 module LLVM.Analysis.BlockReturnValue (
   BlockReturns,
+  HasBlockReturns(..),
   labelBlockReturns,
   blockReturn,
   blockReturns,
@@ -39,6 +40,9 @@ import LLVM.Analysis.CFG
 import LLVM.Analysis.Dominance
 
 data BlockReturns = BlockReturns (HashMap BasicBlock Value) (HashMap BasicBlock (HashSet Value))
+
+class HasBlockReturns a where
+  getBlockReturns :: a -> BlockReturns
 
 instance Show BlockReturns where
   show (BlockReturns _ m) = unlines $ map showPair (HM.toList m)
