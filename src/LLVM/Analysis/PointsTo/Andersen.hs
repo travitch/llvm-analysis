@@ -107,8 +107,7 @@ pta ignore m = do
   initConstraints <- foldM globalInitializerConstraints [] (moduleGlobalVariables m)
   funcConstraints <- foldM functionConstraints [] (moduleDefinedFunctions m)
   let is = initConstraints ++ funcConstraints
-      cs = constraintSystem is
-      sol = either throwErr id (solveSystem cs)
+      sol = either throwErr id (solveSystem is)
   return $! Andersen sol
   where
     loadVar ldInst = setVariable (LoadedLocation ldInst)
