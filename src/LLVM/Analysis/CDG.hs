@@ -81,9 +81,7 @@ controlDependentOn cdg m n = m `elem` controlDependencies cdg n
 -- > controlDependences cdg i
 controlDependencies :: CDG -> Instruction -> [Instruction]
 controlDependencies (CDG g _) i =
-  case deps of
-    _ : rest -> rest
-    _ -> error ("LLVM.Analysis.CDG.controlDependencies: Instruction should at least be reachable from itself: " ++ show i)
+  filter (/= i) deps
   where
     deps = map (safeLab "LLVM.Analysis.CDG.controlDependnecies.deps" g) $ dfs [instructionUniqueId i] g
 
