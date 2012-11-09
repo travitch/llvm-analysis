@@ -22,7 +22,7 @@ module LLVM.Analysis.CallGraphSCCTraversal (
 import Control.DeepSeq
 import Control.Lens
 import Control.Monad ( foldM, replicateM )
-import Control.Monad.Par
+import Control.Monad.Par.Scheds.Direct
 import Data.List ( foldl' )
 import Data.Map ( Map )
 import qualified Data.Map as M
@@ -34,9 +34,12 @@ import LLVM.Analysis.CallGraph
 import LLVM.Analysis.Types
 
 import Data.Graph.Interface
-import Data.Graph.LazyHAMT
-import Data.Graph.Algorithms.Matching.DFS
+import Data.Graph.MutableDigraph
+import Data.Graph.Algorithms.Condense
+import Data.Graph.Algorithms.DFS
 
+type FunctionGraph = SparseDigraph Function ()
+type SCCGraph = SparseDigraph [(Vertex, VertexLabel FunctionGraph)] ()
 
 -- | An abstract representation of a composable analysis.  Construct
 -- these with the smart constructors 'composableAnalysis',
@@ -94,7 +97,8 @@ callGraphSCCTraversal callgraph f seed =
   where
     cg = definedCallGraph callgraph
     sccList = topsort' cg
-    applyAnalysis component = f (map (\(LNode _ func) -> fromFunction func) component)
+    applyAnalysis component =
+      f (map (fromFunction . snd) component)
 
 -- | The projection of the call graph containing only defined
 -- functions (no externals)
@@ -111,9 +115,9 @@ parallelCallGraphSCCTraversal :: (NFData summary, Monoid summary, FuncLike funcL
                                  -> summary
 parallelCallGraphSCCTraversal callgraph f seed = runPar $ do
   -- Make an output variable for each SCC in the call graph.
-  outputVars <- replicateM (noNodes cg) new
-  let sccs = labNodes cg
-      varMap = M.fromList (zip (map unlabelNode sccs) outputVars)
+  outputVars <- replicateM (numVertices cg) new
+  let sccs = labeledVertices cg
+      varMap = M.fromList (zip (map fst sccs) outputVars)
       sccsWithVars = map (attachVars cg varMap) sccs
 
   -- Spawn a thread for each SCC that waits until its dependencies are
@@ -135,13 +139,10 @@ parallelCallGraphSCCTraversal callgraph f seed = runPar $ do
   where
     cg = definedCallGraph callgraph
 
-type FunctionGraph = Gr Function ()
-type SCCGraph = Gr [LNode FunctionGraph] ()
-
-attachVars :: SCCGraph -> Map Int (IVar summary) -> LNode SCCGraph
+attachVars :: SCCGraph -> Map Int (IVar summary) -> (Vertex, VertexLabel SCCGraph)
               -> ([Function], [IVar summary], IVar summary, Bool)
-attachVars cg varMap (LNode nid component) =
-  (map nodeLabel component, inVars, outVar, isRoot)
+attachVars cg varMap (nid, component) =
+  (map snd component, inVars, outVar, isRoot)
   where
     outVar = varMap M.! nid
     inVars = map (getDep varMap) deps
@@ -331,21 +332,23 @@ composableDependencyAnalysis = ComposableAnalysisD
 
 -- Helpers
 
-projectDefinedFunctions :: CG -> Gr Function ()
+projectDefinedFunctions :: CG -> FunctionGraph
 projectDefinedFunctions g = mkGraph ns' es'
   where
-    es = labEdges g
-    ns = labNodes g
+    es = edges g
+    ns = labeledVertices g
     ns' = foldr keepDefinedFunctions [] ns
-    es' = map (\(LEdge (Edge s d) _) -> (LEdge (Edge s d) ())) $ filter (edgeIsBetweenDefined m) es
-    m = M.fromList (map toNodeTuple ns)
+    es' = map (\(Edge s d _) -> (Edge s d ())) $ filter (edgeIsBetweenDefined m) es
+    m = M.fromList ns
 
-keepDefinedFunctions :: LNode CG -> [LNode FunctionGraph] -> [LNode FunctionGraph]
-keepDefinedFunctions (LNode nid (DefinedFunction f)) acc = LNode nid f : acc
+keepDefinedFunctions :: (Vertex, VertexLabel CG)
+                        -> [(Vertex, VertexLabel FunctionGraph)] -- [LNode FunctionGraph]
+                        -> [(Vertex, VertexLabel FunctionGraph)] -- [LNode FunctionGraph]
+keepDefinedFunctions (nid, DefinedFunction f) acc = (nid, f) : acc
 keepDefinedFunctions _ acc = acc
 
-edgeIsBetweenDefined :: Map Int CallNode -> LEdge CG -> Bool
-edgeIsBetweenDefined m (LEdge (Edge src dst) _) =
+edgeIsBetweenDefined :: Map Int CallNode -> Edge CG -> Bool
+edgeIsBetweenDefined m (Edge src dst _) =
   nodeIsDefined m src && nodeIsDefined m dst
 
 nodeIsDefined :: Map Int CallNode -> Int -> Bool

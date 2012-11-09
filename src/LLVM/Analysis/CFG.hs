@@ -22,6 +22,11 @@ module LLVM.Analysis.CFG (
   cfgGraphvizRepr
   ) where
 
+-- FIXME Change this to be a graph of basic blocks.  The accessors
+-- below can be updated to work around this.  The graphs will be much
+-- smaller.  The CDG and Dominance analyses will also need to be
+-- updated.
+
 import Control.Arrow ( first )
 import Data.GraphViz
 import Data.List ( foldl' )
@@ -29,16 +34,16 @@ import Data.Maybe ( fromMaybe )
 import Text.Printf
 
 import Data.Graph.Interface
-import Data.Graph.LazyHAMT
+import Data.Graph.MutableDigraph
 import Data.Graph.Algorithms.Basic
 
 import LLVM.Analysis
 import LLVM.Analysis.Types
 
-type CFGType = Gr Instruction CFGEdge
-type LEdgeType = LEdge CFGType
-type NodeType = Node CFGType
-type LNodeType = LNode CFGType
+type CFGType = DenseDigraph Instruction CFGEdge
+type LEdgeType = Edge CFGType
+type NodeType = Vertex
+type LNodeType = (Vertex, VertexLabel CFGType)
 
 instance Labellable CFGEdge where
   toLabelValue = toLabelValue . show
@@ -144,8 +149,8 @@ reverseCFG g = RCFG { rcfgGraph = grev (cfgGraph g)
                     , rcfgExitNode = cfgEntryNode g
                     }
 
-toInternalEdge :: (Instruction, Instruction) -> LEdge CFGType
-toInternalEdge (s, d) = LEdge (Edge sid did) UnconditionalEdge
+toInternalEdge :: (Instruction, Instruction) -> LEdgeType
+toInternalEdge (s, d) = Edge sid did UnconditionalEdge
   where
     sid = instructionUniqueId s
     did = instructionUniqueId d
@@ -154,7 +159,7 @@ buildBlockGraph :: ([LNodeType], [[LEdgeType]]) -> BasicBlock -> ([LNodeType], [
 buildBlockGraph (nacc, eacc) bb = (newNodes ++ nacc, (termEdges ++ internalEdges) : eacc)
   where
     blockInsts = basicBlockInstructions bb
-    newNodes = map (\i -> LNode (instructionUniqueId i) i) blockInsts
+    newNodes = map (\i -> (instructionUniqueId i, i)) blockInsts
     termInst = basicBlockTerminatorInstruction bb
     termNodeId = instructionUniqueId termInst
     otherInsts = filter (/= termInst) blockInsts
@@ -176,21 +181,21 @@ buildBlockGraph (nacc, eacc) bb = (newNodes ++ nacc, (termEdges ++ internalEdges
       RetInst {} -> []
       -- A single target (no label needed)
       UnconditionalBranchInst { unconditionalBranchTarget = tgt } ->
-        [ LEdge (Edge termNodeId (jumpTargetId tgt)) UnconditionalEdge ]
+        [ Edge termNodeId (jumpTargetId tgt) UnconditionalEdge ]
       -- Two edges (cond is true, cond is false)
       BranchInst { branchCondition = cond
                  , branchTrueTarget = tTarget
                  , branchFalseTarget = fTarget
                  } ->
-        [ LEdge (Edge termNodeId (jumpTargetId tTarget)) (TrueEdge cond)
-        , LEdge (Edge termNodeId (jumpTargetId fTarget)) (FalseEdge cond)
+        [ Edge termNodeId (jumpTargetId tTarget) (TrueEdge cond)
+        , Edge termNodeId (jumpTargetId fTarget) (FalseEdge cond)
         ]
       SwitchInst { switchValue = cond
                  , switchDefaultTarget = defTarget
                  , switchCases = cases
                  } ->
-        LEdge (Edge termNodeId (jumpTargetId defTarget)) DefaultEdge :
-        map (caseEdge termNodeId cond) cases
+        Edge termNodeId (jumpTargetId defTarget) DefaultEdge :
+          map (caseEdge termNodeId cond) cases
       IndirectBranchInst { indirectBranchAddress = addr
                          , indirectBranchTargets = targets
                          } ->
@@ -198,8 +203,8 @@ buildBlockGraph (nacc, eacc) bb = (newNodes ++ nacc, (termEdges ++ internalEdges
       InvokeInst { invokeNormalLabel = n
                  , invokeUnwindLabel = u
                  } ->
-        [ LEdge (Edge termNodeId (jumpTargetId n)) (NormalEdge termInst)
-        , LEdge (Edge termNodeId (jumpTargetId u)) (UnwindEdge termInst)
+        [ Edge termNodeId (jumpTargetId n) (NormalEdge termInst)
+        , Edge termNodeId (jumpTargetId u) (UnwindEdge termInst)
         ]
       -- No code after unreachable instructions is executed
       UnreachableInst {} -> []
@@ -219,11 +224,11 @@ jumpTargetId bb = instructionUniqueId t
 
 caseEdge :: NodeType -> Value -> (Value, BasicBlock) -> LEdgeType
 caseEdge thisNodeId cond (val, dest) =
-  LEdge (Edge thisNodeId (jumpTargetId dest)) (EqualityEdge cond val)
+  Edge thisNodeId (jumpTargetId dest) (EqualityEdge cond val)
 
 indirectEdge :: NodeType -> Value -> BasicBlock -> LEdgeType
 indirectEdge thisNodeId addr target =
-  LEdge (Edge thisNodeId (jumpTargetId target)) (IndirectEdge addr)
+  Edge thisNodeId (jumpTargetId target) (IndirectEdge addr)
 
 {-# INLINE toBlock #-}
 toBlock :: CFGType -> NodeType -> BasicBlock
@@ -256,13 +261,13 @@ basicBlockSuccessors cfg bb = map (toBlock cfg') ss
 
 basicBlockPredecessorEdges :: CFG -> BasicBlock -> [CFGEdge]
 basicBlockPredecessorEdges cfg bb =
-  map edgeLabel $ linn (cfgGraph cfg) (instructionUniqueId startInst)
+  map edgeLabel $ inn (cfgGraph cfg) (instructionUniqueId startInst)
   where
     startInst : _ = basicBlockInstructions bb
 
 basicBlockSuccessorEdges :: CFG -> BasicBlock -> [CFGEdge]
 basicBlockSuccessorEdges cfg bb =
-  map edgeLabel $ lout (cfgGraph cfg) (instructionUniqueId exitInst)
+  map edgeLabel $ out (cfgGraph cfg) (instructionUniqueId exitInst)
   where
     exitInst = basicBlockTerminatorInstruction bb
 
@@ -323,7 +328,7 @@ cfgGraphvizRepr :: CFG -> DotGraph NodeType
 cfgGraphvizRepr cfg = graphElemsToDot cfgGraphvizParams ns es
   where
     g = cfgGraph cfg
-    ns = map toNodeTuple (labNodes g)
-    es = map toEdgeTuple (labEdges g)
+    ns = labeledVertices g
+    es = map (\(Edge s d l) -> (s, d, l)) (edges g)
 
 {-# ANN module "HLint: ignore Use if" #-}

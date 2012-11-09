@@ -36,14 +36,14 @@ import Control.Arrow
 import Data.GraphViz
 
 import Data.Graph.Interface
-import Data.Graph.LazyHAMT
-import Data.Graph.Algorithms.Matching.DFS
-import Data.Graph.Algorithms.Matching.Dominators
+import Data.Graph.MutableDigraph
+import Data.Graph.Algorithms.DFS
+import Data.Graph.Algorithms.Dominators
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
 
-type DomTreeType = Gr Instruction ()
+type DomTreeType = DenseDigraph Instruction ()
 
 class HasDomTree a where
   getDomTree :: a -> DominatorTree
@@ -73,19 +73,26 @@ data PostdominatorTree = PDT { pdtTree :: DomTreeType
 -- | Compute the immediate dominators for a given CFG
 immediateDominators :: CFG -> [(Instruction, Instruction)]
 immediateDominators CFG { cfgGraph = g, cfgEntryNode = root } =
-  map (toInst g *** toInst g) (iDom g root)
+  map (toInst g *** toInst g) idoms
+  where
+    Just idoms = iDom g root
 
 -- | Compute the full set of dominators for the given CFG
 dominators :: CFG -> [(Instruction, [Instruction])]
 dominators CFG { cfgGraph = g, cfgEntryNode = root } =
-  map (toInst g *** map (toInst g)) (dom g root)
+  map (toInst g *** map (toInst g)) doms
+  where
+    Just doms = dom g root
 
 immediatePostdominators :: RCFG -> [(Instruction, Instruction)]
 immediatePostdominators RCFG { rcfgGraph = g, rcfgFunction = f } =
   map (toInst g *** toInst g) (concat gs)
   where
     roots = functionExitInstructions f
-    gs = map (iDom g . instructionUniqueId) roots
+    getIdoms r =
+      let Just idoms = iDom g (instructionUniqueId r)
+      in idoms
+    gs = map getIdoms roots
 
 -- | Get a mapping from Instructions to each of their postdominators
 postdominators :: RCFG -> [(Instruction, [Instruction])]
@@ -93,11 +100,14 @@ postdominators RCFG { rcfgGraph = g, rcfgFunction = f } =
   map (toInst g *** map (toInst g)) (concat gs)
   where
     roots = functionExitInstructions f
-    gs = map (dom g . instructionUniqueId) roots
+    getDoms r =
+      let Just doms = dom g (instructionUniqueId r)
+      in doms
+    gs = map getDoms roots
 
-toInst :: (InspectableGraph gr) => gr -> Node gr -> NodeLabel gr
+toInst :: (InspectableGraph gr) => gr -> Vertex -> VertexLabel gr
 toInst gr n =
-  let Just (Context _ (LNode _ i) _) = context gr n
+  let Just (Context _ _ i _) = context gr n
   in i
 
 -- | Construct a dominator tree from a CFG
@@ -109,7 +119,7 @@ dominatorTree cfg =
   where
     idoms = immediateDominators cfg
     g = cfgGraph cfg
-    ns = map (\(LNode n l) -> LNode n l) (labNodes g)
+    ns = map (\(n, l) -> (n, l)) (labeledVertices g)
 
 -- | Construct a postdominator tree from a reversed CFG
 postdominatorTree :: RCFG -> PostdominatorTree
@@ -120,17 +130,17 @@ postdominatorTree cfg =
   where
     idoms = immediatePostdominators cfg
     g = rcfgGraph cfg
-    ns = map (\(LNode n l) -> LNode n l) (labNodes g)
+    ns = map (\(n, l) -> (n, l)) (labeledVertices g)
 
 -- buildEdges :: [(Instruction, Instruction)] -> [LEdge ()]
-buildEdges :: (Graph gr, EdgeLabel gr ~ (), Node gr ~ UniqueId)
+buildEdges :: (Graph gr, EdgeLabel gr ~ ())
               => [(Instruction, Instruction)]
-              -> [LEdge gr]
+              -> [Edge gr]
 buildEdges =
   map (toLEdge . (instructionUniqueId *** instructionUniqueId))
 --  map (\(a,b) -> LEdge (Edge a b) ()) . map (instructionUniqueId *** instructionUniqueId)
   where
-    toLEdge (a,b) = LEdge (Edge a b) ()
+    toLEdge (a,b) = Edge a b () -- LEdge (Edge a b) ()
 
 -- | Check whether n dominates m
 dominates :: DominatorTree -> Instruction -> Instruction -> Bool
@@ -185,18 +195,18 @@ domTreeParams =
 
 -- Visualization
 
-domTreeGraphvizRepr :: DominatorTree -> DotGraph (Node DomTreeType)
+domTreeGraphvizRepr :: DominatorTree -> DotGraph Vertex
 domTreeGraphvizRepr dt = graphElemsToDot domTreeParams ns es
   where
     g = dtTree dt
-    ns = map toNodeTuple (labNodes g)
-    es = map toEdgeTuple (labEdges g)
+    ns = labeledVertices g
+    es = map (\(Edge s d l) -> (s, d, l)) (edges g)
 
-postdomTreeGraphvizRepr :: PostdominatorTree -> DotGraph (Node DomTreeType)
+postdomTreeGraphvizRepr :: PostdominatorTree -> DotGraph Vertex
 postdomTreeGraphvizRepr dt = graphElemsToDot domTreeParams ns es
   where
     g = pdtTree dt
-    ns = map toNodeTuple (labNodes g)
-    es = map toEdgeTuple (labEdges g)
+    ns = labeledVertices g
+    es = map (\(Edge s d l) -> (s, d, l)) (edges g)
 
 {-# ANN module "HLint: ignore Use if" #-}

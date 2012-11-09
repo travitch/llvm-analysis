@@ -42,8 +42,8 @@ import Data.List ( foldl' )
 import Data.Maybe ( fromMaybe )
 
 import Data.Graph.Interface
-import Data.Graph.LazyHAMT
-import Data.Graph.Algorithms.Marking.DFS
+import Data.Graph.MutableDigraph
+import Data.Graph.Algorithms.DFS
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
@@ -52,10 +52,8 @@ import LLVM.Analysis.Dominance
 -- | The internal representation of the CDG.  Instructions are
 -- control-dependent on other instructions, so they are the nodes in
 -- the graph.
-type CDGType = Gr Instruction ()
-type NodeType = Node CDGType
-type LEdgeType = LEdge CDGType
-type LNodeType = LNode CDGType
+type CDGType = DenseDigraph Instruction ()
+type LEdgeType = Edge CDGType
 
 -- | A control depenence graph
 data CDG = CDG { cdgGraph :: CDGType
@@ -85,8 +83,8 @@ controlDependencies (CDG g _) i =
   where
     deps = map (safeLab "LLVM.Analysis.CDG.controlDependnecies.deps" g) $ dfs [instructionUniqueId i] g
 
-safeLab :: (Show (Node gr), InspectableGraph gr)
-           => String -> gr -> Node gr -> NodeLabel gr
+safeLab :: (InspectableGraph gr)
+           => String -> gr -> Vertex -> VertexLabel gr
 safeLab loc g n = fromMaybe errMsg (lab g n)
   where
     errMsg = error (loc ++ ": missing label for CDG node " ++ show n)
@@ -120,13 +118,13 @@ directControlDependencies (CDG g _) i =
 controlDependenceGraph :: CFG -> CDG
 controlDependenceGraph cfg = CDG (mkGraph ns es) cfg
   where
-    ns = map (\(LNode n l) -> LNode n l) $ labNodes g
+    ns = map (\(n, l) -> (n, l)) $ labeledVertices g
     es = M.foldlWithKey' toEdge [] controlDeps
 
     g = cfgGraph cfg
     pdt = postdominatorTree (reverseCFG cfg)
     eloc = "LLVM.Analysis.CDG.controlDependenceGraph.cfgEdges"
-    cfgEdges = map (\(Edge src dst) -> (safeLab eloc g src, safeLab eloc g dst)) (edges g)
+    cfgEdges = map (\(Edge src dst _) -> (safeLab eloc g src, safeLab eloc g dst)) (edges g)
     -- cfgEdges = map ((safeLab $__LOCATION__ g) *** (safeLab $__LOCATION__ g)) (edges g)
     -- | All of the edges in the CFG m->n such that n does not
     -- postdominate m
@@ -141,7 +139,7 @@ isNotPostdomEdge pdt (m, n) = not (postdominates pdt n m)
 toEdge :: [LEdgeType] -> Instruction -> HashSet Instruction -> [LEdgeType]
 toEdge acc dependent = S.foldr (toE dependent) acc
   where
-    toE n m a = LEdge (Edge (instructionUniqueId n) (instructionUniqueId m)) () : a
+    toE n m a = Edge (instructionUniqueId n) (instructionUniqueId m) () : a
 
 -- | A private type to describe what instructions the keys of the map
 -- are control dependent upon.
@@ -204,9 +202,9 @@ cdgGraphvizParams =
       in C bb (N l)
     formatCluster bb = [GraphAttrs [toLabel (show (basicBlockName bb))]]
 
-cdgGraphvizRepr :: CDG -> DotGraph (Node CDGType)
+cdgGraphvizRepr :: CDG -> DotGraph Vertex
 cdgGraphvizRepr cdg = graphElemsToDot cdgGraphvizParams ns es
   where
     g = cdgGraph cdg
-    ns = map toNodeTuple (labNodes g)
-    es = map toEdgeTuple (labEdges g)
+    ns = labeledVertices g
+    es = map (\(Edge s d l) -> (s, d, l)) (edges g)
