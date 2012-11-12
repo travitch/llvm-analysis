@@ -133,7 +133,7 @@ controlDependenceGraph cfg = CDG (mkGraph ns es) cfg
 
 -- | Determine if an edge belongs in the set S
 isNotPostdomEdge :: PostdominatorTree -> (Instruction, Instruction) -> Bool
-isNotPostdomEdge pdt (m, n) = not (postdominates pdt n m)
+isNotPostdomEdge pdt (m, n) = instructionIsTerminator m && not (postdominates pdt n m)
 
 -- | Add an edge from @dependent@ to each @m@ it is control dependent on
 toEdge :: [LEdgeType] -> Instruction -> HashSet Instruction -> [LEdgeType]
