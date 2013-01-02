@@ -52,8 +52,8 @@ data AbstractAccessPath =
   deriving (Show, Eq, Ord)
 
 instance Hashable AbstractAccessPath where
-  hash (AbstractAccessPath bt et cs) =
-    hash bt `combine` hash et `combine` hash cs
+  hashWithSalt s (AbstractAccessPath bt et cs) =
+    s `hashWithSalt` bt `hashWithSalt` et `hashWithSalt` cs
 
 appendAccessPath :: AbstractAccessPath
                     -> AbstractAccessPath
@@ -97,8 +97,8 @@ instance NFData AccessPath where
   rnf a@(AccessPath _ _ ts) = ts `deepseq` a `seq` ()
 
 instance Hashable AccessPath where
-  hash (AccessPath bv ev cs) =
-    hash bv `combine` hash ev `combine` hash cs
+  hashWithSalt s (AccessPath bv ev cs) =
+    s `hashWithSalt` bv `hashWithSalt` ev `hashWithSalt` cs
 
 data AccessType = AccessField !Int
                 | AccessArray
@@ -110,9 +110,10 @@ instance NFData AccessType where
   rnf _ = ()
 
 instance Hashable AccessType where
-  hash (AccessField ix) = 1 `combine` hash ix
-  hash AccessArray = 26
-  hash AccessDeref = 300
+  hashWithSalt s (AccessField ix) =
+    s `hashWithSalt` (1 :: Int) `hashWithSalt` ix
+  hashWithSalt s AccessArray = s `hashWithSalt` (26 :: Int)
+  hashWithSalt s AccessDeref = s `hashWithSalt` (300 :: Int)
 
 followAccessPath :: (Failure AccessPathError m) => AbstractAccessPath -> Value -> m Value
 followAccessPath aap@(AbstractAccessPath bt _ components) val =

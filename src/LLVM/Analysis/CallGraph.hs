@@ -88,9 +88,9 @@ data CallEdge = DirectCall
               deriving (Ord, Eq)
 
 instance Hashable CallEdge where
-  hash DirectCall = hash (1 :: Int)
-  hash IndirectCall = hash (2 :: Int)
-  hash UnknownCall = hash (3 :: Int)
+  hashWithSalt s DirectCall = s `hashWithSalt` (1 :: Int)
+  hashWithSalt s IndirectCall = s `hashWithSalt` (2 :: Int)
+  hashWithSalt s UnknownCall = s `hashWithSalt` (3 :: Int)
 
 instance Show CallEdge where
   show DirectCall = ""
