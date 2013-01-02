@@ -303,12 +303,12 @@ instructionReachable cfg i =
 
 cfgGraphvizParams :: GraphvizParams n Instruction CFGEdge BasicBlock Instruction
 cfgGraphvizParams =
-  nonClusteredParams { fmtNode = \(_,l) -> [toLabel (toValue l)]
-                     , fmtEdge = formatEdge
-                     , clusterID = Int . basicBlockUniqueId
-                     , fmtCluster = formatCluster
-                     , clusterBy = nodeCluster
-                     }
+  defaultParams { fmtNode = \(_,l) -> [toLabel (toValue l)]
+                , fmtEdge = formatEdge
+                , clusterID = Int . basicBlockUniqueId
+                , fmtCluster = formatCluster
+                , clusterBy = nodeCluster
+                }
   where
     nodeCluster l@(_, i) =
       let Just bb = instructionBasicBlock i

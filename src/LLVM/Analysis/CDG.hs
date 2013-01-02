@@ -191,11 +191,11 @@ addDep m deps n = M.insertWith S.union n (S.singleton m) deps
 
 cdgGraphvizParams :: GraphvizParams n Instruction el BasicBlock Instruction
 cdgGraphvizParams =
-  nonClusteredParams { fmtNode = \(_,l) -> [ toLabel (toValue l) ]
-                     , clusterID = Int . basicBlockUniqueId
-                     , clusterBy = nodeCluster
-                     , fmtCluster = formatCluster
-                     }
+  defaultParams { fmtNode = \(_,l) -> [ toLabel (toValue l) ]
+                , clusterID = Int . basicBlockUniqueId
+                , clusterBy = nodeCluster
+                , fmtCluster = formatCluster
+                }
   where
     nodeCluster l@(_, i) =
       let Just bb = instructionBasicBlock i
