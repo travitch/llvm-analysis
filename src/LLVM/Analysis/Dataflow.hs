@@ -42,6 +42,7 @@ import qualified Data.HashMap.Strict as M
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
 import Data.List ( sort )
+import Data.Maybe ( fromMaybe )
 import Text.Printf
 
 import LLVM.Analysis
@@ -118,7 +119,7 @@ instance (NFData a) => NFData (DataflowResult a) where
 -- list if doing a backwards analysis
 dataflowResult :: DataflowResult a -> Instruction -> a
 dataflowResult (DataflowResult m) i =
-  M.lookupDefault errMsg i m
+  fromMaybe errMsg $ M.lookup i m
   where
     errMsg = error ("LLVM.Analysis.Dataflow.dataflowResult: Instruction " ++ show i ++ " has no dataflow result")
 
@@ -187,7 +188,7 @@ dataflowAnalysis lastInstruction orderedBlockInsts blockPreds blockSuccs fact0 c
     -- will cause problems for a backwards analysis.
     lookupBlockFact :: (DataflowAnalysis m a) => HashMap Instruction a -> BasicBlock -> a
     lookupBlockFact facts block =
-      M.lookupDefault errMsg (lastInstruction block) facts
+      fromMaybe errMsg $ M.lookup (lastInstruction block) facts
       where
         errMsg = error $ printf "LLVM.Analysis.Dataflow.dataflowAnalysis.lookupBlockFact: No facts for block %s" (show (toValue block))
 
