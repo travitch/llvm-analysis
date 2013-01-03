@@ -78,7 +78,7 @@ readInputAndExpected optOpts parseFile expectedFunc inputFile = do
   -- use seq here to force the full evaluation of the read file.
   let expected = length exContent `seq` read exContent
   m <- buildModule optOpts parseFile inputFile
-  return (inputFile, m, expected)
+  return $ either error (\m' -> (inputFile, m', expected)) m
 
 -- | This is the main test suite entry point.  It takes a bitcode
 -- parser and a list of test suites.
@@ -126,7 +126,7 @@ optify args inp optFile = do
 buildModule ::  [String] -- ^ Optimization options (passed to opt) for the module.  opt is not run if the list is empty
                 -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file into a Module
                 -> FilePath -- ^ The input file (either bitcode or C/C++)
-                -> IO Module
+                -> IO (Either String Module)
 buildModule optOpts parseFile inputFilePath =
   case takeExtension inputFilePath of
     ".ll" -> simpleBuilder inputFilePath
@@ -135,18 +135,14 @@ buildModule optOpts parseFile inputFilePath =
     ".C" -> clangBuilder inputFilePath "clang++"
     ".cxx" -> clangBuilder inputFilePath "clang++"
     ".cpp" -> clangBuilder inputFilePath "clang++"
-    _ -> error ("LLVM.Analysis.Util.Testing.buildModule: No build method for test input " ++ inputFilePath)
+    _ -> return $ Left ("LLVM.Analysis.Util.Testing.buildModule: No build method for test input " ++ inputFilePath)
   where
-    simpleBuilder inp =
-      case null optOpts of
-        True -> do
-          parseResult <- parseFile inp
-          either (error . ("LLVM.Analysis.Util.Testing.buildModule.simpleBuilder: " ++)) return parseResult
-        False ->
-          withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
-            optify optOpts inp optFname
-            parseResult <- parseFile optFname
-            either (error . ("LLVM.Analysis.Util.Testing.buildModule.simpleBuilder: " ++)) return parseResult
+    simpleBuilder inp
+      | null optOpts = parseFile inp
+      | otherwise =
+        withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
+          optify optOpts inp optFname
+          parseFile optFname
 
     clangBuilder inp driver =
       withSystemTempFile ("base_" ++ takeFileName inp) $ \baseFname _ -> do
@@ -155,13 +151,10 @@ buildModule optOpts parseFile inputFilePath =
         rc <- waitForProcess p
         when (rc /= ExitSuccess) (error ("LLVM.Analysis.Util.Testing.buildModule.clangBuilder: Could not compile input to bitcode: " ++ inp))
         case null optOpts of
-          True -> do
-            parseResult <- parseFile baseFname
-            either (error . ("LLVM.Analysis.Util.Testing.buildModule.clangBuilder: " ++)) return parseResult
+          True -> parseFile baseFname
           False ->
             withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
               optify optOpts baseFname optFname
-              parseResult <- parseFile optFname
-              either (error . ("LLVM.Analysis.Util.Testing.buildModule.clangBuilder: " ++)) return parseResult
+              parseFile optFname
 
 {-# ANN module "HLint: ignore Use if" #-}
