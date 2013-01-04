@@ -58,7 +58,6 @@ library
                    LLVM.Analysis.NoReturn,
                    LLVM.Analysis.ScalarEffects,
                    LLVM.Analysis.Types,
-                   LLVM.Analysis.Util.Environment,
                    LLVM.Analysis.Util.Names,
                    LLVM.Analysis.Util.Testing
 

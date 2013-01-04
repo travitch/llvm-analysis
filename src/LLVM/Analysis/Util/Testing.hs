@@ -43,9 +43,11 @@ module LLVM.Analysis.Util.Testing (
   ) where
 
 import Control.Monad ( when )
+import System.Directory ( findExecutable )
 import System.Exit ( ExitCode(ExitSuccess) )
 import System.FilePath
 import System.FilePath.Glob
+import System.IO.Error
 import System.IO.Temp
 import System.Process
 
@@ -53,7 +55,6 @@ import Test.Framework ( defaultMain, Test )
 import Test.Framework.Providers.HUnit
 
 import LLVM.Analysis
-import LLVM.Analysis.Util.Environment
 
 -- | A description of a set of tests.
 data TestDescriptor =
@@ -111,18 +112,22 @@ testAgainstExpected optOpts parseFile testDescriptors = do
       let actual = br m
       return $ testCase file $ cmp file expected actual
 
--- | Optimize the bitcode in the given bytestring using opt with the provided options
+-- | Optimize the bitcode in the given bytestring using opt with the
+-- provided options
 optify :: [String] -> FilePath -> FilePath -> IO ()
 optify args inp optFile = do
   opt <- findOpt
   let cmd = proc opt ("-o" : optFile : inp : args)
   (_, _, _, p) <- createProcess cmd
   rc <- waitForProcess p
-  when (rc /= ExitSuccess) (error ("LLVM.Analysis.Util.Testing.optify: Could not optimize " ++ inp))
+  when (rc /= ExitSuccess) (ioError (userError ("LLVM.Analysis.Util.Testing.optify: Could not optimize " ++ inp)))
 
 -- | Given an input file, bitcode parsing function, and options to
 -- pass to opt, return a Module.  The input file can be C, C++, or
 -- LLVM bitcode.
+--
+-- Note that this function returns an Either value to report some
+-- kinds of errors.  It can also raise IOErrors.
 buildModule ::  [String] -- ^ Optimization options (passed to opt) for the module.  opt is not run if the list is empty
                 -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file into a Module
                 -> FilePath -- ^ The input file (either bitcode or C/C++)
@@ -149,12 +154,24 @@ buildModule optOpts parseFile inputFilePath =
         let baseCmd = proc driver ["-emit-llvm", "-o" , baseFname, "-c", inp]
         (_, _, _, p) <- createProcess baseCmd
         rc <- waitForProcess p
-        when (rc /= ExitSuccess) (error ("LLVM.Analysis.Util.Testing.buildModule.clangBuilder: Could not compile input to bitcode: " ++ inp))
+        when (rc /= ExitSuccess) (ioError (userError ("LLVM.Analysis.Util.Testing.buildModule.clangBuilder: Could not compile input to bitcode: " ++ inp)))
         case null optOpts of
           True -> parseFile baseFname
           False ->
             withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
               optify optOpts baseFname optFname
               parseFile optFname
+
+-- | Find a suitable @opt@ binary in the user's PATH
+findOpt :: IO FilePath
+findOpt = findBin [ "opt-3.2", "opt-3.1", "opt-3.0", "opt" ]
+  where
+    err e = ioError $ mkIOError doesNotExistErrorType e Nothing Nothing
+    findBin [] = err "No opt binary found available"
+    findBin (bin:bins) = do
+      b <- findExecutable bin
+      case b of
+        Just e -> return e
+        Nothing -> findBin bins
 
 {-# ANN module "HLint: ignore Use if" #-}
