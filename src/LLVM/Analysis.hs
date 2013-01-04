@@ -51,3 +51,14 @@ import Data.LLVM.Types
 -- files.  Source files are compiled with clang into bitcode; the
 -- resulting bitcode is fed to the @opt@ binary, which is passed the
 -- options in the first argument to 'buildModule'.
+--
+-- By default, this helper calls binaries named @clang@, @clang++@,
+-- and @opt@, which are expected to be in your @PATH@.  To accommodate
+-- distro packages, additional names are searched for @opt@:
+-- @opt-3.2@, @opt-3.1@, and @opt-3.0@.
+--
+-- If you cannot place these binaries in your @PATH@, or if your
+-- binaries have different names, you can specify them (either using
+-- absolute or relative paths) with the environment variables
+-- @LLVM_CLANG@, @LLVM_CLANGXX@, and @LLVM_OPT@.  These environment
+-- variables override any default searching.

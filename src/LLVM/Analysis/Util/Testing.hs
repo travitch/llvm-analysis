@@ -44,12 +44,13 @@ module LLVM.Analysis.Util.Testing (
 
 import Control.Monad ( when )
 import System.Directory ( findExecutable )
+import System.Environment ( getEnv )
 import System.Exit ( ExitCode(ExitSuccess) )
 import System.FilePath
 import System.FilePath.Glob
 import System.IO.Error
 import System.IO.Temp
-import System.Process
+import System.Process as P
 
 import Test.Framework ( defaultMain, Test )
 import Test.Framework.Providers.HUnit
@@ -117,7 +118,7 @@ testAgainstExpected optOpts parseFile testDescriptors = do
 optify :: [String] -> FilePath -> FilePath -> IO ()
 optify args inp optFile = do
   opt <- findOpt
-  let cmd = proc opt ("-o" : optFile : inp : args)
+  let cmd = P.proc opt ("-o" : optFile : inp : args)
   (_, _, _, p) <- createProcess cmd
   rc <- waitForProcess p
   when (rc /= ExitSuccess) (ioError (userError ("LLVM.Analysis.Util.Testing.optify: Could not optimize " ++ inp)))
@@ -132,14 +133,16 @@ buildModule ::  [String] -- ^ Optimization options (passed to opt) for the modul
                 -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file into a Module
                 -> FilePath -- ^ The input file (either bitcode or C/C++)
                 -> IO (Either String Module)
-buildModule optOpts parseFile inputFilePath =
+buildModule optOpts parseFile inputFilePath = do
+  clang <- catchIOError (getEnv "LLVM_CLANG") (const (return "clang"))
+  clangxx <- catchIOError (getEnv "LLVM_CLANGXX") (const (return "clang++"))
   case takeExtension inputFilePath of
     ".ll" -> simpleBuilder inputFilePath
     ".bc" -> simpleBuilder inputFilePath
-    ".c" -> clangBuilder inputFilePath "clang"
-    ".C" -> clangBuilder inputFilePath "clang++"
-    ".cxx" -> clangBuilder inputFilePath "clang++"
-    ".cpp" -> clangBuilder inputFilePath "clang++"
+    ".c" -> clangBuilder inputFilePath clang
+    ".C" -> clangBuilder inputFilePath clangxx
+    ".cxx" -> clangBuilder inputFilePath clangxx
+    ".cpp" -> clangBuilder inputFilePath clangxx
     _ -> return $ Left ("LLVM.Analysis.Util.Testing.buildModule: No build method for test input " ++ inputFilePath)
   where
     simpleBuilder inp
@@ -163,8 +166,13 @@ buildModule optOpts parseFile inputFilePath =
               parseFile optFname
 
 -- | Find a suitable @opt@ binary in the user's PATH
+--
+-- First consult the LLVM_OPT environment variable.  If that is not
+-- set, try a few common opt aliases.
 findOpt :: IO FilePath
-findOpt = findBin [ "opt-3.2", "opt-3.1", "opt-3.0", "opt" ]
+findOpt = do
+  let fbin = findBin [ "opt", "opt-3.2", "opt-3.1", "opt-3.0" ]
+  catchIOError (getEnv "LLVM_OPT") (const fbin)
   where
     err e = ioError $ mkIOError doesNotExistErrorType e Nothing Nothing
     findBin [] = err "No opt binary found available"
