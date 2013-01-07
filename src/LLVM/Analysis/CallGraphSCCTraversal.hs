@@ -105,6 +105,11 @@ callGraphSCCTraversal callgraph f seed =
 definedCallGraph :: CallGraph -> SCCGraph
 definedCallGraph = condense . projectDefinedFunctions . callGraphRepr
 
+-- FIXME: Have this function take a list of funcLikes; it will
+-- construct a @Map Function funcLike@ and pass that down to the
+-- thread spawner, which will do map lookups instead of re-computing
+-- the funcLike each time.
+
 -- | Just like 'callGraphSCCTraversal', except strongly-connected
 -- components are analyzed in parallel.  Each component is analyzed as
 -- soon as possible after its dependencies have been analyzed.
@@ -169,6 +174,7 @@ forkSCC f val0 acc (component, inVars, outVar, isRoot) = do
     let seed = case null inVars of
           True -> val0
           False -> force $ mconcat depVals
+          -- FIXME parmap
         funcLikes = map fromFunction component
         sccSummary = f funcLikes seed
     put outVar sccSummary
@@ -232,8 +238,6 @@ callGraphComposeAnalysis :: (FuncLike funcLike, Monoid compSumm, Eq compSumm)
                             -> ([funcLike] -> compSumm -> compSumm)
 callGraphComposeAnalysis analyses = f
   where
-    f [singleFunc] summ =
-      foldl' (applyAnalysis1 singleFunc) summ analyses
     f funcs summ =
       foldl' (applyAnalysisN funcs) summ analyses
 
@@ -258,27 +262,24 @@ callGraphComposeAnalysis analyses = f
       in case res == inputSummary of
         True -> summ
         False -> applyAnalysisN funcs (set lns res summ) a
-
-
-
-
-    applyAnalysis1 func summ ComposableAnalysisM { analysisUnwrap = unwrap
-                                                 , analysisFunctionM = af
-                                                 , summaryLens = lns
-                                                 } =
-      let analysisSumm = summ ^. lns
-          res = af func analysisSumm
-      in set lns (unwrap res) summ
-    applyAnalysis1 func summ ComposableAnalysisDM { analysisUnwrap = unwrap
-                                                  , analysisFunctionDM = af
-                                                  , summaryLens = lns
-                                                  , dependencyLens = dlns
-                                                  } =
-      let analysisSumm = summ ^. lns
+    applyAnalysisN funcs summ a@ComposableAnalysis { analysisFunction = af
+                                                   , summaryLens = lns
+                                                   } =
+      let inputSummary = summ ^. lns
+          res = foldr af inputSummary funcs
+      in case res == inputSummary of
+        True -> summ
+        False -> applyAnalysisN funcs (set lns res summ) a
+    applyAnalysisN funcs summ a@ComposableAnalysisD { analysisFunctionD = af
+                                                    , summaryLens = lns
+                                                    , dependencyLens = dlns
+                                                    } =
+      let inputSummary = summ ^. lns
           deps = summ ^. dlns
-          res = af deps func analysisSumm
-      in set lns (unwrap res) summ
-
+          res = foldr (af deps) inputSummary funcs
+      in case res == inputSummary of
+        True -> summ
+        False -> applyAnalysisN funcs (set lns res summ) a
 
 
 -- | A monadic version of 'composableAnalysis'.  The first argument
