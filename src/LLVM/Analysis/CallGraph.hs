@@ -33,8 +33,12 @@ module LLVM.Analysis.CallGraph (
   -- * Accessors
   callGraphRepr,
   callValueTargets,
-  callInstructionTargets,
+  callSiteTargets,
   callGraphFunctions,
+  functionCallees,
+  allFunctionCallees,
+  functionCallers,
+  allFunctionCallers,
   -- * Visualization
   cgGraphvizRepr
   ) where
@@ -50,7 +54,7 @@ import Data.Monoid
 
 import Data.Graph.Interface
 import Data.Graph.MutableDigraph
-import Data.Graph.Algorithms.DFS ( scc )
+import Data.Graph.Algorithms.DFS ( dfs, rdfs, scc )
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo
@@ -113,8 +117,10 @@ callGraphFunctions (CallGraph cg _) =
     extractDefinedFunction (_, DefinedFunction f) = Just f
     extractDefinedFunction _ = Nothing
 
--- | Convert the CallGraph to an FGL graph that can be traversed,
+-- | Convert the CallGraph to a graph ADT that can be traversed,
 -- manipulated, or easily displayed with graphviz.
+--
+-- For now, this representation is not guaranteed to remain stable.
 callGraphRepr :: CallGraph -> CG
 callGraphRepr (CallGraph g _) = g
 
@@ -124,13 +130,13 @@ callGraphRepr (CallGraph g _) = g
 --
 -- Passing a non-call/invoke instruction will trigger a noisy pattern
 -- matching failure.
-callInstructionTargets :: CallGraph -> Instruction -> [Value]
-callInstructionTargets cg (CallInst { callFunction = f }) =
+callSiteTargets :: CallGraph -> Instruction -> [Value]
+callSiteTargets cg (CallInst { callFunction = f }) =
   callValueTargets cg f
-callInstructionTargets cg (InvokeInst { invokeFunction = f}) =
+callSiteTargets cg (InvokeInst { invokeFunction = f}) =
   callValueTargets cg f
-callInstructionTargets _ i =
-  error ("LLVM.Analysis.CallGraph.callInstructionTargets: Expected a Call or Invoke instruction: " ++ show i)
+callSiteTargets _ i =
+  error ("LLVM.Analysis.CallGraph.callSiteTargets: Expected a Call or Invoke instruction: " ++ show i)
 
 -- | Given the value called by a Call or Invoke instruction, return
 -- all of the possible Functions or ExternalFunctions that it could
@@ -142,6 +148,30 @@ callValueTargets (CallGraph _ pta) v =
     FunctionC _ -> [v']
     ExternalFunctionC _ -> [v']
     _ -> pointsTo pta v
+
+functionCallees :: CallGraph -> Function -> [Value]
+functionCallees (CallGraph g _) =
+  mapMaybe (toCallValue g) . suc g . functionUniqueId
+
+allFunctionCallees :: CallGraph -> Function -> [Value]
+allFunctionCallees (CallGraph g _) =
+  mapMaybe (toCallValue g) . flip dfs g . (:[]) . functionUniqueId
+
+functionCallers :: CallGraph -> Function -> [Value]
+functionCallers (CallGraph g _) =
+  mapMaybe (toCallValue g) . pre g . functionUniqueId
+
+allFunctionCallers :: CallGraph -> Function -> [Value]
+allFunctionCallers (CallGraph g _) =
+  mapMaybe (toCallValue g) . flip rdfs g . (:[]) . functionUniqueId
+
+toCallValue :: CG -> Vertex -> Maybe Value
+toCallValue g v = do
+  l <- lab g v
+  case l of
+    DefinedFunction f -> return (toValue f)
+    ExtFunction ef -> return (toValue ef)
+    _ -> Nothing
 
 -- | Build a call graph for the given 'Module' using a pre-computed
 -- points-to analysis.  The String parameter identifies the program
@@ -155,7 +185,7 @@ mkCallGraph :: (PointsToAnalysis a) => Module
                -> a            -- ^ A points-to analysis (to resolve function pointers)
                -> [Function]   -- ^ The entry points to the 'Module'
                -> CallGraph
-mkCallGraph m pta entryPoints =
+mkCallGraph m pta _ {-entryPoints-} =
   CallGraph (mkGraph allNodes (unique allEdges)) pta
   where
     allNodes = concat [ knownNodes, unknownNodes, externNodes ]
