@@ -142,8 +142,8 @@ accessPath i = do
   cpath <- case i of
     LoadInst { loadAddress = la } ->
       return $! go (AccessPath la (toValue i) []) la
-    StoreInst { storeAddress = sa } ->
-      return $! go (AccessPath sa sa []) sa
+    StoreInst { storeAddress = sa, storeValue = sv } ->
+      return $! go (AccessPath sa sv []) sa
     AtomicCmpXchgInst { atomicCmpXchgPointer = p } ->
       return $! go (AccessPath p p []) p
     AtomicRMWInst { atomicRMWPointer = p } ->
