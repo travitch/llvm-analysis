@@ -141,7 +141,7 @@ accessPath :: (Failure AccessPathError m) => Instruction -> m AccessPath
 accessPath i = do
   cpath <- case i of
     LoadInst { loadAddress = la } ->
-      return $! go (AccessPath la la []) la
+      return $! go (AccessPath la (toValue i) []) la
     StoreInst { storeAddress = sa } ->
       return $! go (AccessPath sa sa []) sa
     AtomicCmpXchgInst { atomicCmpXchgPointer = p } ->
