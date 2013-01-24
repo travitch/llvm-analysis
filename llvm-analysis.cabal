@@ -34,7 +34,7 @@ library
                  graphviz >= 2999.12.0.3, temporary >= 1.0, lens > 1,
                  hashable >= 1.1.2.0, unordered-containers,
                  lattices, failure >= 0.2, hashtables,
-                 lens > 1, ifscs,
+                 lens > 1, ifscs, GenericPretty > 1,
                  llvm-base-types, hbgl, boomerang,
                  -- Testing
                  HUnit, test-framework, test-framework-hunit,

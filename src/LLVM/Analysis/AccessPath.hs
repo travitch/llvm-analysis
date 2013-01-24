@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts #-}
+{-# LANGUAGE DeriveDataTypeable, FlexibleContexts, DeriveGeneric #-}
 -- | This module defines an abstraction over field accesses of
 -- structures called AccessPaths.  A concrete access path is rooted at
 -- a value, while an abstract access path is rooted at a type.  Both
@@ -26,6 +26,7 @@ import qualified Control.Failure as F
 import Data.Hashable
 import Data.List ( foldl' )
 import Data.Typeable
+import Text.PrettyPrint.GenericPretty
 
 import LLVM.Analysis
 
@@ -49,7 +50,11 @@ data AbstractAccessPath =
                      , abstractAccessPathEndType :: Type
                      , abstractAccessPathComponents :: [AccessType]
                      }
-  deriving (Show, Eq, Ord)
+  deriving (Eq, Ord, Generic)
+
+instance Out AbstractAccessPath
+instance Show AbstractAccessPath where
+  show = pretty
 
 instance Hashable AbstractAccessPath where
   hashWithSalt s (AbstractAccessPath bt et cs) =
@@ -103,7 +108,9 @@ instance Hashable AccessPath where
 data AccessType = AccessField !Int
                 | AccessArray
                 | AccessDeref
-                deriving (Read, Show, Eq, Ord)
+                deriving (Read, Show, Eq, Ord, Generic)
+
+instance Out AccessType
 
 instance NFData AccessType where
   rnf a@(AccessField i) = i `seq` a `seq` ()
