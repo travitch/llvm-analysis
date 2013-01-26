@@ -94,7 +94,7 @@ class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
   -- statement executes before we can use information about %p being
   -- NULL on one edge of the branch.
   --
-  -- NOTE: This transfer function is only appleid to edges between
+  -- NOTE: This transfer function is only applied to edges between
   -- basic blocks.  Within a basic block, the edge is always an
   -- unconditional edge and there is no merging anyway.
   edgeTransfer :: a -> CFGEdge -> m a
