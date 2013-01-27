@@ -20,7 +20,7 @@ module LLVM.Analysis.CallGraphSCCTraversal (
   ) where
 
 import Control.DeepSeq
-import Control.Lens
+import Control.Lens hiding (pre)
 import Control.Monad ( foldM, replicateM )
 import Control.Monad.Par.Scheds.Direct
 import Data.List ( foldl' )
