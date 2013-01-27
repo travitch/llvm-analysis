@@ -96,7 +96,11 @@ data AccessPath =
              , accessPathEndValue :: Value
              , accessPathComponents :: [AccessType]
              }
-  deriving (Show, Eq, Ord)
+  deriving (Generic, Eq, Ord)
+
+instance Out AccessPath
+instance Show AccessPath where
+  show = pretty
 
 instance NFData AccessPath where
   rnf a@(AccessPath _ _ ts) = ts `deepseq` a `seq` ()
