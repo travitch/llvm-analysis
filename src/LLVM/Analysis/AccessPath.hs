@@ -39,6 +39,9 @@ data AccessPathError = NoPathError Value
                      | CannotFollowPath AbstractAccessPath Value
                      | BaseTypeMismatch Type Type
                      | NonConstantInPath AbstractAccessPath Value
+                     | EndpointTypeMismatch Type Type
+                     | IrreducableAccessPath AbstractAccessPath
+                     | CannotExternalizeType Type
                      deriving (Typeable, Show)
 
 instance Exception AccessPathError
@@ -60,13 +63,14 @@ instance Hashable AbstractAccessPath where
   hashWithSalt s (AbstractAccessPath bt et cs) =
     s `hashWithSalt` bt `hashWithSalt` et `hashWithSalt` cs
 
-appendAccessPath :: AbstractAccessPath
+appendAccessPath :: (Failure AccessPathError m)
+                    => AbstractAccessPath
                     -> AbstractAccessPath
-                    -> Maybe AbstractAccessPath
+                    -> m AbstractAccessPath
 appendAccessPath (AbstractAccessPath bt1 et1 cs1) (AbstractAccessPath bt2 et2 cs2) =
   case et1 == bt2 of
-    True -> Just $ AbstractAccessPath bt1 et2 (cs1 ++ cs2)
-    False -> Nothing
+    True -> return $ AbstractAccessPath bt1 et2 (cs1 ++ cs2)
+    False -> F.failure $ EndpointTypeMismatch et1 bt2
 
 -- | If the access path has more than one field access component, take
 -- the first field access and the base type to compute a new base type
@@ -74,19 +78,20 @@ appendAccessPath (AbstractAccessPath bt1 et1 cs1) (AbstractAccessPath bt2 et2 cs
 -- components.  Also allows for the discarding of array accesses.
 --
 -- Each call reduces the access path by one component
-reduceAccessPath :: AbstractAccessPath -> Maybe AbstractAccessPath
+reduceAccessPath :: (Failure AccessPathError m)
+                    => AbstractAccessPath -> m AbstractAccessPath
 reduceAccessPath (AbstractAccessPath (TypePointer t _) et (AccessDeref:cs)) =
   return $! AbstractAccessPath t et cs
 -- FIXME: Some times (e.g., pixmap), the field number is out of range.
 -- Have to figure out what could possibly cause that. Until then, just
 -- ignore those cases.  Users of this are working at best-effort anyway.
-reduceAccessPath (AbstractAccessPath (TypeStruct _ ts _) et (AccessField fldNo:cs)) =
+reduceAccessPath p@(AbstractAccessPath (TypeStruct _ ts _) et (AccessField fldNo:cs)) =
   case fldNo < length ts of
     True -> return $! AbstractAccessPath (ts !! fldNo) et cs
-    False -> Nothing
+    False -> F.failure $ IrreducableAccessPath p
 reduceAccessPath (AbstractAccessPath (TypeArray _ t) et (AccessArray:cs)) =
   return $! AbstractAccessPath t et cs
-reduceAccessPath _ = Nothing
+reduceAccessPath p = F.failure $ IrreducableAccessPath p
 
 instance NFData AbstractAccessPath where
   rnf a@(AbstractAccessPath _ _ ts) = ts `deepseq` a `seq` ()
@@ -204,10 +209,13 @@ accessPath i = do
 -- exposed via the access path abstraction have the same definition in
 -- all compilation units.  Ensuring this between runs is basically
 -- impossible, but it is pretty much always the case.
-externalizeAccessPath :: AbstractAccessPath -> Maybe (String, [AccessType])
-externalizeAccessPath accPath = do
-  baseName <- structTypeToName (stripPointerTypes bt)
-  return (baseName, abstractAccessPathComponents accPath)
+externalizeAccessPath :: (Failure AccessPathError m)
+                         => AbstractAccessPath
+                         -> m (String, [AccessType])
+externalizeAccessPath accPath =
+  maybe (F.failure (CannotExternalizeType bt)) return $ do
+    baseName <- structTypeToName (stripPointerTypes bt)
+    return (baseName, abstractAccessPathComponents accPath)
   where
     bt = abstractAccessPathBaseType accPath
 
