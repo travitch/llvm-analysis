@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification, DeriveDataTypeable #-}
 -- | Various functions to help test this library and analyses based on
 -- it.
 --
@@ -35,6 +35,7 @@
 module LLVM.Analysis.Util.Testing (
   -- * Types
   TestDescriptor(..),
+  BuildException(..),
   -- * Actions
   testAgainstExpected,
   -- * Helpers
@@ -42,7 +43,9 @@ module LLVM.Analysis.Util.Testing (
   readInputAndExpected
   ) where
 
+import Control.Exception as E
 import Control.Monad ( when )
+import Data.Typeable ( Typeable )
 import System.Directory ( findExecutable )
 import System.Environment ( getEnv )
 import System.Exit ( ExitCode(ExitSuccess) )
@@ -57,6 +60,14 @@ import Test.Framework.Providers.HUnit
 
 import LLVM.Analysis
 
+data BuildException = ClangFailed FilePath ExitCode
+                    | NoBuildMethodForInput FilePath
+                    | OptFailed FilePath ExitCode
+                    | NoOptBinaryFound
+                    deriving (Typeable, Show)
+
+instance Exception BuildException
+
 -- | A description of a set of tests.
 data TestDescriptor =
   forall a. (Read a) => TestDescriptor {
@@ -70,7 +81,7 @@ data TestDescriptor =
 -- return the expected output.
 readInputAndExpected :: (Read a)
                         => [String] -- ^ Arguments for opt
-                        -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file bytestring into a Module
+                        -> (FilePath -> IO Module) -- ^ A function to turn a bitcode file bytestring into a Module
                         -> (FilePath -> FilePath) -- ^ The function to map an input file name to the expected output file
                         -> FilePath -- ^ The input file
                         -> IO (FilePath, Module, a)
@@ -80,7 +91,7 @@ readInputAndExpected optOpts parseFile expectedFunc inputFile = do
   -- use seq here to force the full evaluation of the read file.
   let expected = length exContent `seq` read exContent
   m <- buildModule optOpts parseFile inputFile
-  return $ either error (\m' -> (inputFile, m', expected)) m
+  return (inputFile, m, expected)
 
 -- | This is the main test suite entry point.  It takes a bitcode
 -- parser and a list of test suites.
@@ -88,7 +99,7 @@ readInputAndExpected optOpts parseFile expectedFunc inputFile = do
 -- The bitcode parser is taken as an input so that this library does
 -- not have a direct dependency on any FFI code.
 testAgainstExpected :: [String] -- ^ Options for opt
-                       -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file bytestring into a Module
+                       -> (FilePath -> IO Module) -- ^ A function to turn a bitcode file bytestring into a Module
                        -> [TestDescriptor] -- ^ The list of test suites to run
                        -> IO ()
 testAgainstExpected optOpts parseFile testDescriptors = do
@@ -121,7 +132,7 @@ optify args inp optFile = do
   let cmd = P.proc opt ("-o" : optFile : inp : args)
   (_, _, _, p) <- createProcess cmd
   rc <- waitForProcess p
-  when (rc /= ExitSuccess) (ioError (userError ("LLVM.Analysis.Util.Testing.optify: Could not optimize " ++ inp)))
+  when (rc /= ExitSuccess) $ E.throwIO $ OptFailed inp rc
 
 -- | Given an input file, bitcode parsing function, and options to
 -- pass to opt, return a Module.  The input file can be C, C++, or
@@ -130,9 +141,9 @@ optify args inp optFile = do
 -- Note that this function returns an Either value to report some
 -- kinds of errors.  It can also raise IOErrors.
 buildModule ::  [String] -- ^ Optimization options (passed to opt) for the module.  opt is not run if the list is empty
-                -> (FilePath -> IO (Either String Module)) -- ^ A function to turn a bitcode file into a Module
+                -> (FilePath -> IO Module) -- ^ A function to turn a bitcode file into a Module
                 -> FilePath -- ^ The input file (either bitcode or C/C++)
-                -> IO (Either String Module)
+                -> IO Module
 buildModule optOpts parseFile inputFilePath = do
   clang <- catchIOError (getEnv "LLVM_CLANG") (const (return "clang"))
   clangxx <- catchIOError (getEnv "LLVM_CLANGXX") (const (return "clang++"))
@@ -143,7 +154,7 @@ buildModule optOpts parseFile inputFilePath = do
     ".C" -> clangBuilder inputFilePath clangxx
     ".cxx" -> clangBuilder inputFilePath clangxx
     ".cpp" -> clangBuilder inputFilePath clangxx
-    _ -> return $ Left ("LLVM.Analysis.Util.Testing.buildModule: No build method for test input " ++ inputFilePath)
+    _ -> E.throwIO $ NoBuildMethodForInput inputFilePath
   where
     simpleBuilder inp
       | null optOpts = parseFile inp
@@ -157,7 +168,7 @@ buildModule optOpts parseFile inputFilePath = do
         let baseCmd = proc driver ["-emit-llvm", "-o" , baseFname, "-c", inp]
         (_, _, _, p) <- createProcess baseCmd
         rc <- waitForProcess p
-        when (rc /= ExitSuccess) (ioError (userError ("LLVM.Analysis.Util.Testing.buildModule.clangBuilder: Could not compile input to bitcode: " ++ inp)))
+        when (rc /= ExitSuccess) $ E.throwIO $ ClangFailed inputFilePath rc
         case null optOpts of
           True -> parseFile baseFname
           False ->
@@ -174,8 +185,7 @@ findOpt = do
   let fbin = findBin [ "opt", "opt-3.2", "opt-3.1", "opt-3.0" ]
   catchIOError (getEnv "LLVM_OPT") (const fbin)
   where
-    err e = ioError $ mkIOError doesNotExistErrorType e Nothing Nothing
-    findBin [] = err "No opt binary found available"
+    findBin [] = E.throwIO NoOptBinaryFound
     findBin (bin:bins) = do
       b <- findExecutable bin
       case b of
