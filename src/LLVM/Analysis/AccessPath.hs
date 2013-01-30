@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable, FlexibleContexts, DeriveGeneric #-}
+{-# LANGUAGE ViewPatterns #-}
 -- | This module defines an abstraction over field accesses of
 -- structures called AccessPaths.  A concrete access path is rooted at
 -- a value, while an abstract access path is rooted at a type.  Both
@@ -51,7 +52,7 @@ instance Exception AccessPathError
 data AbstractAccessPath =
   AbstractAccessPath { abstractAccessPathBaseType :: Type
                      , abstractAccessPathEndType :: Type
-                     , abstractAccessPathComponents :: [AccessType]
+                     , abstractAccessPathComponents :: [(Type, AccessType)]
                      }
   deriving (Eq, Ord, Generic)
 
@@ -80,16 +81,16 @@ appendAccessPath (AbstractAccessPath bt1 et1 cs1) (AbstractAccessPath bt2 et2 cs
 -- Each call reduces the access path by one component
 reduceAccessPath :: (Failure AccessPathError m)
                     => AbstractAccessPath -> m AbstractAccessPath
-reduceAccessPath (AbstractAccessPath (TypePointer t _) et (AccessDeref:cs)) =
+reduceAccessPath (AbstractAccessPath (TypePointer t _) et ((_, AccessDeref):cs)) =
   return $! AbstractAccessPath t et cs
 -- FIXME: Some times (e.g., pixmap), the field number is out of range.
 -- Have to figure out what could possibly cause that. Until then, just
 -- ignore those cases.  Users of this are working at best-effort anyway.
-reduceAccessPath p@(AbstractAccessPath (TypeStruct _ ts _) et (AccessField fldNo:cs)) =
+reduceAccessPath p@(AbstractAccessPath (TypeStruct _ ts _) et ((_,AccessField fldNo):cs)) =
   case fldNo < length ts of
     True -> return $! AbstractAccessPath (ts !! fldNo) et cs
     False -> F.failure $ IrreducableAccessPath p
-reduceAccessPath (AbstractAccessPath (TypeArray _ t) et (AccessArray:cs)) =
+reduceAccessPath (AbstractAccessPath (TypeArray _ t) et ((_,AccessArray):cs)) =
   return $! AbstractAccessPath t et cs
 reduceAccessPath p = F.failure $ IrreducableAccessPath p
 
@@ -98,8 +99,8 @@ instance NFData AbstractAccessPath where
 
 data AccessPath =
   AccessPath { accessPathBaseValue :: Value
-             , accessPathEndValue :: Value
-             , accessPathComponents :: [AccessType]
+             , accessPathEndType :: Type
+             , accessPathComponents :: [(Type, AccessType)]
              }
   deriving (Generic, Eq, Ord)
 
@@ -138,7 +139,7 @@ followAccessPath aap@(AbstractAccessPath bt _ components) val =
     False -> walk components val
   where
     walk [] v = return v
-    walk (AccessField ix : rest) v =
+    walk ((_, AccessField ix) : rest) v =
       case valueContent' v of
         ConstantC ConstantStruct { constantStructValues = vs } ->
           case ix < length vs of
@@ -150,29 +151,62 @@ followAccessPath aap@(AbstractAccessPath bt _ components) val =
     walk _ _ = F.failure (CannotFollowPath aap val)
 
 abstractAccessPath :: AccessPath -> AbstractAccessPath
-abstractAccessPath (AccessPath v v0 p) =
-  AbstractAccessPath (valueType v) (valueType v0) p
+abstractAccessPath (AccessPath v t p) =
+  AbstractAccessPath (valueType v) t p
 
+-- | For Store, RMW, and CmpXchg instructions, the returned access
+-- path describes the field /stored to/.  For Load instructions, the
+-- returned access path describes the field loaded.  For
+-- GetElementPtrInsts, the returned access path describes the field
+-- whose address was taken/computed.
 accessPath :: (Failure AccessPathError m) => Instruction -> m AccessPath
-accessPath i = do
-  cpath <- case i of
-    LoadInst { loadAddress = la } ->
-      return $! go (AccessPath la (toValue i) []) la
+accessPath i =
+  case i of
     StoreInst { storeAddress = sa, storeValue = sv } ->
-      return $! go (AccessPath sa sv []) sa
-    AtomicCmpXchgInst { atomicCmpXchgPointer = p } ->
-      return $! go (AccessPath p p []) p
-    AtomicRMWInst { atomicRMWPointer = p } ->
-      return $! go (AccessPath p p []) p
+      return $! go (AccessPath sa (valueType sv) []) sa
+    LoadInst { loadAddress = la } ->
+      return $! go (AccessPath la (valueType i) []) la
+    AtomicCmpXchgInst { atomicCmpXchgPointer = p
+                      , atomicCmpXchgNewValue = nv
+                      } ->
+      return $! go (AccessPath p (valueType nv) []) p
+    AtomicRMWInst { atomicRMWPointer = p
+                  , atomicRMWValue = v
+                  } ->
+      return $! go (AccessPath p (valueType v) []) p
     GetElementPtrInst {} ->
-      return $! go (AccessPath (toValue i) (toValue i) []) (toValue i)
+      return $! go (AccessPath (toValue i) (valueType i) []) (toValue i)
     _ -> F.failure (NotMemoryInstruction i)
-  return $! addBaseDeref cpath
   where
-    addBaseDeref p =
-      p { accessPathComponents = AccessDeref : accessPathComponents p }
     go p v =
       case valueContent' v of
+        InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' -> InstructionC LoadInst { loadAddress = la })
+                                       , getElementPtrIndices = [_]
+                                       } ->
+          let p' = p { accessPathBaseValue = la
+                     , accessPathComponents = (valueType v, AccessArray) : accessPathComponents p
+                     }
+          in go p' la
+        InstructionC GetElementPtrInst { getElementPtrValue = base
+                                       , getElementPtrIndices = [_]
+                                       } ->
+          let p' = p { accessPathBaseValue = base
+                     , accessPathComponents = (valueType v, AccessArray) : accessPathComponents p
+                     }
+          in go p' base
+        InstructionC GetElementPtrInst { getElementPtrValue = base@(valueContent' -> InstructionC LoadInst { loadAddress = la })
+                                       , getElementPtrIndices = ixs
+                                       } ->
+          -- Note we need to pass the un-casted base to gepIndexFold
+          -- so that it computes its types properly.  If we give it
+          -- the value with the bitcast stripped off, it will just
+          -- look like a random pointer (instead of a pointer to a
+          -- struct).
+          let p' = p { accessPathBaseValue = la
+                     , accessPathComponents =
+                       gepIndexFold base ixs ++ accessPathComponents p
+                     }
+          in go p' la
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = ixs
                                        } ->
@@ -193,7 +227,7 @@ accessPath i = do
         InstructionC LoadInst { loadAddress = la } ->
           let p' = p { accessPathBaseValue  = la
                      , accessPathComponents =
-                          AccessDeref : accessPathComponents p
+                          (valueType v, AccessDeref) : accessPathComponents p
                      }
           in go p' la
         _ -> p { accessPathBaseValue = v }
@@ -215,7 +249,7 @@ externalizeAccessPath :: (Failure AccessPathError m)
 externalizeAccessPath accPath =
   maybe (F.failure (CannotExternalizeType bt)) return $ do
     baseName <- structTypeToName (stripPointerTypes bt)
-    return (baseName, abstractAccessPathComponents accPath)
+    return (baseName, map snd $ abstractAccessPathComponents accPath)
   where
     bt = abstractAccessPathBaseType accPath
 
@@ -226,28 +260,29 @@ derefPointerType :: Type -> Type
 derefPointerType (TypePointer p _) = p
 derefPointerType t = error ("LLVM.Analysis.AccessPath.derefPointerType: Type is not a pointer type: " ++ show t)
 
-gepIndexFold :: Value -> [Value] -> [AccessType]
+gepIndexFold :: Value -> [Value] -> [(Type, AccessType)]
 gepIndexFold base indices@(ptrIx : ixs) =
   -- GEPs always have a pointer as the base operand
-  let TypePointer baseType _ = valueType base
+  let ty@(TypePointer baseType _) = valueType base
   in case valueContent ptrIx of
     ConstantC ConstantInt { constantIntValue = 0 } ->
       snd $ foldl' walkGep (baseType, []) ixs
     _ ->
-      snd $ foldl' walkGep (baseType, [AccessArray]) ixs
+      snd $ foldl' walkGep (baseType, [(ty, AccessArray)]) ixs
   where
     walkGep (ty, acc) ix =
       case ty of
         -- If the current type is a pointer, this must be an array
         -- access; that said, this wouldn't even be allowed because a
         -- pointer would have to go through a Load...  check this
-        TypePointer ty' _ -> (ty', AccessArray : acc)
-        TypeArray _ ty' -> (ty', AccessArray : acc)
+        TypePointer ty' _ -> (ty', (ty, AccessArray) : acc)
+        TypeArray _ ty' -> (ty', (ty, AccessArray) : acc)
         TypeStruct _ ts _ ->
           case valueContent ix of
             ConstantC ConstantInt { constantIntValue = fldNo } ->
               let fieldNumber = fromIntegral fldNo
-              in (ts !! fieldNumber, AccessField fieldNumber : acc)
+                  ty' = ts !! fieldNumber
+              in (ty', (ty', AccessField fieldNumber) : acc)
             _ -> error ("LLVM.Analysis.AccessPath.gepIndexFold.walkGep: Invalid non-constant GEP index for struct: " ++ show ty)
         _ -> error ("LLVM.Analysis.AccessPath.gepIndexFold.walkGep: Unexpected type in GEP: " ++ show ty)
 gepIndexFold v [] =

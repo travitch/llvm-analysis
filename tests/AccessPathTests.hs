@@ -47,7 +47,7 @@ extractFirstFuncPath f = (show (functionName f), summ)
     Just p = accessPath firstStore
     p' = abstractAccessPath p
     summ = (show (abstractAccessPathBaseType p'),
-            abstractAccessPathComponents p')
+            map snd $ abstractAccessPathComponents p')
 
 isStore :: Instruction -> Bool
 isStore StoreInst {} = True
