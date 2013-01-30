@@ -90,7 +90,7 @@ readInputAndExpected optOpts parseFile expectedFunc inputFile = do
   exContent <- readFile exFile
   -- use seq here to force the full evaluation of the read file.
   let expected = length exContent `seq` read exContent
-  m <- buildModule optOpts parseFile inputFile
+  m <- buildModule [] optOpts parseFile inputFile
   return (inputFile, m, expected)
 
 -- | This is the main test suite entry point.  It takes a bitcode
@@ -140,18 +140,19 @@ optify args inp optFile = do
 --
 -- Note that this function returns an Either value to report some
 -- kinds of errors.  It can also raise IOErrors.
-buildModule ::  [String] -- ^ Optimization options (passed to opt) for the module.  opt is not run if the list is empty
-                -> (FilePath -> IO Module) -- ^ A function to turn a bitcode file into a Module
-                -> FilePath -- ^ The input file (either bitcode or C/C++)
-                -> IO Module
-buildModule optOpts parseFile inputFilePath = do
+buildModule :: [String]                 -- ^ Front-end options (passed to clang) for the module.
+            -> [String]                 -- ^ Optimization options (passed to opt) for the module.  opt is not run if the list is empty
+            -> (FilePath -> IO Module)  -- ^ A function to turn a bitcode file into a Module
+            -> FilePath                 -- ^ The input file (either bitcode or C/C++)
+            -> IO Module
+buildModule clangOpts optOpts parseFile inputFilePath = do
   clang <- catchIOError (getEnv "LLVM_CLANG") (const (return "clang"))
   clangxx <- catchIOError (getEnv "LLVM_CLANGXX") (const (return "clang++"))
   case takeExtension inputFilePath of
-    ".ll" -> simpleBuilder inputFilePath
-    ".bc" -> simpleBuilder inputFilePath
-    ".c" -> clangBuilder inputFilePath clang
-    ".C" -> clangBuilder inputFilePath clangxx
+    ".ll"  -> simpleBuilder inputFilePath
+    ".bc"  -> simpleBuilder inputFilePath
+    ".c"   -> clangBuilder inputFilePath clang
+    ".C"   -> clangBuilder inputFilePath clangxx
     ".cxx" -> clangBuilder inputFilePath clangxx
     ".cpp" -> clangBuilder inputFilePath clangxx
     _ -> E.throwIO $ NoBuildMethodForInput inputFilePath
@@ -165,12 +166,12 @@ buildModule optOpts parseFile inputFilePath = do
 
     clangBuilder inp driver =
       withSystemTempFile ("base_" ++ takeFileName inp) $ \baseFname _ -> do
-        let baseCmd = proc driver ["-emit-llvm", "-o" , baseFname, "-c", inp]
-        (_, _, _, p) <- createProcess baseCmd
+        let cOpts     = clangOpts ++ ["-emit-llvm", "-o" , baseFname, "-c", inp]
+        (_, _, _, p) <- createProcess $ proc driver cOpts
         rc <- waitForProcess p
         when (rc /= ExitSuccess) $ E.throwIO $ ClangFailed inputFilePath rc
         case null optOpts of
-          True -> parseFile baseFname
+          True  -> parseFile baseFname
           False ->
             withSystemTempFile ("opt_" ++ takeFileName inp) $ \optFname _ -> do
               optify optOpts baseFname optFname
