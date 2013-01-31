@@ -8,7 +8,9 @@
 module LLVM.Analysis.AccessPath (
   -- * Types
   AccessPath(..),
+  accessPathComponents,
   AbstractAccessPath(..),
+  abstractAccessPathComponents,
   AccessType(..),
   AccessPathError,
   -- * Constructor
@@ -52,9 +54,12 @@ instance Exception AccessPathError
 data AbstractAccessPath =
   AbstractAccessPath { abstractAccessPathBaseType :: Type
                      , abstractAccessPathEndType :: Type
-                     , abstractAccessPathComponents :: [(Type, AccessType)]
+                     , abstractAccessPathTaggedComponents :: [(Type, AccessType)]
                      }
   deriving (Eq, Ord, Generic)
+
+abstractAccessPathComponents :: AbstractAccessPath -> [AccessType]
+abstractAccessPathComponents = map snd . abstractAccessPathTaggedComponents
 
 instance Out AbstractAccessPath
 instance Show AbstractAccessPath where
@@ -100,9 +105,12 @@ instance NFData AbstractAccessPath where
 data AccessPath =
   AccessPath { accessPathBaseValue :: Value
              , accessPathEndType :: Type
-             , accessPathComponents :: [(Type, AccessType)]
+             , accessPathTaggedComponents :: [(Type, AccessType)]
              }
   deriving (Generic, Eq, Ord)
+
+accessPathComponents :: AccessPath -> [AccessType]
+accessPathComponents = map snd . accessPathTaggedComponents
 
 instance Out AccessPath
 instance Show AccessPath where
@@ -180,23 +188,23 @@ accessPath i =
   where
     addDeref p =
       let t = valueType (accessPathBaseValue p)
-          cs' = (t, AccessDeref) : accessPathComponents p
-      in p { accessPathComponents = cs' }
+          cs' = (t, AccessDeref) : accessPathTaggedComponents p
+      in p { accessPathTaggedComponents = cs' }
     go p v =
       case valueContent' v of
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = [_]
                                        } ->
           let p' = p { accessPathBaseValue = base
-                     , accessPathComponents = (valueType v, AccessArray) : accessPathComponents p
+                     , accessPathTaggedComponents = (valueType v, AccessArray) : accessPathTaggedComponents p
                      }
           in go p' base
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = ixs
                                        } ->
           let p' = p { accessPathBaseValue = base
-                     , accessPathComponents =
-                       gepIndexFold base ixs ++ accessPathComponents p
+                     , accessPathTaggedComponents =
+                       gepIndexFold base ixs ++ accessPathTaggedComponents p
                      }
           in go p' base
         ConstantC ConstantValue { constantInstruction =
@@ -204,14 +212,14 @@ accessPath i =
                             , getElementPtrIndices = ixs
                             } } ->
           let p' = p { accessPathBaseValue = base
-                     , accessPathComponents =
-                       gepIndexFold base ixs ++ accessPathComponents p
+                     , accessPathTaggedComponents =
+                       gepIndexFold base ixs ++ accessPathTaggedComponents p
                      }
           in go p' base
         InstructionC LoadInst { loadAddress = la } ->
           let p' = p { accessPathBaseValue  = la
-                     , accessPathComponents =
-                          (valueType v, AccessDeref) : accessPathComponents p
+                     , accessPathTaggedComponents =
+                          (valueType v, AccessDeref) : accessPathTaggedComponents p
                      }
           in go p' la
         _ -> p { accessPathBaseValue = v }
@@ -233,7 +241,7 @@ externalizeAccessPath :: (Failure AccessPathError m)
 externalizeAccessPath accPath =
   maybe (F.failure (CannotExternalizeType bt)) return $ do
     baseName <- structTypeToName (stripPointerTypes bt)
-    return (baseName, map snd $ abstractAccessPathComponents accPath)
+    return (baseName, abstractAccessPathComponents accPath)
   where
     bt = abstractAccessPathBaseType accPath
 
