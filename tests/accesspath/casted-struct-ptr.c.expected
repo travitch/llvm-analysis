@@ -1,0 +1,1 @@
+fromList [ ("@f", ("%struct.T*", [AccessDeref, AccessField 0, AccessDeref, AccessField 1]) ) ]

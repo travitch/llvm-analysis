@@ -163,30 +163,27 @@ accessPath :: (Failure AccessPathError m) => Instruction -> m AccessPath
 accessPath i =
   case i of
     StoreInst { storeAddress = sa, storeValue = sv } ->
-      return $! go (AccessPath sa (valueType sv) []) sa
+      return $! addDeref $ go (AccessPath sa (valueType sv) []) sa
     LoadInst { loadAddress = la } ->
-      return $! go (AccessPath la (valueType i) []) la
+      return $! addDeref $ go (AccessPath la (valueType i) []) la
     AtomicCmpXchgInst { atomicCmpXchgPointer = p
                       , atomicCmpXchgNewValue = nv
                       } ->
-      return $! go (AccessPath p (valueType nv) []) p
+      return $! addDeref $ go (AccessPath p (valueType nv) []) p
     AtomicRMWInst { atomicRMWPointer = p
                   , atomicRMWValue = v
                   } ->
-      return $! go (AccessPath p (valueType v) []) p
+      return $! addDeref $ go (AccessPath p (valueType v) []) p
     GetElementPtrInst {} ->
       return $! go (AccessPath (toValue i) (valueType i) []) (toValue i)
     _ -> F.failure (NotMemoryInstruction i)
   where
+    addDeref p =
+      let t = valueType (accessPathBaseValue p)
+          cs' = (t, AccessDeref) : accessPathComponents p
+      in p { accessPathComponents = cs' }
     go p v =
       case valueContent' v of
-        InstructionC GetElementPtrInst { getElementPtrValue = (valueContent' -> InstructionC LoadInst { loadAddress = la })
-                                       , getElementPtrIndices = [_]
-                                       } ->
-          let p' = p { accessPathBaseValue = la
-                     , accessPathComponents = (valueType v, AccessArray) : accessPathComponents p
-                     }
-          in go p' la
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = [_]
                                        } ->
@@ -194,19 +191,6 @@ accessPath i =
                      , accessPathComponents = (valueType v, AccessArray) : accessPathComponents p
                      }
           in go p' base
-        InstructionC GetElementPtrInst { getElementPtrValue = base@(valueContent' -> InstructionC LoadInst { loadAddress = la })
-                                       , getElementPtrIndices = ixs
-                                       } ->
-          -- Note we need to pass the un-casted base to gepIndexFold
-          -- so that it computes its types properly.  If we give it
-          -- the value with the bitcast stripped off, it will just
-          -- look like a random pointer (instead of a pointer to a
-          -- struct).
-          let p' = p { accessPathBaseValue = la
-                     , accessPathComponents =
-                       gepIndexFold base ixs ++ accessPathComponents p
-                     }
-          in go p' la
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = ixs
                                        } ->
