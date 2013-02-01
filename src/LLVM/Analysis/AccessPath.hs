@@ -27,7 +27,7 @@ import Control.Exception
 import Control.Failure hiding ( failure )
 import qualified Control.Failure as F
 import Data.Hashable
-import Data.List ( foldl' )
+import qualified Data.List as L
 import Data.Typeable
 import Text.PrettyPrint.GenericPretty
 
@@ -124,8 +124,18 @@ instance Hashable AccessPath where
     s `hashWithSalt` bv `hashWithSalt` ev `hashWithSalt` cs
 
 data AccessType = AccessField !Int
+                  -- ^ Field access of the field with this index
+                | AccessUnion
+                  -- ^ A union access.  The union discriminator is the
+                  -- /type/ that this AccessType is tagged with in the
+                  -- AccessPath.  Unions in LLVM do not have an
+                  -- explicit representation of their fields, so there
+                  -- is no index possible here.
                 | AccessArray
+                  -- ^ An array access; all array elements are treated
+                  -- as a unit
                 | AccessDeref
+                  -- ^ A plain pointer dereference
                 deriving (Read, Show, Eq, Ord, Generic)
 
 instance Out AccessType
@@ -137,6 +147,7 @@ instance NFData AccessType where
 instance Hashable AccessType where
   hashWithSalt s (AccessField ix) =
     s `hashWithSalt` (1 :: Int) `hashWithSalt` ix
+  hashWithSalt s AccessUnion = s `hashWithSalt` (154 :: Int)
   hashWithSalt s AccessArray = s `hashWithSalt` (26 :: Int)
   hashWithSalt s AccessDeref = s `hashWithSalt` (300 :: Int)
 
@@ -183,7 +194,12 @@ accessPath i =
                   } ->
       return $! addDeref $ go (AccessPath p (valueType v) []) p
     GetElementPtrInst {} ->
-      return $! go (AccessPath (toValue i) (valueType i) []) (toValue i)
+      -- FIXME: Should this really get a deref tag?  Unclear...
+      return $! addDeref $ go (AccessPath (toValue i) (valueType i) []) (toValue i)
+    -- If this is an argument to a function call, it could be a
+    -- bitcasted GEP or Load
+    BitcastInst { castedValue = (valueContent' -> InstructionC i') } ->
+      accessPath i'
     _ -> F.failure (NotMemoryInstruction i)
   where
     addDeref p =
@@ -191,7 +207,28 @@ accessPath i =
           cs' = (t, AccessDeref) : accessPathTaggedComponents p
       in p { accessPathTaggedComponents = cs' }
     go p v =
-      case valueContent' v of
+      case valueContent v of
+        -- This case is just like a field access, but it is really a
+        -- union reference.  We need to treat these specially,
+        -- otherwise we treat all union entries as equivalent.
+        --
+        -- The critical part of this case is the guard
+        -- 'isUnionPointerType'; the GEP itself doesn't tell us what
+        -- field is accessed (since there are technically no fields) -
+        -- the bitcast is the only information we have.
+        InstructionC BitcastInst { castedValue = cv@(valueContent ->
+          InstructionC GetElementPtrInst { getElementPtrValue = base }) }
+            | isUnionPointerType (valueType cv) ->
+              let p' = p { accessPathBaseValue = base
+                         , accessPathTaggedComponents =
+                           (valueType v, AccessUnion) : accessPathTaggedComponents p
+                         }
+              in go p' base
+
+        InstructionC BitcastInst { castedValue = cv } ->
+          go p cv
+        ConstantC ConstantValue { constantInstruction = BitcastInst { castedValue = cv } } ->
+          go p cv
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = [_]
                                        } ->
@@ -224,6 +261,13 @@ accessPath i =
           in go p' la
         _ -> p { accessPathBaseValue = v }
 
+isUnionPointerType :: Type -> Bool
+isUnionPointerType t =
+  case t of
+    TypePointer (TypeStruct (Just name) _ _) _ ->
+      L.isPrefixOf "union." name
+    _ -> False
+
 -- | Convert an 'AbstractAccessPath' to a format that can be written
 -- to disk and read back into another process.  The format is the pair
 -- of the base name of the structure field being accessed (with
@@ -253,14 +297,14 @@ derefPointerType (TypePointer p _) = p
 derefPointerType t = error ("LLVM.Analysis.AccessPath.derefPointerType: Type is not a pointer type: " ++ show t)
 
 gepIndexFold :: Value -> [Value] -> [(Type, AccessType)]
-gepIndexFold base indices@(ptrIx : ixs) =
+gepIndexFold base (ptrIx : ixs) =
   -- GEPs always have a pointer as the base operand
   let ty@(TypePointer baseType _) = valueType base
   in case valueContent ptrIx of
     ConstantC ConstantInt { constantIntValue = 0 } ->
-      snd $ foldl' walkGep (baseType, []) ixs
+      snd $ L.foldl' walkGep (baseType, []) ixs
     _ ->
-      snd $ foldl' walkGep (baseType, [(ty, AccessArray)]) ixs
+      snd $ L.foldl' walkGep (baseType, [(ty, AccessArray)]) ixs
   where
     walkGep (ty, acc) ix =
       case ty of
