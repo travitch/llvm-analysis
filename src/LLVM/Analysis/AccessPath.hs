@@ -208,25 +208,18 @@ accessPath i =
       in p { accessPathTaggedComponents = cs' }
     go p v =
       case valueContent v of
-        -- This case is just like a field access, but it is really a
-        -- union reference.  We need to treat these specially,
-        -- otherwise we treat all union entries as equivalent.
-        --
-        -- The critical part of this case is the guard
-        -- 'isUnionPointerType'; the GEP itself doesn't tell us what
-        -- field is accessed (since there are technically no fields) -
-        -- the bitcast is the only information we have.
-        InstructionC BitcastInst { castedValue = cv@(valueContent ->
-          InstructionC GetElementPtrInst { getElementPtrValue = base }) }
-            | isUnionPointerType (valueType cv) ->
-              let p' = p { accessPathBaseValue = base
-                         , accessPathTaggedComponents =
-                           (valueType v, AccessUnion) : accessPathTaggedComponents p
-                         }
-              in go p' base
-
-        InstructionC BitcastInst { castedValue = cv } ->
-          go p cv
+        -- Unions have no representation in the IR; the only way we
+        -- can identify a union is by looking for instances where a
+        -- struct pointer type beginning with '%union.' is being cast
+        -- into something else.  This lets us know the union variant
+        -- being accessed.
+        InstructionC BitcastInst { castedValue = cv }
+          | isUnionPointerType (valueType cv) ->
+            let p' = p { accessPathTaggedComponents =
+                            (valueType v, AccessUnion) : accessPathTaggedComponents p
+                       }
+            in go p' cv
+          | otherwise -> go p cv
         ConstantC ConstantValue { constantInstruction = BitcastInst { castedValue = cv } } ->
           go p cv
         InstructionC GetElementPtrInst { getElementPtrValue = base
