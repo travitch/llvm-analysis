@@ -12,7 +12,7 @@ module LLVM.Analysis.AccessPath (
   AbstractAccessPath(..),
   abstractAccessPathComponents,
   AccessType(..),
-  AccessPathError,
+  AccessPathError(..),
   -- * Constructor
   accessPath,
   abstractAccessPath,
