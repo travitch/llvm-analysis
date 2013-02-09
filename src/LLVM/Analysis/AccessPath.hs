@@ -104,6 +104,11 @@ instance NFData AbstractAccessPath where
 
 data AccessPath =
   AccessPath { accessPathBaseValue :: Value
+             , accessPathBaseType :: Type
+               -- ^ If there are some wonky bitcasts in play, this
+               -- type records the real type of this path, even if the
+               -- base was something unrelated and bitcast.  The real
+               -- type is the type casted /to/.
              , accessPathEndType :: Type
              , accessPathTaggedComponents :: [(Type, AccessType)]
              }
@@ -117,11 +122,11 @@ instance Show AccessPath where
   show = pretty
 
 instance NFData AccessPath where
-  rnf a@(AccessPath _ _ ts) = ts `deepseq` a `seq` ()
+  rnf a@(AccessPath _ _ _ ts) = ts `deepseq` a `seq` ()
 
 instance Hashable AccessPath where
-  hashWithSalt s (AccessPath bv ev cs) =
-    s `hashWithSalt` bv `hashWithSalt` ev `hashWithSalt` cs
+  hashWithSalt s (AccessPath bv bt ev cs) =
+    s `hashWithSalt` bv `hashWithSalt` bt `hashWithSalt` ev `hashWithSalt` cs
 
 data AccessType = AccessField !Int
                   -- ^ Field access of the field with this index
@@ -170,8 +175,8 @@ followAccessPath aap@(AbstractAccessPath bt _ components) val =
     walk _ _ = F.failure (CannotFollowPath aap val)
 
 abstractAccessPath :: AccessPath -> AbstractAccessPath
-abstractAccessPath (AccessPath v t p) =
-  AbstractAccessPath (valueType v) t p
+abstractAccessPath (AccessPath _ vt t p) =
+  AbstractAccessPath vt t p
 
 -- | For Store, RMW, and CmpXchg instructions, the returned access
 -- path describes the field /stored to/.  For Load instructions, the
@@ -182,20 +187,20 @@ accessPath :: (Failure AccessPathError m) => Instruction -> m AccessPath
 accessPath i =
   case i of
     StoreInst { storeAddress = sa, storeValue = sv } ->
-      return $! addDeref $ go (AccessPath sa (valueType sv) []) sa
+      return $! addDeref $ go (AccessPath sa (valueType sa) (valueType sv) []) (valueType sa) sa
     LoadInst { loadAddress = la } ->
-      return $! addDeref $ go (AccessPath la (valueType i) []) la
+      return $! addDeref $ go (AccessPath la (valueType la) (valueType i) []) (valueType la) la
     AtomicCmpXchgInst { atomicCmpXchgPointer = p
                       , atomicCmpXchgNewValue = nv
                       } ->
-      return $! addDeref $ go (AccessPath p (valueType nv) []) p
+      return $! addDeref $ go (AccessPath p (valueType p) (valueType nv) []) (valueType p) p
     AtomicRMWInst { atomicRMWPointer = p
                   , atomicRMWValue = v
                   } ->
-      return $! addDeref $ go (AccessPath p (valueType v) []) p
+      return $! addDeref $ go (AccessPath p (valueType p) (valueType v) []) (valueType p) p
     GetElementPtrInst {} ->
       -- FIXME: Should this really get a deref tag?  Unclear...
-      return $! addDeref $ go (AccessPath (toValue i) (valueType i) []) (toValue i)
+      return $! addDeref $ go (AccessPath (toValue i) (valueType i) (valueType i) []) (valueType i) (toValue i)
     -- If this is an argument to a function call, it could be a
     -- bitcasted GEP or Load
     BitcastInst { castedValue = (valueContent' -> InstructionC i') } ->
@@ -206,7 +211,9 @@ accessPath i =
       let t = valueType (accessPathBaseValue p)
           cs' = (t, AccessDeref) : accessPathTaggedComponents p
       in p { accessPathTaggedComponents = cs' }
-    go p v =
+    go p vt v =
+      -- Note that @go@ does not need to update the accessPathBaseType
+      -- until the end (fallthrough) case.
       case valueContent v of
         -- Unions have no representation in the IR; the only way we
         -- can identify a union is by looking for instances where a
@@ -218,17 +225,17 @@ accessPath i =
             let p' = p { accessPathTaggedComponents =
                             (valueType v, AccessUnion) : accessPathTaggedComponents p
                        }
-            in go p' cv
-          | otherwise -> go p cv
+            in go p' (valueType v) cv
+          | otherwise -> go p (valueType v) cv
         ConstantC ConstantValue { constantInstruction = BitcastInst { castedValue = cv } } ->
-          go p cv
+          go p (valueType v) cv
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = [_]
                                        } ->
           let p' = p { accessPathBaseValue = base
                      , accessPathTaggedComponents = (valueType v, AccessArray) : accessPathTaggedComponents p
                      }
-          in go p' base
+          in go p' (valueType base) base
         InstructionC GetElementPtrInst { getElementPtrValue = base
                                        , getElementPtrIndices = ixs
                                        } ->
@@ -236,7 +243,7 @@ accessPath i =
                      , accessPathTaggedComponents =
                        gepIndexFold base ixs ++ accessPathTaggedComponents p
                      }
-          in go p' base
+          in go p' (valueType base) base
         ConstantC ConstantValue { constantInstruction =
           GetElementPtrInst { getElementPtrValue = base
                             , getElementPtrIndices = ixs
@@ -245,14 +252,16 @@ accessPath i =
                      , accessPathTaggedComponents =
                        gepIndexFold base ixs ++ accessPathTaggedComponents p
                      }
-          in go p' base
+          in go p' (valueType base) base
         InstructionC LoadInst { loadAddress = la } ->
           let p' = p { accessPathBaseValue  = la
                      , accessPathTaggedComponents =
                           (valueType v, AccessDeref) : accessPathTaggedComponents p
                      }
-          in go p' la
-        _ -> p { accessPathBaseValue = v }
+          in go p' (valueType la) la
+        _ -> p { accessPathBaseValue = v
+               , accessPathBaseType = vt
+               }
 
 isUnionPointerType :: Type -> Bool
 isUnionPointerType t =
