@@ -208,7 +208,7 @@ accessPath i =
     _ -> F.failure (NotMemoryInstruction i)
   where
     addDeref p =
-      let t = valueType (accessPathBaseValue p)
+      let t = accessPathBaseType p
           cs' = (t, AccessDeref) : accessPathTaggedComponents p
       in p { accessPathTaggedComponents = cs' }
     go p vt v =
@@ -256,7 +256,7 @@ accessPath i =
         InstructionC LoadInst { loadAddress = la } ->
           let p' = p { accessPathBaseValue  = la
                      , accessPathTaggedComponents =
-                          (valueType v, AccessDeref) : accessPathTaggedComponents p
+                          (vt, AccessDeref) : accessPathTaggedComponents p
                      }
           in go p' (valueType la) la
         _ -> p { accessPathBaseValue = v
