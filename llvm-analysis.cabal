@@ -48,43 +48,43 @@ library
 --                   LLVM.Analysis.CDG,
                    LLVM.Analysis.CFG,
                    LLVM.Analysis.CFG.Internal,
-                   -- LLVM.Analysis.CallGraph,
-                   -- LLVM.Analysis.CallGraphSCCTraversal,
+                   LLVM.Analysis.CallGraph,
+                   LLVM.Analysis.CallGraphSCCTraversal,
                    -- LLVM.Analysis.ClassHierarchy,
                    LLVM.Analysis.Dataflow,
                    -- LLVM.Analysis.Dominance,
-                   -- LLVM.Analysis.PointsTo,
-                   -- LLVM.Analysis.PointsTo.AllocatorProfile,
-                   -- LLVM.Analysis.PointsTo.Andersen,
-                   -- LLVM.Analysis.PointsTo.TrivialFunction,
-                   LLVM.Analysis.NoReturn
+                   LLVM.Analysis.PointsTo,
+                   LLVM.Analysis.PointsTo.AllocatorProfile,
+                   LLVM.Analysis.PointsTo.Andersen,
+                   LLVM.Analysis.PointsTo.TrivialFunction,
+                   LLVM.Analysis.NoReturn,
                    -- LLVM.Analysis.ScalarEffects,
                    -- LLVM.Analysis.Types,
                    -- LLVM.Analysis.Util.Names,
-                   -- LLVM.Analysis.Util.Testing
+                   LLVM.Analysis.Util.Testing
 
   if flag(DebugAndersenConstraints)
     cpp-options: "-DDEBUGCONSTRAINTS"
   ghc-options: -Wall -funbox-strict-fields
   ghc-prof-options: -auto-all
 
-test-suite CallGraphTests
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  main-is: CallGraphTest.hs
-  hs-source-dirs: tests
-  build-depends: mtl > 2, base > 3 && < 5, filepath, containers, HUnit, bytestring,
-                 llvm-analysis >= 0.1.1, llvm-data-interop >= 0.1.1
-  ghc-options: -Wall
+-- test-suite CallGraphTests
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   main-is: CallGraphTest.hs
+--   hs-source-dirs: tests
+--   build-depends: mtl > 2, base > 3 && < 5, filepath, containers, HUnit, bytestring,
+--                  llvm-analysis >= 0.1.1, llvm-data-interop >= 0.1.1
+--   ghc-options: -Wall
 
-test-suite BlockReturnTests
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  main-is: BlockReturnTests.hs
-  hs-source-dirs: tests
-  build-depends: base == 4.*, containers, HUnit, filepath,
-                 llvm-analysis >= 0.1.1, llvm-data-interop >= 0.1.1
-  ghc-options: -Wall
+-- test-suite BlockReturnTests
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   main-is: BlockReturnTests.hs
+--   hs-source-dirs: tests
+--   build-depends: base == 4.*, containers, HUnit, filepath,
+--                  llvm-analysis >= 0.1.1, llvm-data-interop >= 0.1.1
+--   ghc-options: -Wall
 
 test-suite ReturnTests
   default-language: Haskell2010
@@ -95,34 +95,34 @@ test-suite ReturnTests
   main-is: ReturnTests.hs
   hs-source-dirs: tests
 
-test-suite AccessPathTests
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  build-depends: base == 4.*, containers, filepath, HUnit,
-                 llvm-data-interop >= 0.1.1, llvm-analysis >= 0.1.1
-  ghc-options: -Wall -rtsopts
-  main-is: AccessPathTests.hs
-  hs-source-dirs: tests
+-- test-suite AccessPathTests
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   build-depends: base == 4.*, containers, filepath, HUnit,
+--                  llvm-data-interop >= 0.1.1, llvm-analysis >= 0.1.1
+--   ghc-options: -Wall -rtsopts
+--   main-is: AccessPathTests.hs
+--   hs-source-dirs: tests
 
-test-suite ClassHierarchyTests
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  build-depends: base == 4.*, containers, filepath, HUnit, uniplate,
-                  llvm-analysis >= 0.1.1, llvm-data-interop >= 0.1.1,
-                  itanium-abi
-  ghc-options: -Wall -rtsopts
-  main-is: ClassHierarchyTests.hs
-  hs-source-dirs: tests
+-- test-suite ClassHierarchyTests
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   build-depends: base == 4.*, containers, filepath, HUnit, uniplate,
+--                   llvm-analysis >= 0.1.1, llvm-data-interop >= 0.1.1,
+--                   itanium-abi
+--   ghc-options: -Wall -rtsopts
+--   main-is: ClassHierarchyTests.hs
+--   hs-source-dirs: tests
 
-test-suite AndersenTests
-  default-language: Haskell2010
-  type: exitcode-stdio-1.0
-  build-depends: base, containers, filepath, HUnit,
-                 HUnit, llvm-data-interop >= 0.1.1, llvm-analysis >= 0.1.1
+-- test-suite AndersenTests
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   build-depends: base, containers, filepath, HUnit,
+--                  HUnit, llvm-data-interop >= 0.1.1, llvm-analysis >= 0.1.1
 
-  if flag(DebugAndersenGraph)
-    build-depends: graphviz
-    cpp-options: "-DDEBUGGRAPH"
-  ghc-options: -Wall
-  main-is: AndersenTest.hs
-  hs-source-dirs: tests
+--   if flag(DebugAndersenGraph)
+--     build-depends: graphviz
+--     cpp-options: "-DDEBUGGRAPH"
+--   ghc-options: -Wall
+--   main-is: AndersenTest.hs
+--   hs-source-dirs: tests
