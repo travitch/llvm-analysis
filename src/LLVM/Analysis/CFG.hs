@@ -1,32 +1,165 @@
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification, GADTs, ViewPatterns #-}
 -- | This module defines control flow graphs over the LLVM IR.
 module LLVM.Analysis.CFG (
   -- * Types
-  CFG(..),
-  RCFG(..),
-  CFGEdge(..),
-  CFGType,
-  HasCFG(..),
-  -- * Constructors
+  CFG(cfgFunction, cfgBody),
+  Insn(..),
+  -- CFG(..),
+  -- RCFG(..),
+  -- CFGEdge(..),
+  -- CFGType,
+  -- HasCFG(..),
+  -- -- * Constructors
   mkCFG,
-  reverseCFG,
-  -- * Accessors
-  basicBlockPredecessors,
-  basicBlockSuccessors,
-  basicBlockPredecessorEdges,
-  basicBlockSuccessorEdges,
-  basicBlockLabeledPredecessors,
-  basicBlockLabeledSuccessors,
-  instructionReachable,
-  -- * Visualization
-  cfgGraphvizRepr
+  -- reverseCFG,
+  -- -- * Accessors
+  -- basicBlockPredecessors,
+  -- basicBlockSuccessors,
+  -- basicBlockPredecessorEdges,
+  -- basicBlockSuccessorEdges,
+  -- basicBlockLabeledPredecessors,
+  -- basicBlockLabeledSuccessors,
+  -- instructionReachable,
+  -- -- * Visualization
+  -- cfgGraphvizRepr
   ) where
+
+import Compiler.Hoopl
+import Control.Monad.State.Strict
+import qualified Data.List as L
+import Data.Map ( Map )
+import qualified Data.Map as M
+import Data.Monoid
+
+import LLVM.Analysis
+
+data CFG = CFG { cfgFunction :: Function
+               , cfgLabelMap :: Map BasicBlock Label
+               , cfgBody :: Graph Insn C C
+               }
+
+-- | This is a wrapper GADT around the LLVM IR to mesh with Hoopl.  It
+-- won't be exported or exposed to the user at all.  We need this for
+-- two reasons:
+--
+-- 1) Hoopl requires explicit Label instructions.  In LLVM these are
+--    implicit in the function structure through BasicBlocks
+--
+-- 2) We want to make it easy to process Phi nodes as a unit during
+-- dataflow analysis.  To that end, there is a virtual node here that
+-- bundles all of the phi nodes in a block together.  The idea is that
+-- the dataflow analysis framework will deal with the details,
+-- presenting a simple interface to the user.
+data Insn e x where
+  -- | Hoopl uses explicit labels, so we will construct these from our
+  -- BasicBlocks.
+  Lbl :: BasicBlock -> Label -> Insn C O
+
+  -- | If the BasicBlock has phi nodes, create a lbl annotated with
+  -- those phi nodes.  This lets us process all of the phi nodes in
+  -- parallel *and* look up the
+  PhiLbl :: BasicBlock -> [Instruction] -> Label -> Insn C O
+  -- | This is our phantom bundle consolidating all of the phi nodes
+  -- for a single block.  It isn't apparent from the type system here,
+  -- but all entries will be Phi nodes.  It may be worth tagging
+  -- Instruction with some GADT magic to make this explicit.
+--  PhiBundle :: [Instruction] -> Insn O O
+  -- | Terminator instructions always end a BasicBlock.  These include
+  -- Invokes.
+  Terminator :: Instruction -> [Label] -> Insn O C
+  -- | Everything else
+  Normal :: Instruction -> Insn O O
+
+-- FIXME: One nice thing we could do: add virtual entry and exit
+-- nodes.  Would need to modify unreachable/return to have edges to
+-- this virtual node.  Question, should unreachable have that edge?
+-- What about resume?
+
+instance NonLocal Insn where
+  entryLabel (Lbl _ lbl) = lbl
+  entryLabel (PhiLbl _ _ lbl) = lbl
+  successors (Terminator _ lbls) = lbls
+
+blockLabel :: BasicBlock -> Builder Label
+blockLabel bb = do
+  m <- get
+  case M.lookup bb m of
+    Just l -> return l
+    Nothing -> do
+      l <- lift $ freshLabel
+      put $ M.insert bb l m
+      return l
+
+terminatorLabels :: Instruction -> Builder [Label]
+terminatorLabels i =
+  case i of
+    RetInst {} -> return []
+    UnconditionalBranchInst { unconditionalBranchTarget = t } -> do
+      bl <- blockLabel t
+      return [bl]
+    BranchInst { branchTrueTarget = tt, branchFalseTarget = ft } -> do
+      tl <- blockLabel tt
+      fl <- blockLabel ft
+      return [tl, fl]
+    SwitchInst { switchDefaultTarget = dt, switchCases = (map snd -> ts) } -> do
+      dl <- blockLabel dt
+      tls <- mapM blockLabel ts
+      return $ dl : tls
+    IndirectBranchInst { indirectBranchTargets = ts } ->
+      mapM blockLabel ts
+    ResumeInst {} -> return []
+    UnreachableInst {} -> return []
+    InvokeInst { invokeNormalLabel = nt, invokeUnwindLabel = ut } -> do
+      nl <- blockLabel nt
+      ul <- blockLabel ut
+      return [nl, ul]
+    _ -> error "LLVM.Analysis.CFG.successors: non-terminator instruction"
+
+instance Show (Insn e x) where
+  show (Lbl bb _) = identifierAsString (basicBlockName bb) ++ ":"
+  show (PhiLbl bb phis _) = identifierAsString (basicBlockName bb) ++ ":\n" ++ unlines (map (("  "++) . show) phis)
+--   show (PhiBundle ps) = "  " ++ (unlines $ map show ps)
+  show (Terminator t _) = "  " ++ show t
+  show (Normal i) = "  " ++ show i
+
+mkCFG :: Function -> CFG
+mkCFG f = runSimpleUniqueMonad (evalStateT builder mempty)
+  where
+    builder = do
+      gs <- mapM fromBlock (functionBody f)
+      let g = L.foldl' (|*><*|) emptyClosedGraph gs
+      m <- get
+      return $ CFG { cfgFunction = f
+                   , cfgBody = g
+                   , cfgLabelMap = m
+                   }
+
+type Builder a = StateT (Map BasicBlock Label) SimpleUniqueMonad a
+
+fromBlock :: BasicBlock -> Builder (Graph Insn C C)
+fromBlock bb = do
+  lbl <- blockLabel bb
+  let (phis, body) = basicBlockSplitPhiNodes bb
+      (body', [term]) = L.splitAt (length body - 1) body
+      normalNodes = map Normal body'
+  tlbls <- terminatorLabels term
+  let termNode = Terminator term tlbls
+
+  case null phis of
+    True -> do
+      let entry = Lbl bb lbl
+      return $ mkFirst entry <*> mkMiddles normalNodes <*> mkLast termNode
+    False -> do
+      let entry = PhiLbl bb phis lbl
+      return $ mkFirst entry <*> mkMiddles normalNodes <*> mkLast termNode
+
 
 -- FIXME Change this to be a graph of basic blocks.  The accessors
 -- below can be updated to work around this.  The graphs will be much
 -- smaller.  The CDG and Dominance analyses will also need to be
 -- updated.
 
+{-
 import Control.Arrow ( first )
 import Data.GraphViz
 import Data.List ( foldl' )
@@ -331,4 +464,5 @@ cfgGraphvizRepr cfg = graphElemsToDot cfgGraphvizParams ns es
     ns = labeledVertices g
     es = map (\(Edge s d l) -> (s, d, l)) (edges g)
 
+-}
 {-# ANN module "HLint: ignore Use if" #-}

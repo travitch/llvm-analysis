@@ -1,5 +1,6 @@
-{-# LANGUAGE MultiParamTypeClasses, BangPatterns, NoMonomorphismRestriction #-}
+{-# LANGUAGE MultiParamTypeClasses, BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs, TypeFamilies #-}
 -- | This module defines an interface for intra-procedural dataflow
 -- analysis (forward and backward).
 --
@@ -26,24 +27,27 @@ module LLVM.Analysis.Dataflow (
   DataflowAnalysis(..),
   MeetSemiLattice(..),
   BoundedMeetSemiLattice(..),
-  meets,
+  -- meets,
   forwardDataflow,
-  backwardDataflow,
-  -- * Dataflow results
-  DataflowResult,
-  dataflowResult
+  -- backwardDataflow,
+  -- -- * Dataflow results
+  -- DataflowResult,
+  -- dataflowResult
   ) where
 
 import Algebra.Lattice
+import Compiler.Hoopl
 import Control.DeepSeq
-import Control.Monad ( foldM )
-import Data.HashMap.Strict ( HashMap )
-import qualified Data.HashMap.Strict as M
-import Data.HashSet ( HashSet )
-import qualified Data.HashSet as S
-import Data.List ( sort )
-import Data.Maybe ( fromMaybe )
-import Text.Printf
+import Control.Monad ( (>=>) )
+import Data.Map ( Map )
+-- import Control.Monad ( foldM )
+-- import Data.HashMap.Strict ( HashMap )
+-- import qualified Data.HashMap.Strict as M
+-- import Data.HashSet ( HashSet )
+-- import qualified Data.HashSet as S
+-- import Data.List ( sort )
+-- import Data.Maybe ( fromMaybe )
+-- import Text.Printf
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
@@ -65,10 +69,11 @@ class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
   -- ^ The transfer function of this analysis.  It is given any global
   -- constant data, the current set of facts, the current instruction,
   -- and a list of incoming edges.
-  phiTransfer ::  [Instruction] -- ^ The instruction being analyzed
-                 -> [(BasicBlock, a, CFGEdge)] -- ^ Incoming CFG edges
-                 -> m a
-  phiTransfer _ = return . meets . map (\(_, e, _) -> e)
+  phiTransfer ::  [(BasicBlock, a)] -- ^ Incoming CFG edges
+                  -> [Instruction] -- ^ The instruction being analyzed
+                  -> m a
+  -- phiTransfer _ = return . meets . map (\(_, e, _) -> e)
+
   -- ^ The transfer function that will process all Phi nodes in
   -- parallel.
 
@@ -97,13 +102,13 @@ class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
   -- NOTE: This transfer function is only applied to edges between
   -- basic blocks.  Within a basic block, the edge is always an
   -- unconditional edge and there is no merging anyway.
-  edgeTransfer :: a -> CFGEdge -> m a
-  edgeTransfer e _ = return e
+  -- edgeTransfer :: a -> CFGEdge -> m a
+  -- edgeTransfer e _ = return e
 
 
 -- | The opaque result of a dataflow analysis
 data DataflowResult a =
-  DataflowResult (HashMap Instruction a)
+  DataflowResult (Map Instruction a)
 
 instance (Eq a) => Eq (DataflowResult a) where
   (DataflowResult m1) == (DataflowResult m2) = m1 == m2
@@ -111,6 +116,88 @@ instance (Eq a) => Eq (DataflowResult a) where
 instance (NFData a) => NFData (DataflowResult a) where
   rnf (DataflowResult m) = m `deepseq` ()
 
+forwardDataflow :: forall m f . (DataflowAnalysis m f)
+                   => CFG
+                   -> Label -- MaybeC t1 t2
+                   -> f -- FactBase f
+                   -> m (Fact C f)
+forwardDataflow cfg entryPoint f0 = graph (cfgBody cfg) noFacts
+  where
+    -- We'll record the entry block in the CFG later
+--    entryPoint = cfgEntry cfg
+    graph :: Graph Insn C C -> Fact C f -> m (Fact C f)
+    -- graph GNil = return
+    -- graph (GUnit blk) = block blk
+    graph (GMany e bdy x) = (e `ebcat` bdy) >=> exit x
+      where
+        exit :: MaybeO x (Block Insn C O) -> Fact C f -> m (Fact x f)
+        exit (JustO blk) = arfx block blk
+        exit NothingO = return
+        ebcat entry cbdy = c entryPoint entry
+          where
+            -- FIXME: It looks like the entry point here isn't used... could
+            -- refer back to the argument?
+            c :: Label -> MaybeO e (Block Insn O C)
+                 -> Fact e f -> m (Fact C f)
+--            c NothingC (JustO entry) = block entry `cat` body (successors entry) bdy
+            c ep NothingO = body ep cbdy
+            c _ _ = error "Bogus GADT pattern match failure"
+
+    arfx = undefined
+
+    body :: Label
+            -> LabelMap (Block Insn C C)
+            -> Fact C f
+            -> m (Fact C f)
+    body bentries blockmap initFbase =
+      fixpoint Fwd doBlock bentries blockmap initFbase
+      where
+        doBlock :: forall x . Block Insn C x
+                   -> FactBase f
+                   -> m (Fact x f)
+        doBlock b fb = block b entryFact
+          where
+            entryFact = getFact (entryLabel b) fb
+
+    getFact = undefined
+
+    node :: forall e x . Insn e x -> f -> m (Fact x f)
+    -- Labels aren't visible to the user and don't add facts for us.
+    -- Now, the phi variant *can* add facts
+    node (Lbl _ _) f = return f
+    -- Let all phi nodes be processed at the same time; we need to
+    -- take @f@ here and figure out all of the incoming facts.
+    -- Actually we only ever get an f.... probably can't do this.
+    --
+    -- Perhaps we can sneak something into the meet if the block
+    -- begins with a PhiLbl?
+    node (PhiLbl _ phis _) f = phiTransfer undefined phis
+    -- Standard transfer function
+    node (Normal i) f = transfer f i
+    -- This gets a single input fact and needs to produce a
+    -- *factbase*.  This should actually be fairly simple; run the
+    -- transfer function on the instruction and update all of the lbls
+    node (Terminator i lbls) f = do
+      f' <- transfer f i
+      return undefined
+
+
+    block :: Block Insn e x -> f -> m (Fact x f)
+    block BNil = return
+    block (BlockCO l b) = node l >=> block b
+    block (BlockCC l b n) = node l >=> block b >=> node n
+    block (BlockOC b n) = block b >=> node n
+    block (BMiddle n) = node n
+    block (BCat b1 b2) = block b1 >=> block b2
+    block (BSnoc h n) = block h >=> node n
+    block (BCons n t) = node n >=> block t
+
+data Direction = Fwd | Bwd
+
+fixpoint = undefined
+
+
+{-
 -- | Get the result of a dataflow analysis at the given instruction.
 -- Will throw an error if the instruction is not in the function for
 -- which this analysis was run.
@@ -122,6 +209,10 @@ dataflowResult (DataflowResult m) i =
   fromMaybe errMsg $ M.lookup i m
   where
     errMsg = error ("LLVM.Analysis.Dataflow.dataflowResult: Instruction " ++ show i ++ " has no dataflow result")
+
+
+
+
 
 firstInst :: Instruction -> Bool
 firstInst i = firstBlock bb
@@ -268,5 +359,5 @@ firstBlock bb = bb == fb
   where
     f = basicBlockFunction bb
     fb : _ = functionBody f
-
+-}
 {-# ANN module "HLint: ignore Use if" #-}

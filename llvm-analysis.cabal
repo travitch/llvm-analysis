@@ -36,6 +36,7 @@ library
                  lattices, failure >= 0.2, hashtables,
                  lens > 1, ifscs, GenericPretty > 1,
                  llvm-base-types, hbgl, boomerang,
+                 hoopl >= 3.9.0.0,
                  -- Testing
                  HUnit, test-framework, test-framework-hunit,
                  -- Dealing with C++ names
@@ -43,23 +44,23 @@ library
   hs-source-dirs: src
   exposed-modules: LLVM.Analysis,
                    LLVM.Analysis.AccessPath,
-                   LLVM.Analysis.BlockReturnValue,
-                   LLVM.Analysis.CDG,
+--                   LLVM.Analysis.BlockReturnValue,
+--                   LLVM.Analysis.CDG,
                    LLVM.Analysis.CFG,
-                   LLVM.Analysis.CallGraph,
-                   LLVM.Analysis.CallGraphSCCTraversal,
-                   LLVM.Analysis.ClassHierarchy,
-                   LLVM.Analysis.Dataflow,
-                   LLVM.Analysis.Dominance,
-                   LLVM.Analysis.PointsTo,
-                   LLVM.Analysis.PointsTo.AllocatorProfile,
-                   LLVM.Analysis.PointsTo.Andersen,
-                   LLVM.Analysis.PointsTo.TrivialFunction,
-                   LLVM.Analysis.NoReturn,
-                   LLVM.Analysis.ScalarEffects,
-                   LLVM.Analysis.Types,
-                   LLVM.Analysis.Util.Names,
-                   LLVM.Analysis.Util.Testing
+                   -- LLVM.Analysis.CallGraph,
+                   -- LLVM.Analysis.CallGraphSCCTraversal,
+                   -- LLVM.Analysis.ClassHierarchy,
+                   LLVM.Analysis.Dataflow
+                   -- LLVM.Analysis.Dominance,
+                   -- LLVM.Analysis.PointsTo,
+                   -- LLVM.Analysis.PointsTo.AllocatorProfile,
+                   -- LLVM.Analysis.PointsTo.Andersen,
+                   -- LLVM.Analysis.PointsTo.TrivialFunction,
+                   -- LLVM.Analysis.NoReturn,
+                   -- LLVM.Analysis.ScalarEffects,
+                   -- LLVM.Analysis.Types,
+                   -- LLVM.Analysis.Util.Names,
+                   -- LLVM.Analysis.Util.Testing
 
   if flag(DebugAndersenConstraints)
     cpp-options: "-DDEBUGCONSTRAINTS"
