@@ -61,6 +61,7 @@ data CFG = CFG { cfgFunction :: Function
                , cfgLabelMap :: Map BasicBlock Label
                , cfgBlockMap :: Map Label BasicBlock
                , cfgBody :: Graph Insn C C
+               , cfgEntryLabel :: Label
                , cfgExitLabel :: Label
                , cfgPredecessors :: Map BasicBlock [BasicBlock]
                }
@@ -140,10 +141,14 @@ mkCFG f = runSimpleUniqueMonad (evalStateT builder mempty)
           x = mkFirst (UniqueExitLabel exitLabel) <*> mkLast UniqueExit
           g' = g |*><*| x
       m <- get
-      let cfg = CFG { cfgFunction = f
+      let i0 = functionEntryInstruction f
+          Just bb0 = instructionBasicBlock i0
+          Just fEntryLabel = M.lookup bb0 m
+          cfg = CFG { cfgFunction = f
                    , cfgBody = g'
                    , cfgLabelMap = m
                    , cfgBlockMap = M.fromList $ map swap $ M.toList m
+                   , cfgEntryLabel = fEntryLabel
                    , cfgExitLabel = exitLabel
                    , cfgPredecessors = mempty
                    }
@@ -293,6 +298,9 @@ class (BoundedMeetSemiLattice a, Monad m, Eq a) => DataflowAnalysis m a where
 -- | The opaque result of a dataflow analysis
 data DataflowResult f = DataflowResult CFG (Fact C f)
 
+instance (Show f) => Show (DataflowResult f) where
+  show (DataflowResult cfg fb) = show fb ++ "\n" ++ showGraph show (cfgBody cfg)
+
 instance (Eq f) => Eq (DataflowResult f) where
   (DataflowResult c1 m1) == (DataflowResult c2 m2) =
     c1 == c2 && m1 == m2
@@ -307,18 +315,19 @@ dataflowResultAt :: (DataflowAnalysis m f)
                     => DataflowResult f
                     -> Instruction
                     -> m f
-dataflowResultAt (DataflowResult cfg m) i =
-  replayTransfer blockRes (basicBlockInstructions bb)
+dataflowResultAt (DataflowResult cfg m) i = do
+  let Just bb = instructionBasicBlock i
+      Just lbl = M.lookup bb (cfgLabelMap cfg)
+  case lookupFact lbl m of
+    Nothing -> return top
+    Just bres -> replayTransfer (basicBlockInstructions bb) bres
   where
-    Just bb = instructionBasicBlock i
-    Just lbl = M.lookup bb (cfgLabelMap cfg)
-    Just blockRes = lookupFact lbl m
-    replayTransfer _ [] = error "LLVM.Analysis.Dataflow.dataflowResult: replayed past end of block, impossible"
-    replayTransfer r (thisI:rest)
+    replayTransfer [] _ = error "LLVM.Analysis.Dataflow.dataflowResult: replayed past end of block, impossible"
+    replayTransfer (thisI:rest) r
       | thisI == i = return r
       | otherwise = do
         r' <- transfer r thisI
-        replayTransfer r' rest
+        replayTransfer rest r'
 
 -- | Look up the dataflow fact at the virtual exit note.  This
 -- combines the results along /all/ paths, including those ending in
@@ -326,19 +335,18 @@ dataflowResultAt (DataflowResult cfg m) i =
 --
 -- If you want the result at only the return instruction(s), use
 -- 'dataflowResultAt' and 'meets' the results together.
-dataflowResult :: DataflowResult f -> f
-dataflowResult (DataflowResult cfg m) = res
-  where
-    Just res = lookupFact (cfgExitLabel cfg) m
+dataflowResult :: (BoundedMeetSemiLattice f) => DataflowResult f -> f
+dataflowResult (DataflowResult cfg m) =
+  fromMaybe top $ lookupFact (cfgExitLabel cfg) m
 
-forwardDataflow :: forall m f . (DataflowAnalysis m f)
+forwardDataflow :: forall m f . (DataflowAnalysis m f, Show f)
                    => CFG
-                   -> [Label]
                    -> m (DataflowResult f)
-forwardDataflow cfg entryPoints = do
+forwardDataflow cfg = do
   r <- graph (cfgBody cfg) noFacts
   return $ DataflowResult cfg r
   where
+    entryPoints = [cfgEntryLabel cfg]
     -- We'll record the entry block in the CFG later
     graph :: Graph Insn C C -> Fact C f -> m (Fact C f)
     -- graph GNil = return
@@ -398,7 +406,7 @@ forwardDataflow cfg entryPoints = do
       return $ mapFromList $ zip lbls (repeat f')
     -- The unique exit doesn't do anything - it just collects the
     -- final results.
-    node UniqueExit _ = return mapEmpty
+    node UniqueExit f = return mapEmpty
 
 
 
@@ -417,15 +425,15 @@ data Direction = Fwd | Bwd
 
 -- The fixedpoint calculations (and joins) all happen in here.
 -- Try to find a spot to possibly add the phi transfer...
-fixpoint :: forall m f . (DataflowAnalysis m f)
+fixpoint :: forall m f . (DataflowAnalysis m f, Show f)
             => Direction
             -> (Block Insn C C -> Fact C f -> m (Fact C f))
             -> [Label]
             -> LabelMap (Block Insn C C)
             -> (Fact C f -> m (Fact C f))
-fixpoint dir doBlock entries blockmap initFbase = do
-  fbase <- loop initFbase entries
-  return $ mapDeleteList (mapKeys blockmap) fbase
+fixpoint dir doBlock entries blockmap initFbase =
+  -- See Note [Fixpoint]
+  loop initFbase entries
   where
     -- This is a map from label L to all of its dependencies; if L
     -- changes, all of its dependencies need to be re-analyzed.
@@ -447,7 +455,7 @@ fixpoint dir doBlock entries blockmap initFbase = do
           -- Fold updateFact over each fact in the result from doBlock
           -- updateFact; facts are meet-ed pairwise.
           let (changed, fbase') = mapFoldWithKey updateFact ([], fbase) outFacts
-          let depLookup l = mapFindWithDefault [] l depBlocks
+              depLookup l = mapFindWithDefault [] l depBlocks
               toAnalyze = filter (`notElem` todo) $ concatMap depLookup changed
 
           -- In the original code, there is a binding @newblocks'@
@@ -471,3 +479,12 @@ fixpoint dir doBlock entries blockmap initFbase = do
           in case fact' == oldFact of
             True -> acc
             False -> (lbl:cha, mapInsert lbl fact' fbase)
+
+{- Note [Fixpoint]
+
+In hoopl, the fixpoint returns a factbase that includes only the facts
+that are not in the body.  Facts for the body are in the rewritten
+body nodes in the DG.  Since we are not rewriting the graph, we keep
+all facts in the factbase in fixpoint.
+
+-}
