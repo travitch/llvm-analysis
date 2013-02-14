@@ -8,7 +8,7 @@ module LLVM.Analysis.CFG (
   -- RCFG(..),
   -- CFGEdge(..),
   -- CFGType,
-  -- HasCFG(..),
+  HasCFG(..),
   -- -- * Constructors
   mkCFG,
   -- reverseCFG,
@@ -32,10 +32,28 @@ import qualified Data.Map as M
 import Data.Monoid
 
 import LLVM.Analysis
+import LLVM.Analysis.Types -- move this to LLVM.Analysis?
+
+class HasCFG a where
+  getCFG :: a -> CFG
+
+instance HasCFG CFG where
+  getCFG = id
+
+instance HasCFG Function where
+  getCFG = mkCFG
+
+instance HasFunction CFG where
+  getFunction = cfgFunction
+
+instance FuncLike CFG where
+  fromFunction = mkCFG
+
 
 data CFG = CFG { cfgFunction :: Function
                , cfgLabelMap :: Map BasicBlock Label
                , cfgBody :: Graph Insn C C
+               , cfgExitLabel :: Label
                }
 
 -- | This instance does not compare the graphs directly - instead it
@@ -44,7 +62,7 @@ data CFG = CFG { cfgFunction :: Function
 -- fine.  It is also fast because function comparison just compares
 -- unique integer IDs.
 instance Eq CFG where
-  (CFG f1 _ _) == (CFG f2 _ _) = f1 == f2
+  (CFG f1 _ _ _) == (CFG f2 _ _ _) = f1 == f2
 
 -- | This is a wrapper GADT around the LLVM IR to mesh with Hoopl.  It
 -- won't be exported or exposed to the user at all.  We need this for
@@ -70,6 +88,11 @@ data Insn e x where
   -- | Everything else
   Normal :: Instruction -> Insn O O
 
+  -- | A virtual node to collect all exit results.  It has no content
+  -- and appears exactly once per control flow graph.
+  UniqueExitLabel :: Label -> Insn C O
+  UniqueExit :: Insn O C
+
 -- FIXME: One nice thing we could do: add virtual entry and exit
 -- nodes.  Would need to modify unreachable/return to have edges to
 -- this virtual node.  Question, should unreachable have that edge?
@@ -77,7 +100,9 @@ data Insn e x where
 
 instance NonLocal Insn where
   entryLabel (Lbl _ lbl) = lbl
+  entryLabel (UniqueExitLabel lbl) = lbl
   successors (Terminator _ lbls) = lbls
+  successors UniqueExit = []
 
 blockLabel :: BasicBlock -> Builder Label
 blockLabel bb = do
@@ -89,10 +114,15 @@ blockLabel bb = do
       put $ M.insert bb l m
       return l
 
-terminatorLabels :: Instruction -> Builder [Label]
-terminatorLabels i =
+-- | All instructions that exit a function get an edge to the special
+-- ExitLabel.  This allows all results along all branches (even those
+-- with non-standard exits) to be collected.  If only normal exit
+-- results are desired, just check the dataflow result for RetInst
+-- results.
+terminatorLabels :: Label -> Instruction -> Builder [Label]
+terminatorLabels xlabel i =
   case i of
-    RetInst {} -> return []
+    RetInst {} -> return [xlabel]
     UnconditionalBranchInst { unconditionalBranchTarget = t } -> do
       bl <- blockLabel t
       return [bl]
@@ -106,8 +136,8 @@ terminatorLabels i =
       return $ dl : tls
     IndirectBranchInst { indirectBranchTargets = ts } ->
       mapM blockLabel ts
-    ResumeInst {} -> return []
-    UnreachableInst {} -> return []
+    ResumeInst {} -> return [xlabel]
+    UnreachableInst {} -> return [xlabel]
     InvokeInst { invokeNormalLabel = nt, invokeUnwindLabel = ut } -> do
       nl <- blockLabel nt
       ul <- blockLabel ut
@@ -118,28 +148,37 @@ instance Show (Insn e x) where
   show (Lbl bb _) = identifierAsString (basicBlockName bb) ++ ":"
   show (Terminator t _) = "  " ++ show t
   show (Normal i) = "  " ++ show i
+  show (UniqueExitLabel _) = "UniqueExit:"
+  show UniqueExit = "  done"
 
 mkCFG :: Function -> CFG
 mkCFG f = runSimpleUniqueMonad (evalStateT builder mempty)
   where
     builder = do
-      gs <- mapM fromBlock (functionBody f)
+      -- This is a unique label not associated with any block.  All of
+      -- the instructions that exit a function get an edge to this
+      -- virtual label.
+      exitLabel <- lift $ freshLabel
+      gs <- mapM (fromBlock exitLabel) (functionBody f)
       let g = L.foldl' (|*><*|) emptyClosedGraph gs
+          x = mkFirst (UniqueExitLabel exitLabel) <*> mkLast UniqueExit
+          g' = g |*><*| x
       m <- get
       return $ CFG { cfgFunction = f
-                   , cfgBody = g
+                   , cfgBody = g'
                    , cfgLabelMap = m
+                   , cfgExitLabel = exitLabel
                    }
 
 type Builder a = StateT (Map BasicBlock Label) SimpleUniqueMonad a
 
-fromBlock :: BasicBlock -> Builder (Graph Insn C C)
-fromBlock bb = do
+fromBlock :: Label -> BasicBlock -> Builder (Graph Insn C C)
+fromBlock xlabel bb = do
   lbl <- blockLabel bb
   let body = basicBlockInstructions bb
       (body', [term]) = L.splitAt (length body - 1) body
       normalNodes = map Normal body'
-  tlbls <- terminatorLabels term
+  tlbls <- terminatorLabels xlabel term
   let termNode = Terminator term tlbls
       entry = Lbl bb lbl
   return $ mkFirst entry <*> mkMiddles normalNodes <*> mkLast termNode

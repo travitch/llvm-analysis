@@ -182,6 +182,7 @@ forwardDataflow cfg entryPoints = do
     -- Labels aren't visible to the user and don't add facts for us.
     -- Now, the phi variant *can* add facts
     node (Lbl _ _) f = return f
+    node (UniqueExitLabel _) f = return f
     -- Standard transfer function
     node (Normal i) f = transfer f i
     -- This gets a single input fact and needs to produce a
@@ -192,6 +193,9 @@ forwardDataflow cfg entryPoints = do
       -- Now create a new map with all of the labels mapped to
       -- f'.  Code later will handle merging this result.
       return $ mapFromList $ zip lbls (repeat f')
+    -- The unique exit doesn't do anything - it just collects the
+    -- final results.
+    node UniqueExit _ = return mapEmpty
 
 
 
