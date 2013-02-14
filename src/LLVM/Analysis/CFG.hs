@@ -2,7 +2,7 @@
 -- | This module defines control flow graphs over the LLVM IR.
 module LLVM.Analysis.CFG (
   -- * Types
-  CFG(cfgFunction, cfgBody),
+  CFG(..),
   Insn(..),
   -- CFG(..),
   -- RCFG(..),
@@ -38,6 +38,14 @@ data CFG = CFG { cfgFunction :: Function
                , cfgBody :: Graph Insn C C
                }
 
+-- | This instance does not compare the graphs directly - instead it
+-- compares just the function from which the graph is constructed.
+-- The construction is completely deterministic so this should be
+-- fine.  It is also fast because function comparison just compares
+-- unique integer IDs.
+instance Eq CFG where
+  (CFG f1 _ _) == (CFG f2 _ _) = f1 == f2
+
 -- | This is a wrapper GADT around the LLVM IR to mesh with Hoopl.  It
 -- won't be exported or exposed to the user at all.  We need this for
 -- two reasons:
@@ -55,18 +63,10 @@ data Insn e x where
   -- BasicBlocks.
   Lbl :: BasicBlock -> Label -> Insn C O
 
-  -- | If the BasicBlock has phi nodes, create a lbl annotated with
-  -- those phi nodes.  This lets us process all of the phi nodes in
-  -- parallel *and* look up the
-  PhiLbl :: BasicBlock -> [Instruction] -> Label -> Insn C O
-  -- | This is our phantom bundle consolidating all of the phi nodes
-  -- for a single block.  It isn't apparent from the type system here,
-  -- but all entries will be Phi nodes.  It may be worth tagging
-  -- Instruction with some GADT magic to make this explicit.
---  PhiBundle :: [Instruction] -> Insn O O
   -- | Terminator instructions always end a BasicBlock.  These include
   -- Invokes.
   Terminator :: Instruction -> [Label] -> Insn O C
+
   -- | Everything else
   Normal :: Instruction -> Insn O O
 
@@ -77,7 +77,6 @@ data Insn e x where
 
 instance NonLocal Insn where
   entryLabel (Lbl _ lbl) = lbl
-  entryLabel (PhiLbl _ _ lbl) = lbl
   successors (Terminator _ lbls) = lbls
 
 blockLabel :: BasicBlock -> Builder Label
@@ -117,8 +116,6 @@ terminatorLabels i =
 
 instance Show (Insn e x) where
   show (Lbl bb _) = identifierAsString (basicBlockName bb) ++ ":"
-  show (PhiLbl bb phis _) = identifierAsString (basicBlockName bb) ++ ":\n" ++ unlines (map (("  "++) . show) phis)
---   show (PhiBundle ps) = "  " ++ (unlines $ map show ps)
   show (Terminator t _) = "  " ++ show t
   show (Normal i) = "  " ++ show i
 
@@ -139,19 +136,13 @@ type Builder a = StateT (Map BasicBlock Label) SimpleUniqueMonad a
 fromBlock :: BasicBlock -> Builder (Graph Insn C C)
 fromBlock bb = do
   lbl <- blockLabel bb
-  let (phis, body) = basicBlockSplitPhiNodes bb
+  let body = basicBlockInstructions bb
       (body', [term]) = L.splitAt (length body - 1) body
       normalNodes = map Normal body'
   tlbls <- terminatorLabels term
   let termNode = Terminator term tlbls
-
-  case null phis of
-    True -> do
-      let entry = Lbl bb lbl
-      return $ mkFirst entry <*> mkMiddles normalNodes <*> mkLast termNode
-    False -> do
-      let entry = PhiLbl bb phis lbl
-      return $ mkFirst entry <*> mkMiddles normalNodes <*> mkLast termNode
+      entry = Lbl bb lbl
+  return $ mkFirst entry <*> mkMiddles normalNodes <*> mkLast termNode
 
 
 -- FIXME Change this to be a graph of basic blocks.  The accessors

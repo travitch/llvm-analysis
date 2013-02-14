@@ -27,27 +27,20 @@ module LLVM.Analysis.Dataflow (
   DataflowAnalysis(..),
   MeetSemiLattice(..),
   BoundedMeetSemiLattice(..),
-  -- meets,
+  meets,
   forwardDataflow,
   -- backwardDataflow,
   -- -- * Dataflow results
-  -- DataflowResult,
-  -- dataflowResult
+  DataflowResult,
+  dataflowResult
   ) where
 
 import Algebra.Lattice
 import Compiler.Hoopl
 import Control.DeepSeq
 import Control.Monad ( (>=>) )
-import Data.Map ( Map )
--- import Control.Monad ( foldM )
--- import Data.HashMap.Strict ( HashMap )
--- import qualified Data.HashMap.Strict as M
--- import Data.HashSet ( HashSet )
--- import qualified Data.HashSet as S
--- import Data.List ( sort )
--- import Data.Maybe ( fromMaybe )
--- import Text.Printf
+import qualified Data.Map as M
+import Data.Maybe ( fromMaybe )
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
@@ -62,7 +55,7 @@ import LLVM.Analysis.CFG
 -- be stored redundantly in every dataflow fact.  If this parameter is
 -- not needed, it can safely be instantiated as () (and subsequently
 -- ignored).
-class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
+class (BoundedMeetSemiLattice a, Monad m, Eq a) => DataflowAnalysis m a where
   transfer :: a -- ^ The incoming analysis state
               -> Instruction -- ^ The instruction being analyzed
               -> m a
@@ -107,24 +100,43 @@ class (BoundedMeetSemiLattice a, Monad m) => DataflowAnalysis m a where
 
 
 -- | The opaque result of a dataflow analysis
-data DataflowResult a =
-  DataflowResult (Map Instruction a)
+data DataflowResult f = DataflowResult CFG (Fact C f)
 
-instance (Eq a) => Eq (DataflowResult a) where
-  (DataflowResult m1) == (DataflowResult m2) = m1 == m2
+instance (Eq f) => Eq (DataflowResult f) where
+  (DataflowResult c1 m1) == (DataflowResult c2 m2) =
+    c1 == c2 && m1 == m2
 
+-- This may have to cheat... LabelMap doesn't have an NFData instance.
+-- Not sure if this will affect monad-par or not.
 instance (NFData a) => NFData (DataflowResult a) where
-  rnf (DataflowResult m) = m `deepseq` ()
+  rnf _ = () -- (DataflowResult m) = m `deepseq` ()
+
+dataflowResult :: (DataflowAnalysis m f)
+                  => DataflowResult f
+                  -> Instruction
+                  -> m f
+dataflowResult (DataflowResult cfg m) i =
+  replayTransfer blockRes (basicBlockInstructions bb)
+  where
+    Just bb = instructionBasicBlock i
+    Just lbl = M.lookup bb (cfgLabelMap cfg)
+    Just blockRes = lookupFact lbl m
+    replayTransfer _ [] = error "LLVM.Analysis.Dataflow.dataflowResult: replayed past end of block, impossible"
+    replayTransfer r (thisI:rest)
+      | thisI == i = return r
+      | otherwise = do
+        r' <- transfer r thisI
+        replayTransfer r' rest
 
 forwardDataflow :: forall m f . (DataflowAnalysis m f)
                    => CFG
-                   -> Label -- MaybeC t1 t2
-                   -> f -- FactBase f
-                   -> m (Fact C f)
-forwardDataflow cfg entryPoint f0 = graph (cfgBody cfg) noFacts
+                   -> [Label]
+                   -> m (DataflowResult f)
+forwardDataflow cfg entryPoints = do
+  r <- graph (cfgBody cfg) noFacts
+  return $ DataflowResult cfg r
   where
     -- We'll record the entry block in the CFG later
---    entryPoint = cfgEntry cfg
     graph :: Graph Insn C C -> Fact C f -> m (Fact C f)
     -- graph GNil = return
     -- graph (GUnit blk) = block blk
@@ -133,19 +145,26 @@ forwardDataflow cfg entryPoint f0 = graph (cfgBody cfg) noFacts
         exit :: MaybeO x (Block Insn C O) -> Fact C f -> m (Fact x f)
         exit (JustO blk) = arfx block blk
         exit NothingO = return
-        ebcat entry cbdy = c entryPoint entry
+        ebcat entry cbdy = c entryPoints entry
           where
-            -- FIXME: It looks like the entry point here isn't used... could
-            -- refer back to the argument?
-            c :: Label -> MaybeO e (Block Insn O C)
+            c :: [Label] -> MaybeO e (Block Insn O C)
                  -> Fact e f -> m (Fact C f)
 --            c NothingC (JustO entry) = block entry `cat` body (successors entry) bdy
-            c ep NothingO = body ep cbdy
+            c eps NothingO = body eps cbdy
             c _ _ = error "Bogus GADT pattern match failure"
 
-    arfx = undefined
+    -- Analyze Rewrite Forward Transformer?
+    arfx :: forall thing x . (NonLocal thing)
+            => (thing C x -> f -> m (Fact x f))
+            -> (thing C x -> Fact C f -> m (Fact x f))
+    arfx arf thing fb = arf thing f'
+      where
+        -- We don't do the meet operation here (unlike hoopl).  They
+        -- only performed it (knowing it is a no-op) to preserve side
+        -- effects.
+        Just f' = lookupFact (entryLabel thing) fb
 
-    body :: Label
+    body :: [Label]
             -> LabelMap (Block Insn C C)
             -> Fact C f
             -> m (Fact C f)
@@ -157,29 +176,23 @@ forwardDataflow cfg entryPoint f0 = graph (cfgBody cfg) noFacts
                    -> m (Fact x f)
         doBlock b fb = block b entryFact
           where
-            entryFact = getFact (entryLabel b) fb
-
-    getFact = undefined
+            entryFact = fromMaybe top $ lookupFact (entryLabel b) fb
 
     node :: forall e x . Insn e x -> f -> m (Fact x f)
     -- Labels aren't visible to the user and don't add facts for us.
     -- Now, the phi variant *can* add facts
     node (Lbl _ _) f = return f
-    -- Let all phi nodes be processed at the same time; we need to
-    -- take @f@ here and figure out all of the incoming facts.
-    -- Actually we only ever get an f.... probably can't do this.
-    --
-    -- Perhaps we can sneak something into the meet if the block
-    -- begins with a PhiLbl?
-    node (PhiLbl _ phis _) f = phiTransfer undefined phis
     -- Standard transfer function
     node (Normal i) f = transfer f i
     -- This gets a single input fact and needs to produce a
     -- *factbase*.  This should actually be fairly simple; run the
-    -- transfer function on the instruction and update all of the lbls
+    -- transfer function on the instruction and update all of the lbl
     node (Terminator i lbls) f = do
       f' <- transfer f i
-      return undefined
+      -- Now create a new map with all of the labels mapped to
+      -- f'.  Code later will handle merging this result.
+      return $ mapFromList $ zip lbls (repeat f')
+
 
 
     block :: Block Insn e x -> f -> m (Fact x f)
@@ -192,10 +205,65 @@ forwardDataflow cfg entryPoint f0 = graph (cfgBody cfg) noFacts
     block (BSnoc h n) = block h >=> node n
     block (BCons n t) = node n >=> block t
 
+
 data Direction = Fwd | Bwd
 
-fixpoint = undefined
+-- The fixedpoint calculations (and joins) all happen in here.
+-- Try to find a spot to possibly add the phi transfer...
+fixpoint :: forall m f . (DataflowAnalysis m f)
+            => Direction
+            -> (Block Insn C C -> Fact C f -> m (Fact C f))
+            -> [Label]
+            -> LabelMap (Block Insn C C)
+            -> (Fact C f -> m (Fact C f))
+fixpoint dir doBlock entries blockmap initFbase = do
+  fbase <- loop initFbase entries
+  return $ mapDeleteList (mapKeys blockmap) fbase
+  where
+    -- This is a map from label L to all of its dependencies; if L
+    -- changes, all of its dependencies need to be re-analyzed.
+    depBlocks :: LabelMap [Label]
+    depBlocks = mapFromListWith (++) [ (l, [entryLabel b])
+                                     | b <- mapElems blockmap
+                                     , l <- case dir of
+                                       Fwd -> [entryLabel b]
+                                       Bwd -> successors b
+                                     ]
 
+    loop :: FactBase f -> [Label] -> m (FactBase f)
+    loop fbase [] = return fbase
+    loop fbase (lbl:todo) =
+      case mapLookup lbl blockmap of
+        Nothing -> loop fbase todo
+        Just blk -> do
+          outFacts <- doBlock blk fbase
+          -- Fold updateFact over each fact in the result from doBlock
+          -- updateFact; facts are meet-ed pairwise.
+          let (changed, fbase') = mapFoldWithKey updateFact ([], fbase) outFacts
+          let depLookup l = mapFindWithDefault [] l depBlocks
+              toAnalyze = filter (`notElem` todo) $ concatMap depLookup changed
+
+          -- In the original code, there is a binding @newblocks'@
+          -- that includes any new blocks added by the graph rewriting
+          -- step.  This analysis does not rewrite any blocks, so we
+          -- only need @newblocks@ here.
+          loop fbase' (todo ++ toAnalyze)
+
+    -- We also have a simpler update condition in updateFact since we
+    -- don't carry around newBlocks.
+    updateFact :: (DataflowAnalysis m f)
+                  => Label
+                  -> f
+                  -> ([Label], FactBase f)
+                  -> ([Label], FactBase f)
+    updateFact lbl newFact acc@(cha, fbase) =
+      case lookupFact lbl fbase of
+        Nothing -> (lbl:cha,  mapInsert lbl newFact fbase)
+        Just oldFact ->
+          let fact' = oldFact `meet` newFact
+          in case fact' == oldFact of
+            True -> acc
+            False -> (lbl:cha, mapInsert lbl fact' fbase)
 
 {-
 -- | Get the result of a dataflow analysis at the given instruction.
