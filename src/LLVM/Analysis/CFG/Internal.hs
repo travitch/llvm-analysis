@@ -17,6 +17,7 @@ module LLVM.Analysis.CFG.Internal (
   forwardDataflow,
   DataflowResult(..),
   dataflowResult,
+  dataflowResultAt,
   -- * Internal types
   Insn(..),
   ) where
@@ -301,11 +302,12 @@ instance (Eq f) => Eq (DataflowResult f) where
 instance (NFData a) => NFData (DataflowResult a) where
   rnf _ = () -- (DataflowResult m) = m `deepseq` ()
 
-dataflowResult :: (DataflowAnalysis m f)
-                  => DataflowResult f
-                  -> Instruction
-                  -> m f
-dataflowResult (DataflowResult cfg m) i =
+-- | Look up the dataflow fact at a particular Instruction.
+dataflowResultAt :: (DataflowAnalysis m f)
+                    => DataflowResult f
+                    -> Instruction
+                    -> m f
+dataflowResultAt (DataflowResult cfg m) i =
   replayTransfer blockRes (basicBlockInstructions bb)
   where
     Just bb = instructionBasicBlock i
@@ -317,6 +319,17 @@ dataflowResult (DataflowResult cfg m) i =
       | otherwise = do
         r' <- transfer r thisI
         replayTransfer r' rest
+
+-- | Look up the dataflow fact at the virtual exit note.  This
+-- combines the results along /all/ paths, including those ending in
+-- "termination" instructions like Unreachable and Resume.
+--
+-- If you want the result at only the return instruction(s), use
+-- 'dataflowResultAt' and 'meets' the results together.
+dataflowResult :: DataflowResult f -> f
+dataflowResult (DataflowResult cfg m) = res
+  where
+    Just res = lookupFact (cfgExitLabel cfg) m
 
 forwardDataflow :: forall m f . (DataflowAnalysis m f)
                    => CFG

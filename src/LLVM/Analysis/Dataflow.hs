@@ -32,7 +32,8 @@ module LLVM.Analysis.Dataflow (
   -- backwardDataflow,
   -- -- * Dataflow results
   DataflowResult,
-  dataflowResult
+  dataflowResult,
+  dataflowResultAt
   ) where
 
 import LLVM.Analysis.CFG.Internal
