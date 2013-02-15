@@ -299,14 +299,16 @@ dataflowResult (DataflowResult cfg (DataflowAnalysis top _ _) m) =
 
 forwardDataflow :: forall m f . CFG
                    -> DataflowAnalysis m f
+                   -> f -- ^ Initial fact for the entry node
                    -> m (DataflowResult m f)
 forwardDataflow cfg da@DataflowAnalysis { analysisTop = top
                                         , analysisTransfer = transfer
-                                        } = do
-  r <- graph (cfgBody cfg) noFacts
+                                        } fact0 = do
+  r <- graph (cfgBody cfg) (mapSingleton elbl fact0)
   return $ DataflowResult cfg da r
   where
-    entryPoints = [cfgEntryLabel cfg]
+    elbl = cfgEntryLabel cfg
+    entryPoints = [elbl]
     -- We'll record the entry block in the CFG later
     graph :: Graph Insn C C -> Fact C f -> m (Fact C f)
     -- graph GNil = return
