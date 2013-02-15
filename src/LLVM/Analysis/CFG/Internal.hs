@@ -385,8 +385,7 @@ data Direction = Fwd | Bwd
 
 -- The fixedpoint calculations (and joins) all happen in here.
 -- Try to find a spot to possibly add the phi transfer...
-fixpoint :: forall m f . (Monad m, Eq f)
-            => Direction
+fixpoint :: forall m f . Direction
             -> DataflowAnalysis m f
             -> (Block Insn C C -> Fact C f -> m (Fact C f))
             -> [Label]
