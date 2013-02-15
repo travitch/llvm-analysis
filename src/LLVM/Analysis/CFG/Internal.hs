@@ -12,6 +12,7 @@ module LLVM.Analysis.CFG.Internal (
   DataflowAnalysis(..),
   dataflowAnalysis,
   forwardDataflow,
+  backwardDataflow,
   DataflowResult(..),
   dataflowResult,
   dataflowResultAt,
@@ -206,16 +207,20 @@ terminatorLabels xlabel i =
       return [nl, ul]
     _ -> error "LLVM.Analysis.CFG.successors: non-terminator instruction"
 
-basicBlockPredecessors :: CFG -> BasicBlock -> [BasicBlock]
-basicBlockPredecessors cfg bb =
+basicBlockPredecessors :: (HasCFG cfgLike) => cfgLike -> BasicBlock -> [BasicBlock]
+basicBlockPredecessors cfgLike bb =
   fromMaybe [] $ M.lookup bb (cfgPredecessors cfg)
+  where
+    cfg = getCFG cfgLike
 
-basicBlockSuccessors :: CFG -> BasicBlock -> [BasicBlock]
-basicBlockSuccessors cfg bb = case cfgBody cfg of
+basicBlockSuccessors :: (HasCFG cfgLike) => cfgLike -> BasicBlock -> [BasicBlock]
+basicBlockSuccessors cfgLike bb = case cfgBody cfg of
   GMany _ lm _ -> fromMaybe [] $ do
     blbl <- basicBlockToLabel cfg bb
     blk <- mapLookup blbl lm
     return $ mapMaybe (labelToBasicBlock cfg) (successors blk)
+  where
+    cfg = getCFG cfgLike
 
 basicBlockToLabel :: CFG -> BasicBlock -> Maybe Label
 basicBlockToLabel cfg bb = M.lookup bb (cfgLabelMap cfg)
@@ -296,16 +301,18 @@ dataflowResult :: DataflowResult m f -> f
 dataflowResult (DataflowResult cfg (DataflowAnalysis top _ _) m) =
   fromMaybe top $ lookupFact (cfgExitLabel cfg) m
 
-forwardDataflow :: forall m f . CFG
+forwardDataflow :: forall m f cfgLike . (HasCFG cfgLike)
+                   => cfgLike
                    -> DataflowAnalysis m f
                    -> f -- ^ Initial fact for the entry node
                    -> m (DataflowResult m f)
-forwardDataflow cfg da@DataflowAnalysis { analysisTop = top
-                                        , analysisTransfer = transfer
-                                        } fact0 = do
+forwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
+                                            , analysisTransfer = transfer
+                                            } fact0 = do
   r <- graph (cfgBody cfg) (mapSingleton elbl fact0)
   return $ DataflowResult cfg da r
   where
+    cfg = getCFG cfgLike
     elbl = cfgEntryLabel cfg
     entryPoints = [elbl]
     -- We'll record the entry block in the CFG later
@@ -343,9 +350,7 @@ forwardDataflow cfg da@DataflowAnalysis { analysisTop = top
     body bentries blockmap initFbase =
       fixpoint Fwd da doBlock bentries blockmap initFbase
       where
-        doBlock :: forall x . Block Insn C x
-                   -> FactBase f
-                   -> m (Fact x f)
+        doBlock :: forall x . Block Insn C x -> FactBase f -> m (Fact x f)
         doBlock b fb = block b entryFact
           where
             entryFact = fromMaybe top $ lookupFact (entryLabel b) fb
@@ -369,8 +374,6 @@ forwardDataflow cfg da@DataflowAnalysis { analysisTop = top
     -- final results.
     node UniqueExit _ = return mapEmpty
 
-
-
     block :: Block Insn e x -> f -> m (Fact x f)
     block BNil = return
     block (BlockCO l b) = node l >=> block b
@@ -381,6 +384,97 @@ forwardDataflow cfg da@DataflowAnalysis { analysisTop = top
     block (BSnoc h n) = block h >=> node n
     block (BCons n t) = node n >=> block t
 
+
+backwardDataflow :: forall m f cfgLike . (HasCFG cfgLike)
+                    => cfgLike
+                    -> DataflowAnalysis m f
+                    -> f -- ^ Initial fact for the entry node
+                    -> m (DataflowResult m f)
+backwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
+                                         , analysisMeet = meet
+                                         , analysisTransfer = transfer
+                                         } fact0 = do
+  r <- graph (cfgBody cfg) (mapSingleton xlbl fact0)
+  return $ DataflowResult cfg da r
+  where
+    cfg = getCFG cfgLike
+    xlbl = cfgExitLabel cfg
+    entryPoints = [xlbl]
+    -- We'll record the entry block in the CFG later
+    graph :: Graph Insn C C -> Fact C f -> m (Fact C f)
+    -- graph GNil = return
+    -- graph (GUnit blk) = block blk
+    graph (GMany e bdy x) = (e `ebcat` bdy) <=< exit x
+      where
+        exit :: MaybeO x (Block Insn C O) -> Fact C f -> m (Fact x f)
+        exit (JustO blk) = arbx block blk
+        exit NothingO = return
+        ebcat entry cbdy = c entryPoints entry
+          where
+            c :: [Label] -> MaybeO e (Block Insn O C)
+                 -> Fact e f -> m (Fact C f)
+--            c NothingC (JustO entry) = block entry `cat` body (successors entry) bdy
+            c eps NothingO = body eps cbdy
+            c _ _ = error "Bogus GADT pattern match failure"
+
+    -- Analyze Rewrite Backward Transformer?
+    arbx :: forall thing x . (NonLocal thing)
+            => (thing C x -> f -> m (Fact x f))
+            -> (thing C x -> Fact C f -> m (Fact x f))
+    arbx arf thing fb = arf thing f'
+      where
+        -- We don't do the meet operation here (unlike hoopl).  They
+        -- only performed it (knowing it is a no-op) to preserve side
+        -- effects.
+        Just f' = lookupFact (entryLabel thing) fb
+
+    body :: [Label]
+            -> LabelMap (Block Insn C C)
+            -> Fact C f
+            -> m (Fact C f)
+    body bentries blockmap initFbase =
+      fixpoint Bwd da doBlock (map entryLabel (backwardBlockList bentries blockmap)) blockmap initFbase
+      where
+        doBlock :: forall x . Block Insn C x -> Fact x f -> m (LabelMap f)
+        doBlock b fb = do
+          f <- block b fb
+          return $ mapSingleton (entryLabel b) f
+
+    node :: forall e x . Insn e x -> Fact x f -> m f
+    -- Labels aren't visible to the user and don't add facts for us.
+    -- Now, the phi variant *can* add facts
+    node (Lbl _ _) f = return f
+    node (UniqueExitLabel _) f = return f
+    -- Standard transfer function
+    node (Normal i) f = transfer f i
+    -- In backward mode, the transfer function gets a FactBase and
+    -- returns a single Fact.
+    node (Terminator i lbls) fbase = do
+      let fs = mapMaybe (\l -> lookupFact l fbase) lbls
+          f = foldr meet top fs
+      transfer f i
+    -- The unique exit doesn't do anything - it just collects the
+    -- final results.
+    node UniqueExit fbase =
+      return $ foldr meet top (mapElems fbase)
+
+    block :: Block Insn e x -> Fact x f -> m f
+    block BNil = return
+    block (BlockCO l b) = node l <=< block b
+    block (BlockCC l b n) = node l <=< block b <=< node n
+    block (BlockOC b n) = block b <=< node n
+    block (BMiddle n) = node n
+    block (BCat b1 b2) = block b1 <=< block b2
+    block (BSnoc h n) = block h <=< node n
+    block (BCons n t) = node n <=< block t
+
+forwardBlockList :: (NonLocal n, LabelsPtr entry)
+                    => entry -> Body n -> [Block n C C]
+forwardBlockList entries blks = postorder_dfs_from blks entries
+
+backwardBlockList :: (NonLocal n, LabelsPtr entries)
+                     => entries -> Body n -> [Block n C C]
+backwardBlockList entries body = reverse $ forwardBlockList entries body
 
 data Direction = Fwd | Bwd
 

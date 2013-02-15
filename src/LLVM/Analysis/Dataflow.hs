@@ -24,7 +24,7 @@ module LLVM.Analysis.Dataflow (
   DataflowAnalysis,
   dataflowAnalysis,
   forwardDataflow,
-  -- backwardDataflow,
+  backwardDataflow,
   -- -- * Dataflow results
   DataflowResult,
   dataflowResult,
