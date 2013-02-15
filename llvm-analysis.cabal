@@ -52,7 +52,7 @@ library
                    LLVM.Analysis.CallGraphSCCTraversal,
                    LLVM.Analysis.ClassHierarchy,
                    LLVM.Analysis.Dataflow,
-                   -- LLVM.Analysis.Dominance,
+                   LLVM.Analysis.Dominance,
                    LLVM.Analysis.PointsTo,
                    LLVM.Analysis.PointsTo.AllocatorProfile,
                    LLVM.Analysis.PointsTo.Andersen,
