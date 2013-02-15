@@ -59,7 +59,6 @@ library
                    LLVM.Analysis.PointsTo.TrivialFunction,
                    LLVM.Analysis.NoReturn,
                    LLVM.Analysis.ScalarEffects,
-                   LLVM.Analysis.Types,
                    LLVM.Analysis.Util.Names,
                    LLVM.Analysis.Util.Testing
 
