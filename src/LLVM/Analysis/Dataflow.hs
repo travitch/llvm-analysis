@@ -1,6 +1,3 @@
-{-# LANGUAGE MultiParamTypeClasses, BangPatterns #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GADTs, TypeFamilies #-}
 -- | This module defines an interface for intra-procedural dataflow
 -- analysis (forward and backward).
 --
@@ -24,7 +21,8 @@
 -- @result@ function.
 module LLVM.Analysis.Dataflow (
   -- * Dataflow analysis
-  DataflowAnalysis(..),
+  DataflowAnalysis,
+  dataflowAnalysis,
   MeetSemiLattice(..),
   BoundedMeetSemiLattice(..),
   meets,

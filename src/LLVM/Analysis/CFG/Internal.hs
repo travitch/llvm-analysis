@@ -1,7 +1,6 @@
 {-# OPTIONS_HADDOCK not-home #-}
-{-# LANGUAGE TypeFamilies, MultiParamTypeClasses #-}
 {-# LANGUAGE ExistentialQuantification, GADTs #-}
-{-# LANGUAGE BangPatterns, ViewPatterns, ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns, ScopedTypeVariables #-}
 module LLVM.Analysis.CFG.Internal (
   -- * CFG
   CFG(..),
@@ -11,6 +10,7 @@ module LLVM.Analysis.CFG.Internal (
   basicBlockSuccessors,
   -- * Dataflow
   DataflowAnalysis(..),
+  dataflowAnalysis,
   MeetSemiLattice(..),
   BoundedMeetSemiLattice(..),
   meets,
@@ -241,32 +241,39 @@ labelToBasicBlock cfg l = M.lookup l (cfgBlockMap cfg)
 -- be stored redundantly in every dataflow fact.  If this parameter is
 -- not needed, it can safely be instantiated as () (and subsequently
 -- ignored).
-class (BoundedMeetSemiLattice a, Monad m, Eq a) => DataflowAnalysis m a where
-  transfer :: a -- ^ The incoming analysis state
-              -> Instruction -- ^ The instruction being analyzed
-              -> m a
+data DataflowAnalysis m f  where
+  DataflowAnalysis :: (BoundedMeetSemiLattice f, Eq f, Monad m)
+                      => (f -> Instruction -> m f) -> DataflowAnalysis m f
+
+dataflowAnalysis :: (BoundedMeetSemiLattice f, Eq f, Monad m)
+                    => (f -> Instruction -> m f) -> DataflowAnalysis m f
+dataflowAnalysis = DataflowAnalysis
 
 -- | The opaque result of a dataflow analysis
-data DataflowResult f = DataflowResult CFG (Fact C f)
+data DataflowResult m f where
+  DataflowResult :: (BoundedMeetSemiLattice f)
+                    => CFG
+                    -> DataflowAnalysis m f
+                    -> Fact C f
+                    -> DataflowResult m f
 
-instance (Show f) => Show (DataflowResult f) where
-  show (DataflowResult cfg fb) = show fb ++ "\n" ++ showGraph show (cfgBody cfg)
+instance (Show f) => Show (DataflowResult m f) where
+  show (DataflowResult cfg _ fb) = show fb ++ "\n" ++ showGraph show (cfgBody cfg)
 
-instance (Eq f) => Eq (DataflowResult f) where
-  (DataflowResult c1 m1) == (DataflowResult c2 m2) =
+instance (Eq f) => Eq (DataflowResult m f) where
+  (DataflowResult c1 _ m1) == (DataflowResult c2 _ m2) =
     c1 == c2 && m1 == m2
 
 -- This may have to cheat... LabelMap doesn't have an NFData instance.
 -- Not sure if this will affect monad-par or not.
-instance (NFData a) => NFData (DataflowResult a) where
+instance (NFData f) => NFData (DataflowResult m f) where
   rnf _ = () -- (DataflowResult m) = m `deepseq` ()
 
 -- | Look up the dataflow fact at a particular Instruction.
-dataflowResultAt :: (DataflowAnalysis m f)
-                    => DataflowResult f
+dataflowResultAt :: DataflowResult m f
                     -> Instruction
                     -> m f
-dataflowResultAt (DataflowResult cfg m) i = do
+dataflowResultAt (DataflowResult cfg (DataflowAnalysis transfer) m) i = do
   let Just bb = instructionBasicBlock i
       Just lbl = M.lookup bb (cfgLabelMap cfg)
   case lookupFact lbl m of
@@ -286,16 +293,16 @@ dataflowResultAt (DataflowResult cfg m) i = do
 --
 -- If you want the result at only the return instruction(s), use
 -- 'dataflowResultAt' and 'meets' the results together.
-dataflowResult :: (BoundedMeetSemiLattice f) => DataflowResult f -> f
-dataflowResult (DataflowResult cfg m) =
+dataflowResult :: DataflowResult m f -> f
+dataflowResult (DataflowResult cfg _ m) =
   fromMaybe top $ lookupFact (cfgExitLabel cfg) m
 
-forwardDataflow :: forall m f . (DataflowAnalysis m f)
-                   => CFG
-                   -> m (DataflowResult f)
-forwardDataflow cfg = do
+forwardDataflow :: forall m f . DataflowAnalysis m f
+                   -> CFG
+                   -> m (DataflowResult m f)
+forwardDataflow da@(DataflowAnalysis transfer) cfg = do
   r <- graph (cfgBody cfg) noFacts
-  return $ DataflowResult cfg r
+  return $ DataflowResult cfg da r
   where
     entryPoints = [cfgEntryLabel cfg]
     -- We'll record the entry block in the CFG later
@@ -376,7 +383,7 @@ data Direction = Fwd | Bwd
 
 -- The fixedpoint calculations (and joins) all happen in here.
 -- Try to find a spot to possibly add the phi transfer...
-fixpoint :: forall m f . (DataflowAnalysis m f)
+fixpoint :: forall m f . (Monad m, MeetSemiLattice f, Eq f)
             => Direction
             -> (Block Insn C C -> Fact C f -> m (Fact C f))
             -> [Label]
@@ -417,8 +424,7 @@ fixpoint dir doBlock entries blockmap initFbase =
 
     -- We also have a simpler update condition in updateFact since we
     -- don't carry around newBlocks.
-    updateFact :: (DataflowAnalysis m f)
-                  => Label
+    updateFact :: Label
                   -> f
                   -> ([Label], FactBase f)
                   -> ([Label], FactBase f)

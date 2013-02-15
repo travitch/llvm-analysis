@@ -1,5 +1,4 @@
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances, MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 -- | An analysis to identify functions that never return to their
 -- caller.  This only counts calls to exit, abort, or similar.
 -- Notably, exceptions are not considered since the caller can catch
@@ -61,8 +60,8 @@ data AnalysisEnvironment m =
 -- to test ExternalFunctions
 type AnalysisMonad m = ReaderT (AnalysisEnvironment m) m
 
-instance (Monad m) => DataflowAnalysis (AnalysisMonad m) ReturnInfo where
-  transfer = returnTransfer
+analysis :: (Monad m) => DataflowAnalysis (AnalysisMonad m) ReturnInfo
+analysis = dataflowAnalysis returnTransfer
 
 noReturnAnalysis :: (Monad m, HasCFG cfg)
                     => (ExternalFunction -> m Bool)
@@ -73,7 +72,7 @@ noReturnAnalysis extSummary cfgLike summ = do
   let cfg = getCFG cfgLike
       f = getFunction cfg
       env = AE extSummary summ
-  localRes <- runReaderT (forwardDataflow cfg) env
+  localRes <- runReaderT (forwardDataflow analysis cfg) env
   case dataflowResult localRes of
     WillNeverReturn -> return $! S.insert f summ
     NotReturned -> return $! S.insert f summ

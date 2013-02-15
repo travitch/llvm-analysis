@@ -1,4 +1,3 @@
-{-# LANGUAGE ExistentialQuantification, GADTs, ViewPatterns #-}
 -- | This module defines control flow graphs over the LLVM IR.
 module LLVM.Analysis.CFG (
   -- * Types
