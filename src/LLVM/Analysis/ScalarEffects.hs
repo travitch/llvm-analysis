@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE ViewPatterns, NoMonomorphismRestriction #-}
 {-|
 
 This analysis identifies the (memory) effects that functions have on
@@ -65,8 +65,11 @@ instance MeetSemiLattice ScalarInfo where
 instance BoundedMeetSemiLattice ScalarInfo where
   top = SITop
 
-instance (Monad m) => DataflowAnalysis m ScalarInfo where
-  transfer = scalarTransfer
+-- instance (Monad m) => DataflowAnalysis m ScalarInfo where
+--   transfer = scalarTransfer
+
+analysis :: (Monad m) => DataflowAnalysis m ScalarInfo
+analysis = dataflowAnalysis scalarTransfer
 
 -- For each function, initialize all arguments to Nothing
 scalarEffectAnalysis :: (Monad m, HasCFG funcLike, HasFunction funcLike)
@@ -75,17 +78,20 @@ scalarEffectAnalysis :: (Monad m, HasCFG funcLike, HasFunction funcLike)
                         -> m ScalarEffectResult
 scalarEffectAnalysis funcLike summ = do
   let cfg = getCFG funcLike
-      f = getFunction funcLike
-      s0 = SI $ HM.fromList (zip (functionParameters f) (repeat Nothing))
+--      f = getFunction funcLike
+      -- s0 = SI $ HM.fromList (zip (functionParameters f) (repeat Nothing))
 
-  localRes <- forwardDataflow s0 cfg
-
-  let exitInsts = filter (instructionReachable cfg) (functionExitInstructions f)
-      exitInfo = meets $ map (dataflowResult localRes) exitInsts
-      exitInfo' = case exitInfo of
+  localRes <- forwardDataflow analysis cfg
+  let xi = case dataflowResult localRes of
         SITop -> HM.empty
         SI m -> HM.foldlWithKey' discardNothings HM.empty m
-  return $! HM.union exitInfo' summ
+  return $! HM.union xi summ
+  -- let exitInsts = filter (instructionReachable cfg) (functionExitInstructions f)
+  --     exitInfo = meets $ map (dataflowResult localRes) exitInsts
+  --     exitInfo' = case exitInfo of
+  --       SITop -> HM.empty
+  --       SI m -> HM.foldlWithKey' discardNothings HM.empty m
+  -- return $! HM.union exitInfo' summ
 
 discardNothings :: HashMap Argument ScalarEffect
                    -> Argument

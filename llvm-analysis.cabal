@@ -44,13 +44,13 @@ library
   hs-source-dirs: src
   exposed-modules: LLVM.Analysis,
                    LLVM.Analysis.AccessPath,
---                   LLVM.Analysis.BlockReturnValue,
+                   -- LLVM.Analysis.BlockReturnValue,
 --                   LLVM.Analysis.CDG,
                    LLVM.Analysis.CFG,
                    LLVM.Analysis.CFG.Internal,
                    LLVM.Analysis.CallGraph,
                    LLVM.Analysis.CallGraphSCCTraversal,
-                   -- LLVM.Analysis.ClassHierarchy,
+                   LLVM.Analysis.ClassHierarchy,
                    LLVM.Analysis.Dataflow,
                    -- LLVM.Analysis.Dominance,
                    LLVM.Analysis.PointsTo,
@@ -58,9 +58,9 @@ library
                    LLVM.Analysis.PointsTo.Andersen,
                    LLVM.Analysis.PointsTo.TrivialFunction,
                    LLVM.Analysis.NoReturn,
-                   -- LLVM.Analysis.ScalarEffects,
-                   -- LLVM.Analysis.Types,
-                   -- LLVM.Analysis.Util.Names,
+                   LLVM.Analysis.ScalarEffects,
+                   LLVM.Analysis.Types,
+                   LLVM.Analysis.Util.Names,
                    LLVM.Analysis.Util.Testing
 
   if flag(DebugAndersenConstraints)
