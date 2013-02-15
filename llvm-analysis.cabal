@@ -33,7 +33,7 @@ library
                  mtl > 2, filemanip >= 0.3.5.2, monad-par >= 0.3,
                  graphviz >= 2999.12.0.3, temporary >= 1.0, lens > 1,
                  hashable >= 1.1.2.0, unordered-containers,
-                 lattices, failure >= 0.2, hashtables,
+                 failure >= 0.2, hashtables,
                  lens > 1, ifscs, GenericPretty > 1,
                  llvm-base-types, hbgl, boomerang,
                  hoopl >= 3.9.0.0,

@@ -41,15 +41,12 @@ data ReturnInfo = NotReturned
                 | WillNeverReturn
                 deriving (Show, Eq)
 
-instance MeetSemiLattice ReturnInfo where
-  meet Returned _ = Returned
-  meet _ Returned = Returned
-  meet WillNeverReturn _ = WillNeverReturn
-  meet _ WillNeverReturn = WillNeverReturn
-  meet NotReturned NotReturned = NotReturned
-
-instance BoundedMeetSemiLattice ReturnInfo where
-  top = NotReturned
+meet :: ReturnInfo -> ReturnInfo -> ReturnInfo
+meet Returned _ = Returned
+meet _ Returned = Returned
+meet WillNeverReturn _ = WillNeverReturn
+meet _ WillNeverReturn = WillNeverReturn
+meet NotReturned NotReturned = NotReturned
 
 data AnalysisEnvironment m =
   AE { externalSummary :: ExternalFunction -> m Bool
@@ -60,9 +57,6 @@ data AnalysisEnvironment m =
 -- to test ExternalFunctions
 type AnalysisMonad m = ReaderT (AnalysisEnvironment m) m
 
-analysis :: (Monad m) => DataflowAnalysis (AnalysisMonad m) ReturnInfo
-analysis = dataflowAnalysis returnTransfer
-
 noReturnAnalysis :: (Monad m, HasCFG cfg)
                     => (ExternalFunction -> m Bool)
                     -> cfg
@@ -72,7 +66,8 @@ noReturnAnalysis extSummary cfgLike summ = do
   let cfg = getCFG cfgLike
       f = getFunction cfg
       env = AE extSummary summ
-  localRes <- runReaderT (forwardDataflow analysis cfg) env
+      analysis = dataflowAnalysis NotReturned meet returnTransfer
+  localRes <- runReaderT (forwardDataflow cfg analysis) env
   case dataflowResult localRes of
     WillNeverReturn -> return $! S.insert f summ
     NotReturned -> return $! S.insert f summ

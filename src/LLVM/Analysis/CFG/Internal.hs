@@ -11,9 +11,6 @@ module LLVM.Analysis.CFG.Internal (
   -- * Dataflow
   DataflowAnalysis(..),
   dataflowAnalysis,
-  MeetSemiLattice(..),
-  BoundedMeetSemiLattice(..),
-  meets,
   forwardDataflow,
   DataflowResult(..),
   dataflowResult,
@@ -22,7 +19,6 @@ module LLVM.Analysis.CFG.Internal (
   Insn(..),
   ) where
 
-import Algebra.Lattice
 import Compiler.Hoopl
 import Control.DeepSeq
 import Control.Monad.State.Strict
@@ -242,17 +238,21 @@ labelToBasicBlock cfg l = M.lookup l (cfgBlockMap cfg)
 -- not needed, it can safely be instantiated as () (and subsequently
 -- ignored).
 data DataflowAnalysis m f  where
-  DataflowAnalysis :: (BoundedMeetSemiLattice f, Eq f, Monad m)
-                      => (f -> Instruction -> m f) -> DataflowAnalysis m f
+  DataflowAnalysis :: (Eq f, Monad m) => { analysisTop :: f
+                                         , analysisMeet :: f -> f -> f
+                                         , analysisTransfer :: f -> Instruction -> m f
+                                         } -> DataflowAnalysis m f
 
-dataflowAnalysis :: (BoundedMeetSemiLattice f, Eq f, Monad m)
-                    => (f -> Instruction -> m f) -> DataflowAnalysis m f
+dataflowAnalysis :: (Eq f, Monad m)
+                    => f -- ^ Top
+                    -> (f -> f -> f) -- ^ Meet
+                    -> (f -> Instruction -> m f) -- ^ Transfer
+                    -> DataflowAnalysis m f
 dataflowAnalysis = DataflowAnalysis
 
 -- | The opaque result of a dataflow analysis
 data DataflowResult m f where
-  DataflowResult :: (BoundedMeetSemiLattice f)
-                    => CFG
+  DataflowResult :: CFG
                     -> DataflowAnalysis m f
                     -> Fact C f
                     -> DataflowResult m f
@@ -273,7 +273,7 @@ instance (NFData f) => NFData (DataflowResult m f) where
 dataflowResultAt :: DataflowResult m f
                     -> Instruction
                     -> m f
-dataflowResultAt (DataflowResult cfg (DataflowAnalysis transfer) m) i = do
+dataflowResultAt (DataflowResult cfg (DataflowAnalysis top _ transfer) m) i = do
   let Just bb = instructionBasicBlock i
       Just lbl = M.lookup bb (cfgLabelMap cfg)
   case lookupFact lbl m of
@@ -294,13 +294,15 @@ dataflowResultAt (DataflowResult cfg (DataflowAnalysis transfer) m) i = do
 -- If you want the result at only the return instruction(s), use
 -- 'dataflowResultAt' and 'meets' the results together.
 dataflowResult :: DataflowResult m f -> f
-dataflowResult (DataflowResult cfg _ m) =
+dataflowResult (DataflowResult cfg (DataflowAnalysis top _ _) m) =
   fromMaybe top $ lookupFact (cfgExitLabel cfg) m
 
-forwardDataflow :: forall m f . DataflowAnalysis m f
-                   -> CFG
+forwardDataflow :: forall m f . CFG
+                   -> DataflowAnalysis m f
                    -> m (DataflowResult m f)
-forwardDataflow da@(DataflowAnalysis transfer) cfg = do
+forwardDataflow cfg da@DataflowAnalysis { analysisTop = top
+                                        , analysisTransfer = transfer
+                                        } = do
   r <- graph (cfgBody cfg) noFacts
   return $ DataflowResult cfg da r
   where
@@ -338,7 +340,7 @@ forwardDataflow da@(DataflowAnalysis transfer) cfg = do
             -> Fact C f
             -> m (Fact C f)
     body bentries blockmap initFbase =
-      fixpoint Fwd doBlock bentries blockmap initFbase
+      fixpoint Fwd da doBlock bentries blockmap initFbase
       where
         doBlock :: forall x . Block Insn C x
                    -> FactBase f
@@ -383,13 +385,14 @@ data Direction = Fwd | Bwd
 
 -- The fixedpoint calculations (and joins) all happen in here.
 -- Try to find a spot to possibly add the phi transfer...
-fixpoint :: forall m f . (Monad m, MeetSemiLattice f, Eq f)
+fixpoint :: forall m f . (Monad m, Eq f)
             => Direction
+            -> DataflowAnalysis m f
             -> (Block Insn C C -> Fact C f -> m (Fact C f))
             -> [Label]
             -> LabelMap (Block Insn C C)
             -> (Fact C f -> m (Fact C f))
-fixpoint dir doBlock entries blockmap initFbase =
+fixpoint dir (DataflowAnalysis _ meet _) doBlock entries blockmap initFbase =
   -- See Note [Fixpoint]
   loop initFbase entries
   where

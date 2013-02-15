@@ -23,9 +23,6 @@ module LLVM.Analysis.Dataflow (
   -- * Dataflow analysis
   DataflowAnalysis,
   dataflowAnalysis,
-  MeetSemiLattice(..),
-  BoundedMeetSemiLattice(..),
-  meets,
   forwardDataflow,
   -- backwardDataflow,
   -- -- * Dataflow results
