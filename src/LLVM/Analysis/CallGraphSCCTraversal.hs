@@ -31,7 +31,6 @@ import Data.Monoid
 
 import LLVM.Analysis
 import LLVM.Analysis.CallGraph
-import LLVM.Analysis.Types
 
 import Data.Graph.Interface
 import Data.Graph.MutableDigraph

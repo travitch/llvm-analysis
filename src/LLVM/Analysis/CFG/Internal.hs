@@ -32,7 +32,6 @@ import qualified Data.Set as S
 import Data.Tuple ( swap )
 
 import LLVM.Analysis
-import LLVM.Analysis.Types -- move this to LLVM.Analysis?
 
 -- CFG stuff
 
