@@ -3,12 +3,24 @@
 -- LLVM.Analysis provide higher-level tools for analyzing the IR.
 module LLVM.Analysis (
   -- * Parsing LLVM Bitcode
-
   -- $parsing
-  module Data.LLVM.Types
+
+  -- * Types
+  module Data.LLVM.Types,
+
+  -- * Extra helpers
+  FuncLike(..)
   ) where
 
 import Data.LLVM.Types
+
+-- | A class for types that can be derived from a Function.
+class FuncLike a where
+  fromFunction :: Function -> a
+
+instance FuncLike Function where
+  fromFunction = id
+
 
 -- $parsing
 --
