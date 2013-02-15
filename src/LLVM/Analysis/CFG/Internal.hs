@@ -95,24 +95,14 @@ instance Eq CFG where
 --
 -- 2) Additionally, LLVM doens't have a unique exit instruction per
 -- function.  resume, ret, and unreachable all terminate execution.
+-- c.f. UniqueExitLabel and ExitLabel (both seem to be needed because
+-- hoopl blocks need an entry and an exit).
 data Insn e x where
-  -- | Hoopl uses explicit labels, so we will construct these from our
-  -- BasicBlocks.
   Lbl :: BasicBlock -> Label -> Insn C O
-
-  -- | Terminator instructions always end a BasicBlock.  These include
-  -- Invokes.
   Terminator :: Instruction -> [Label] -> Insn O C
-
-  -- | Everything else
-  Normal :: Instruction -> Insn O O
-
-  -- | A virtual node to collect all exit results.  It has no content
-  -- and appears exactly once per control flow graph.
   UniqueExitLabel :: Label -> Insn C O
-
-  -- | Just a token instruction to close the virtual exit block.
   UniqueExit :: Insn O C
+  Normal :: Instruction -> Insn O O
 
 instance NonLocal Insn where
   entryLabel (Lbl _ lbl) = lbl
@@ -339,7 +329,7 @@ dataflowResult :: (BoundedMeetSemiLattice f) => DataflowResult f -> f
 dataflowResult (DataflowResult cfg m) =
   fromMaybe top $ lookupFact (cfgExitLabel cfg) m
 
-forwardDataflow :: forall m f . (DataflowAnalysis m f, Show f)
+forwardDataflow :: forall m f . (DataflowAnalysis m f)
                    => CFG
                    -> m (DataflowResult f)
 forwardDataflow cfg = do
@@ -406,7 +396,7 @@ forwardDataflow cfg = do
       return $ mapFromList $ zip lbls (repeat f')
     -- The unique exit doesn't do anything - it just collects the
     -- final results.
-    node UniqueExit f = return mapEmpty
+    node UniqueExit _ = return mapEmpty
 
 
 
@@ -425,7 +415,7 @@ data Direction = Fwd | Bwd
 
 -- The fixedpoint calculations (and joins) all happen in here.
 -- Try to find a spot to possibly add the phi transfer...
-fixpoint :: forall m f . (DataflowAnalysis m f, Show f)
+fixpoint :: forall m f . (DataflowAnalysis m f)
             => Direction
             -> (Block Insn C C -> Fact C f -> m (Fact C f))
             -> [Label]
