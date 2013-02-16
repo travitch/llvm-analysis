@@ -50,6 +50,7 @@ library
                    LLVM.Analysis.CFG.Internal,
                    LLVM.Analysis.CallGraph,
                    LLVM.Analysis.CallGraphSCCTraversal,
+                   LLVM.Analysis.CallGraph.Internal,
                    LLVM.Analysis.ClassHierarchy,
                    LLVM.Analysis.Dataflow,
                    LLVM.Analysis.Dominance,
