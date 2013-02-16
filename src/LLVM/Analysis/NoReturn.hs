@@ -11,7 +11,6 @@
 -- Meet is &&.  Functions are able to return as long as at least one
 -- path can return.
 module LLVM.Analysis.NoReturn (
-  NoReturnSummary,
   noReturnAnalysis
   ) where
 
@@ -22,8 +21,6 @@ import qualified Data.HashSet as S
 import LLVM.Analysis
 import LLVM.Analysis.CFG
 import LLVM.Analysis.Dataflow
-
-type NoReturnSummary = HashSet Function
 
 -- | The dataflow fact; Bool is not enough.  Top is "NotReturned" -
 -- the function has not returned yet.  Return instructions will
@@ -57,6 +54,9 @@ data AnalysisEnvironment m =
 -- to test ExternalFunctions
 type AnalysisMonad m = ReaderT (AnalysisEnvironment m) m
 
+-- | The functions in the returned set are those that do not return.
+--
+-- Warning, this return type may become abstract at some point.
 noReturnAnalysis :: (Monad m, HasCFG cfg)
                     => (ExternalFunction -> m Bool)
                     -> cfg
