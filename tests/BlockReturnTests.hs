@@ -53,7 +53,7 @@ blockRetMap m = foldr (recordConstIntReturn brs) mempty blocks
     blocks = functionBody f1
     brs = labelBlockReturns bdl
     cfg = mkCFG f1
-    pdt = postdominatorTree (reverseCFG cfg)
+    pdt = postdominatorTree cfg
     bdl = Bundle f1 pdt cfg
 
 
