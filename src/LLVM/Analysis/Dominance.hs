@@ -24,11 +24,9 @@ module LLVM.Analysis.Dominance (
   postdominatorsFor,
   immediatePostdominators,
   immediatePostdominator,
-  -- * Visualization
-  -- domTreeGraphvizRepr,
-  -- postdomTreeGraphvizRepr
   ) where
 
+import Control.Arrow ( (&&&) )
 import Control.Monad.Identity
 import qualified Data.Foldable as F
 import Data.Map ( Map )
@@ -37,7 +35,7 @@ import Data.Maybe ( fromMaybe )
 import Data.Monoid
 import Data.Set ( Set )
 import qualified Data.Set as S
--- import Data.GraphViz
+import Data.GraphViz
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
@@ -228,31 +226,30 @@ addIdom allDoms (n, doms) acc =
       let Just mdom = M.lookup m allDoms
       in F.all (flip S.member mdom) sdoms
 
--- See Note [Immediate Dominators]
-
-{- Note [Immediate Dominators]
-
-
-
--}
-
-{-
-
 
 -- Visualization
+domTreeParams :: GraphvizParams n Instruction el () Instruction
+domTreeParams =
+  nonClusteredParams { fmtNode = \(_, l) -> [ toLabel (toValue l) ] }
 
-domTreeGraphvizRepr :: DominatorTree -> DotGraph Vertex
-domTreeGraphvizRepr dt = graphElemsToDot domTreeParams ns es
+treeToGraphviz :: CFG -> Map Instruction Instruction -> DotGraph Int
+treeToGraphviz cfg t = graphElemsToDot domTreeParams ns es
   where
-    g = dtTree dt
-    ns = labeledVertices g
-    es = map (\(Edge s d l) -> (s, d, l)) (edges g)
+    f = getFunction cfg
+    is = functionInstructions f
+    ns = map (instructionUniqueId &&& id) is
+    es = foldr toDomEdge [] is
 
-postdomTreeGraphvizRepr :: PostdominatorTree -> DotGraph Vertex
-postdomTreeGraphvizRepr dt = graphElemsToDot domTreeParams ns es
-  where
-    g = pdtTree dt
-    ns = labeledVertices g
-    es = map (\(Edge s d l) -> (s, d, l)) (edges g)
--}
+    toDomEdge i acc =
+      case M.lookup i t of
+        Nothing -> acc
+        Just d ->
+          (instructionUniqueId i, instructionUniqueId d, ()) : acc
+
+instance ToGraphviz DominatorTree where
+  toGraphviz (DT cfg t) = treeToGraphviz cfg t
+
+instance ToGraphviz PostdominatorTree where
+  toGraphviz (PDT cfg t) = treeToGraphviz cfg t
+
 {-# ANN module "HLint: ignore Use if" #-}
