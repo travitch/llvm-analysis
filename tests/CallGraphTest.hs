@@ -39,7 +39,7 @@ extractTraversalOrder m =
   where
     Just mainFunc = findMain m
     pta = runPointsToAnalysis m
-    cg = mkCallGraph m pta [mainFunc]
+    cg = callGraph m pta [mainFunc]
 
     res = callGraphSCCTraversal cg buildSummary []
     pres = parallelCallGraphSCCTraversal cg buildSummary []

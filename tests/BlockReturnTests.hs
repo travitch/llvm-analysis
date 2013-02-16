@@ -52,7 +52,7 @@ blockRetMap m = foldr (recordConstIntReturn brs) mempty blocks
     f1 : _ = moduleDefinedFunctions m
     blocks = functionBody f1
     brs = labelBlockReturns bdl
-    cfg = mkCFG f1
+    cfg = controlFlowGraph f1
     pdt = postdominatorTree cfg
     bdl = Bundle f1 pdt cfg
 

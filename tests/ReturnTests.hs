@@ -2,6 +2,7 @@ module Main ( main ) where
 
 import Control.Monad.Identity
 import Data.Foldable ( toList )
+import Data.HashSet ( HashSet )
 import Data.Monoid
 import Data.Set ( Set )
 import qualified Data.Set as S
@@ -46,7 +47,7 @@ nameToString = show . functionName
 
 runNoReturnAnalysis :: CallGraph -> (ExternalFunction -> Identity Bool) -> [Function]
 runNoReturnAnalysis cg extSummary =
-  let analysis :: [CFG] -> NoReturnSummary -> NoReturnSummary
+  let analysis :: [CFG] -> HashSet Function -> HashSet Function
       analysis = callGraphAnalysisM runIdentity (noReturnAnalysis extSummary)
       res = callGraphSCCTraversal cg analysis mempty
   in toList res
@@ -57,4 +58,4 @@ analyzeReturns m = S.fromList $ map nameToString nrs
   where
     nrs = runNoReturnAnalysis cg exitTest -- runIdentity (noReturnAnalysis cg exitTest)
     pta = runPointsToAnalysis m
-    cg = mkCallGraph m pta []
+    cg = callGraph m pta []
