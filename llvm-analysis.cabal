@@ -9,7 +9,7 @@ category: Development
 build-type: Simple
 cabal-version: >=1.10
 stability: experimental
-tested-with: GHC == 7.4.1
+tested-with: GHC == 7.6.2
 extra-source-files: README.md
 description: A Haskell library for analyzing LLVM bitcode.  To convert
              bitcode to the format used by this library, see the
@@ -28,19 +28,28 @@ flag DebugAndersenGraph
 
 library
   default-language: Haskell2010
-  build-depends: base > 3 && < 5, array, bytestring, containers,
-                 deepseq, process, filepath, directory, vector >= 0.9,
-                 mtl > 2, filemanip >= 0.3.5.2, monad-par >= 0.3,
-                 graphviz >= 2999.12.0.3, temporary >= 1.0, lens > 1,
-                 hashable >= 1.1.2.0, unordered-containers,
-                 failure >= 0.2, hashtables,
-                 lens > 1, ifscs, GenericPretty > 1,
-                 llvm-base-types, hbgl, boomerang,
+  build-depends: base == 4.*,
+                 vector >= 0.9,
+                 mtl > 2,
+                 filemanip >= 0.3.5.2,
+                 monad-par >= 0.3,
+                 graphviz >= 2999.12.0.3,
+                 temporary >= 1.0,
+                 lens > 1,
+                 hashable >= 1.1.2.0,
+                 failure >= 0.2,
+                 lens > 1,
+                 GenericPretty > 1,
                  hoopl >= 3.9.0.0,
+                 llvm-base-types >= 0.1.1,
+                 hbgl, boomerang, ifscs,
+                 array, bytestring, containers, deepseq,
+                 process, filepath, directory, unordered-containers,
                  -- Testing
                  HUnit, test-framework, test-framework-hunit,
                  -- Dealing with C++ names
-                 itanium-abi, uniplate == 1.*
+                 itanium-abi,
+                 uniplate == 1.*
   hs-source-dirs: src
   exposed-modules: LLVM.Analysis,
                    LLVM.Analysis.AccessPath,
@@ -73,8 +82,11 @@ test-suite CallGraphTests
   type: exitcode-stdio-1.0
   main-is: CallGraphTest.hs
   hs-source-dirs: tests
-  build-depends: mtl > 2, base > 3 && < 5, filepath, containers, HUnit, bytestring,
-                 llvm-analysis >= 0.1.1, llvm-data-interop >= 0.1.1
+  build-depends: base == 4.*,
+                 mtl > 2,
+                 HUnit, filepath, containers, bytestring,
+                 llvm-analysis >= 0.2.0,
+                 llvm-data-interop >= 0.1.1
   ghc-options: -Wall
 
 test-suite BlockReturnTests
@@ -82,15 +94,20 @@ test-suite BlockReturnTests
   type: exitcode-stdio-1.0
   main-is: BlockReturnTests.hs
   hs-source-dirs: tests
-  build-depends: base == 4.*, containers, HUnit, filepath,
-                 llvm-analysis >= 0.1.1, llvm-data-interop >= 0.1.1
+  build-depends: base == 4.*,
+                 containers, HUnit, filepath,
+                 llvm-analysis >= 0.2.0,
+                 llvm-data-interop >= 0.1.1
   ghc-options: -Wall
 
 test-suite ReturnTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
-  build-depends: base == 4.*, containers, filepath, mtl, HUnit,
-                 llvm-data-interop >= 0.1.1, llvm-analysis >= 0.1.1
+  build-depends: base == 4.*,
+                 containers, filepath, mtl, HUnit,
+                 unordered-containers,
+                 llvm-data-interop >= 0.1.1,
+                 llvm-analysis >= 0.2.0
   ghc-options: -Wall -rtsopts
   main-is: ReturnTests.hs
   hs-source-dirs: tests
@@ -98,8 +115,10 @@ test-suite ReturnTests
 test-suite AccessPathTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
-  build-depends: base == 4.*, containers, filepath, HUnit,
-                 llvm-data-interop >= 0.1.1, llvm-analysis >= 0.1.1
+  build-depends: base == 4.*,
+                 containers, filepath, HUnit,
+                 llvm-data-interop >= 0.1.1,
+                 llvm-analysis >= 0.2.0
   ghc-options: -Wall -rtsopts
   main-is: AccessPathTests.hs
   hs-source-dirs: tests
@@ -107,9 +126,11 @@ test-suite AccessPathTests
 test-suite ClassHierarchyTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
-  build-depends: base == 4.*, containers, filepath, HUnit, uniplate,
-                  llvm-analysis >= 0.1.1, llvm-data-interop >= 0.1.1,
-                  itanium-abi
+  build-depends: base == 4.*,
+                 containers, filepath, HUnit, uniplate,
+                 llvm-analysis >= 0.2.0,
+                 llvm-data-interop >= 0.1.1,
+                 itanium-abi
   ghc-options: -Wall -rtsopts
   main-is: ClassHierarchyTests.hs
   hs-source-dirs: tests
@@ -117,8 +138,10 @@ test-suite ClassHierarchyTests
 test-suite AndersenTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
-  build-depends: base, containers, filepath, HUnit,
-                 HUnit, llvm-data-interop >= 0.1.1, llvm-analysis >= 0.1.1
+  build-depends: base == 4.*,
+                 containers, filepath, HUnit,
+                 llvm-data-interop >= 0.1.1,
+                 llvm-analysis >= 0.2.0
 
   if flag(DebugAndersenGraph)
     build-depends: graphviz
