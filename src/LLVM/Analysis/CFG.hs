@@ -4,7 +4,7 @@ module LLVM.Analysis.CFG (
   CFG,
   HasCFG(..),
   -- -- * Constructors
-  mkCFG,
+  controlFlowGraph,
   -- -- * Accessors
   basicBlockPredecessors,
   basicBlockSuccessors,

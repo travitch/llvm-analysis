@@ -5,7 +5,7 @@ module LLVM.Analysis.CFG.Internal (
   -- * CFG
   CFG(..),
   HasCFG(..),
-  mkCFG,
+  controlFlowGraph,
   basicBlockPredecessors,
   basicBlockSuccessors,
   -- * Dataflow
@@ -46,13 +46,13 @@ instance HasCFG CFG where
   getCFG = id
 
 instance HasCFG Function where
-  getCFG = mkCFG
+  getCFG = controlFlowGraph
 
 instance HasFunction CFG where
   getFunction = cfgFunction
 
 instance FuncLike CFG where
-  fromFunction = mkCFG
+  fromFunction = controlFlowGraph
 
 -- | The type of function control flow graphs.
 data CFG = CFG { cfgFunction :: Function
@@ -116,8 +116,8 @@ instance Show (Insn e x) where
   show UniqueExit = "  done"
 
 -- | Create a CFG for a function
-mkCFG :: Function -> CFG
-mkCFG f = runSimpleUniqueMonad (evalStateT builder mempty)
+controlFlowGraph :: Function -> CFG
+controlFlowGraph f = runSimpleUniqueMonad (evalStateT builder mempty)
   where
     builder = do
       -- This is a unique label not associated with any block.  All of
