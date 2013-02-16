@@ -24,6 +24,7 @@ import Compiler.Hoopl
 import Control.DeepSeq
 import Control.Monad.State.Strict
 import Data.Function ( on )
+import qualified Data.GraphViz as GV
 import qualified Data.List as L
 import Data.Map ( Map )
 import qualified Data.Map as M
@@ -229,6 +230,109 @@ basicBlockToLabel cfg bb = M.lookup bb (cfgLabelMap cfg)
 
 labelToBasicBlock :: CFG -> Label -> Maybe BasicBlock
 labelToBasicBlock cfg l = M.lookup l (cfgBlockMap cfg)
+
+
+-- Visualization
+
+cfgGraphvizParams :: GV.GraphvizParams n Instruction CFGEdge BasicBlock Instruction
+cfgGraphvizParams =
+  GV.defaultParams { GV.fmtNode = \(_,l) -> [GV.toLabel (toValue l)]
+                   , GV.fmtEdge = formatEdge
+                   , GV.clusterID = GV.Int . basicBlockUniqueId
+                   , GV.fmtCluster = formatCluster
+                   , GV.clusterBy = nodeCluster
+                   }
+  where
+    nodeCluster l@(_, i) =
+      let Just bb = instructionBasicBlock i
+      in GV.C bb (GV.N l)
+    formatCluster bb = [GV.GraphAttrs [GV.toLabel (show (basicBlockName bb))]]
+    formatEdge (_, _, l) =
+      let lbl = GV.toLabel l
+      in case l of
+        TrueEdge -> [lbl, GV.color GV.ForestGreen]
+        FalseEdge -> [lbl, GV.color GV.Crimson]
+        EqualityEdge _ -> [lbl, GV.color GV.DeepSkyBlue]
+        IndirectEdge -> [lbl, GV.color GV.Indigo, GV.style GV.dashed]
+        UnwindEdge -> [lbl, GV.color GV.Tomato4, GV.style GV.dotted]
+        OtherEdge -> [lbl]
+
+data CFGEdge = TrueEdge
+             | FalseEdge
+             | EqualityEdge Value
+             | IndirectEdge
+             | UnwindEdge
+             | OtherEdge
+             deriving (Eq, Show)
+
+instance GV.Labellable CFGEdge where
+  toLabelValue TrueEdge = GV.toLabelValue "True"
+  toLabelValue FalseEdge = GV.toLabelValue "False"
+  toLabelValue (EqualityEdge v) = GV.toLabelValue ("== " ++ show v)
+  toLabelValue IndirectEdge = GV.toLabelValue "Indirect"
+  toLabelValue UnwindEdge = GV.toLabelValue "Unwind"
+  toLabelValue OtherEdge = GV.toLabelValue ""
+
+instance ToGraphviz CFG where
+  toGraphviz = cfgGraphvizRepr
+
+cfgGraphvizRepr :: CFG -> GV.DotGraph Int
+cfgGraphvizRepr cfg = GV.graphElemsToDot cfgGraphvizParams ns es
+  where
+    f = getFunction cfg
+    ns = map toGNode (functionInstructions f)
+    es = concatMap toEdges (functionBody f)
+
+-- | There is an edge from the terminator of the BB to the entry of
+-- each of its successors.  The edges should be labelled according to
+-- the type of the terminator.  There are OtherEdge markers on between
+-- each instruction in the BB.
+toEdges :: BasicBlock -> [(Int, Int, CFGEdge)]
+toEdges bb =
+  case ti of
+    RetInst {} -> intraEdges
+    UnreachableInst {} -> intraEdges
+    UnconditionalBranchInst { unconditionalBranchTarget = t } ->
+      let (ei:_) = basicBlockInstructions t
+      in (instructionUniqueId ti, instructionUniqueId ei, OtherEdge) : intraEdges
+    BranchInst { branchTrueTarget = tt, branchFalseTarget = ft } ->
+      let (tei:_) = basicBlockInstructions tt
+          (fei:_) = basicBlockInstructions ft
+      in (instructionUniqueId ti, instructionUniqueId tei, TrueEdge) :
+         (instructionUniqueId ti, instructionUniqueId fei, FalseEdge) :
+         intraEdges
+    SwitchInst { switchDefaultTarget = dt, switchCases = cases } ->
+      let (dei:_) = basicBlockInstructions dt
+          caseNodes = map toCaseNode cases
+      in (instructionUniqueId ti, instructionUniqueId dei, OtherEdge):caseNodes ++ intraEdges
+    IndirectBranchInst { indirectBranchTargets = bs } ->
+      map toIndirectEdge bs ++ intraEdges
+    ResumeInst {} -> intraEdges
+    InvokeInst { invokeUnwindLabel = ul, invokeNormalLabel = nl } ->
+      let (nei:_) = basicBlockInstructions nl
+          (uei:_) = basicBlockInstructions ul
+      in (instructionUniqueId ti, instructionUniqueId nei, OtherEdge):
+         (instructionUniqueId ti, instructionUniqueId uei, UnwindEdge):
+         intraEdges
+    _ -> error "Not a terminator instruction"
+  where
+    -- Basic blocks are not allowed to be empty so this pattern match
+    -- should never fail.
+    is@(_:rest) = basicBlockInstructions bb
+    intraEdges = map toIntraEdge (zip is rest)
+    toIntraEdge (s,d) = (instructionUniqueId s, instructionUniqueId d, OtherEdge)
+    ti = basicBlockTerminatorInstruction bb
+
+    toIndirectEdge tgt =
+      let (ei:_) = basicBlockInstructions tgt
+      in (instructionUniqueId ti, instructionUniqueId ei, IndirectEdge)
+
+    toCaseNode (val, tgt) =
+      let (ei:_) = basicBlockInstructions tgt
+      in (instructionUniqueId ti, instructionUniqueId ei, EqualityEdge val)
+
+toGNode :: Instruction -> (Int, Instruction)
+toGNode i = (instructionUniqueId i, i)
 
 
 -- Dataflow analysis stuff
