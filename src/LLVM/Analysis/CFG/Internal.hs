@@ -286,7 +286,7 @@ dataflowResultAt (DataflowResult cfg (DataflowAnalysis top _ transfer) m) i = do
   where
     replayTransfer [] _ = error "LLVM.Analysis.Dataflow.dataflowResult: replayed past end of block, impossible"
     replayTransfer (thisI:rest) r
-      | thisI == i = return r
+      | thisI == i = transfer r i
       | otherwise = do
         r' <- transfer r thisI
         replayTransfer rest r'
