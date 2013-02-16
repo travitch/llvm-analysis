@@ -1,4 +1,3 @@
-{-# LANGUAGE TypeFamilies, ExistentialQuantification, OverloadedStrings #-}
 -- | This module defines a call graph and related functions.  The call
 -- graph is a static view of the calls between functions in a
 -- 'Module'.  The nodes of the graph are global functions and the
@@ -25,13 +24,9 @@
 module LLVM.Analysis.CallGraph (
   -- * Types
   CallGraph,
-  CG,
-  CallEdge(..),
-  CallNode(..),
   -- * Constructor
-  mkCallGraph,
+  callGraph,
   -- * Accessors
-  callGraphRepr,
   callValueTargets,
   callSiteTargets,
   callGraphFunctions,
@@ -43,6 +38,8 @@ module LLVM.Analysis.CallGraph (
   cgGraphvizRepr
   ) where
 
+import LLVM.Analysis.CallGraph.Internal
+{-
 import Data.GraphViz
 import Data.Maybe ( mapMaybe )
 import Data.Hashable
@@ -287,3 +284,4 @@ cgGraphvizRepr (CallGraph g _) =
 assignComponent :: (Int, [Int]) -> HashMap Int Int -> HashMap Int Int
 assignComponent (compId, nodeIds) acc =
   foldr (\nid -> HM.insert nid compId) acc nodeIds
+-}
