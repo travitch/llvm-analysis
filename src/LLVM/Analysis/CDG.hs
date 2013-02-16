@@ -56,7 +56,16 @@ instance HasCDG CDG where
 instance HasCDG PostdominatorTree where
   getCDG = controlDependenceGraph
 
-data CDG = CDG (Map BasicBlock [BasicBlock])
+instance HasPostdomTree CDG where
+  getPostdomTree (CDG pdt _) = pdt
+
+instance HasCFG CDG where
+  getCFG = getCFG . getPostdomTree
+
+instance HasFunction CDG where
+  getFunction = getFunction . getCFG
+
+data CDG = CDG PostdominatorTree (Map BasicBlock [BasicBlock])
 
 {- Note [CDG Format]
 
@@ -91,7 +100,7 @@ are /directly/ control dependent on.
 -- just isn't connected by a fake Start node.
 controlDependenceGraph :: (HasCFG f, HasPostdomTree f) => f -> CDG
 controlDependenceGraph flike =
-  CDG $ fmap S.toList $ foldr addPairs mempty (functionBody f)
+  CDG pdt $ fmap S.toList $ foldr addPairs mempty (functionBody f)
   where
     cfg = getCFG flike
     f = getFunction cfg
@@ -107,10 +116,12 @@ controlDependenceGraph flike =
 --
 -- > controlDependences cdg i
 controlDependencies :: (HasCDG cdg) => cdg -> Instruction -> [Instruction]
-controlDependencies cdgLike i = undefined
+controlDependencies cdgLike i =
+  map basicBlockTerminatorInstruction (S.toList res)
   where
-    CDG cdg = getCDG cdgLike
+    CDG _ cdg = getCDG cdgLike
     Just bb = instructionBasicBlock i
+    res = undefined
 
 -- | Get the list of instructions that @i@ is directly control
 -- dependent upon.
@@ -118,7 +129,7 @@ directControlDependencies :: (HasCDG cdg) => cdg -> Instruction -> [Instruction]
 directControlDependencies cdgLike i =
   maybe [] (map basicBlockTerminatorInstruction) (M.lookup bb m)
   where
-    CDG m = getCDG cdgLike
+    CDG _ m = getCDG cdgLike
     Just bb = instructionBasicBlock i
 
 -- Implementation
