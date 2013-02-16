@@ -14,17 +14,17 @@ module LLVM.Analysis.Dominance (
   PostdominatorTree,
   HasDomTree(..),
   HasPostdomTree(..),
-  -- -- * Constructors
+  -- * Constructors
   dominatorTree,
   postdominatorTree,
-  -- -- * Queries
+  -- * Queries
   dominates,
   postdominates,
   postdominators,
   postdominatorsFor,
   immediatePostdominators,
   immediatePostdominator,
-  -- -- * Visualization
+  -- * Visualization
   -- domTreeGraphvizRepr,
   -- postdomTreeGraphvizRepr
   ) where
@@ -62,6 +62,8 @@ instance HasCFG DominatorTree where
 instance HasFunction DominatorTree where
   getFunction = getFunction . getCFG
 
+-- | Construct a DominatorTree from something that behaves like a
+-- control flow graph.
 dominatorTree :: (HasCFG cfg) => cfg -> DominatorTree
 dominatorTree f = DT cfg (toImmediateDominators doms)
   where
@@ -97,13 +99,15 @@ instance HasCFG PostdominatorTree where
 instance HasFunction PostdominatorTree where
   getFunction = getFunction . getCFG
 
+-- | Construct a PostdominatorTree from something that behaves like a
+-- control flow graph.
 postdominatorTree :: (HasCFG f) => f -> PostdominatorTree
 postdominatorTree f = PDT cfg (toImmediateDominators pdoms)
   where
     cfg = getCFG f
     pdoms = postdominatorAnalysis cfg
 
--- | Does n postdominate m?
+-- | Tests whether or not an Instruction n postdominates Instruction m
 postdominates :: (HasPostdomTree t) => t -> Instruction -> Instruction -> Bool
 postdominates pdt n m = checkPDom m
   where
