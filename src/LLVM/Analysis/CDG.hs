@@ -109,21 +109,25 @@ controlDependenceGraph flike =
       foldr (addCDGEdge pdt pdoms bM) acc (basicBlockSuccessors cfg bM)
 
 
--- | Get the list of instructions that @i@ is control dependent upon.
--- This list does not include @i@.  As noted above, the list will be
--- empty if @i@ is executed unconditionally.
---
--- > controlDependences cdg i
+-- | Get the list of instructions that an instruction is control
+-- dependent upon.  As noted above, the list will be empty if the
+-- instruction is executed unconditionally.
 controlDependencies :: (HasCDG cdg) => cdg -> Instruction -> [Instruction]
 controlDependencies cdgLike i =
-  map basicBlockTerminatorInstruction (S.toList res)
+  go mempty (S.fromList directDeps) directDeps
   where
-    CDG _ cdg = getCDG cdgLike
-    Just bb = instructionBasicBlock i
-    res = undefined
+    cdg = getCDG cdgLike
+    directDeps = directControlDependencies cdg i
 
--- | Get the list of instructions that @i@ is directly control
--- dependent upon.
+    go _ acc [] = S.toList acc
+    go visited acc (cdep:rest)
+      | S.member cdep visited = go visited acc rest
+      | otherwise =
+        let newDeps = directControlDependencies cdg cdep
+        in go (S.insert cdep visited) (S.union acc (S.fromList newDeps)) rest
+
+-- | Get the list of instructions that an instruction is directly
+-- control dependent upon (direct parents in the CDG).
 directControlDependencies :: (HasCDG cdg) => cdg -> Instruction -> [Instruction]
 directControlDependencies cdgLike i =
   maybe [] (map basicBlockTerminatorInstruction) (M.lookup bb m)
