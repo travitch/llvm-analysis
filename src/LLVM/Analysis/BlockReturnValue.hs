@@ -44,6 +44,9 @@ data BlockReturns = BlockReturns (HashMap BasicBlock Value) (HashMap BasicBlock 
 class HasBlockReturns a where
   getBlockReturns :: a -> BlockReturns
 
+instance HasBlockReturns BlockReturns where
+  getBlockReturns = id
+
 instance Show BlockReturns where
   show (BlockReturns _ m) = unlines $ map showPair (HM.toList m)
     where
@@ -56,24 +59,28 @@ instance Monoid BlockReturns where
 
 -- | Retrieve the Value that must be returned (if any) if the given
 -- BasicBlock executes.
-blockReturn :: BlockReturns -> BasicBlock -> Maybe Value
-blockReturn (BlockReturns m _) bb = HM.lookup bb m
+blockReturn :: (HasBlockReturns brs) => brs -> BasicBlock -> Maybe Value
+blockReturn brs bb = HM.lookup bb m
+  where
+    BlockReturns m _ = getBlockReturns brs
 
 -- | Builds on the results from 'blockReturn' and reports *all* of the
 -- values that each block can return (results may not include the
 -- final block).
-blockReturns :: BlockReturns -> BasicBlock -> [Value]
-blockReturns (BlockReturns _ m) bb = maybe [] HS.toList (HM.lookup bb m)
+blockReturns :: (HasBlockReturns brs) => brs -> BasicBlock -> [Value]
+blockReturns brs bb = maybe [] HS.toList (HM.lookup bb m)
+  where
+    BlockReturns _ m = getBlockReturns brs
 
 -- | Return the Value that must be returned (if any) if the given
 -- Instruction is executed.
-instructionReturn :: BlockReturns -> Instruction -> Maybe Value
+instructionReturn :: (HasBlockReturns brs) => brs -> Instruction -> Maybe Value
 instructionReturn brs i = do
   bb <- instructionBasicBlock i
-  blockReturn brs bb
+  blockReturn (getBlockReturns brs) bb
 
-instructionReturns :: BlockReturns -> Instruction -> [Value]
-instructionReturns brs i = blockReturns brs bb
+instructionReturns :: (HasBlockReturns brs) => brs -> Instruction -> [Value]
+instructionReturns brs i = blockReturns (getBlockReturns brs) bb
   where
     Just bb = instructionBasicBlock i
 
