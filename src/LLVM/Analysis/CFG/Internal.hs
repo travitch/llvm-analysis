@@ -29,8 +29,10 @@ import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe, mapMaybe )
 import Data.Monoid
+import Data.Set ( Set )
 import qualified Data.Set as S
 import Data.Tuple ( swap )
+import qualified Text.PrettyPrint.GenericPretty as PP
 
 import LLVM.Analysis
 
@@ -259,14 +261,16 @@ data DataflowResult m f where
   DataflowResult :: CFG
                     -> DataflowAnalysis m f
                     -> Fact C f
+                    -> Direction
                     -> DataflowResult m f
 
 instance (Show f) => Show (DataflowResult m f) where
-  show (DataflowResult cfg _ fb) = show fb ++ "\n" ++ showGraph show (cfgBody cfg)
+  show (DataflowResult _ _ fb _) =
+    PP.pretty (map (\(f,s) -> (show f, show s)) (mapToList fb))
 
 instance (Eq f) => Eq (DataflowResult m f) where
-  (DataflowResult c1 _ m1) == (DataflowResult c2 _ m2) =
-    c1 == c2 && m1 == m2
+  (DataflowResult c1 _ m1 d1) == (DataflowResult c2 _ m2 d2) =
+    c1 == c2 && m1 == m2 && d1 == d2
 
 -- This may have to cheat... LabelMap doesn't have an NFData instance.
 -- Not sure if this will affect monad-par or not.
@@ -277,19 +281,49 @@ instance (NFData f) => NFData (DataflowResult m f) where
 dataflowResultAt :: DataflowResult m f
                     -> Instruction
                     -> m f
-dataflowResultAt (DataflowResult cfg (DataflowAnalysis top _ transfer) m) i = do
+dataflowResultAt (DataflowResult cfg (DataflowAnalysis top meet transfer) m dir) i = do
   let Just bb = instructionBasicBlock i
       Just lbl = M.lookup bb (cfgLabelMap cfg)
-  case lookupFact lbl m of
+      initialFactAndInsts = findInitialFact bb lbl dir
+  case initialFactAndInsts of
     Nothing -> return top
-    Just bres -> replayTransfer (basicBlockInstructions bb) bres
+    Just (bres, is) -> replayTransfer is bres
   where
+    findInitialFact bb lbl Fwd = do
+      f0 <- lookupFact lbl m
+      return (f0, basicBlockInstructions bb)
+    -- Here, look up the facts for all successors
+    findInitialFact bb _ Bwd =
+      case basicBlockSuccessors cfg bb of
+        [] -> do
+          f0 <- lookupFact (cfgExitLabel cfg) m
+          return (f0, reverse (basicBlockInstructions bb))
+        ss -> do
+          let trBlock b = do
+                l <- basicBlockToLabel cfg b
+                lookupFact l m
+              f0 = foldr meet top (mapMaybe trBlock ss)
+          return (f0, reverse (basicBlockInstructions bb))
     replayTransfer [] _ = error "LLVM.Analysis.Dataflow.dataflowResult: replayed past end of block, impossible"
     replayTransfer (thisI:rest) r
       | thisI == i = transfer r i
       | otherwise = do
         r' <- transfer r thisI
         replayTransfer rest r'
+
+{- Note [Dataflow Results]
+
+To get a forward result, we have to look up the result for the block
+of the instruction and then run the analysis forward to the target
+instruction.
+
+For a /backward/ analysis, we have to do a bit more.  Instead, we need
+all of the successors of the block (if there are none, then we have
+to take the summary for the unique exit node).  Then we have to meet
+those and use that as the initial fact.  Then replay over the basic
+block instructoins /in reverse/.
+
+-}
 
 -- | Look up the dataflow fact at the virtual exit note.  This
 -- combines the results along /all/ paths, including those ending in
@@ -298,7 +332,7 @@ dataflowResultAt (DataflowResult cfg (DataflowAnalysis top _ transfer) m) i = do
 -- If you want the result at only the return instruction(s), use
 -- 'dataflowResultAt' and 'meets' the results together.
 dataflowResult :: DataflowResult m f -> f
-dataflowResult (DataflowResult cfg (DataflowAnalysis top _ _) m) =
+dataflowResult (DataflowResult cfg (DataflowAnalysis top _ _) m _) =
   fromMaybe top $ lookupFact (cfgExitLabel cfg) m
 
 forwardDataflow :: forall m f cfgLike . (HasCFG cfgLike)
@@ -310,7 +344,7 @@ forwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
                                             , analysisTransfer = transfer
                                             } fact0 = do
   r <- graph (cfgBody cfg) (mapSingleton elbl fact0)
-  return $ DataflowResult cfg da r
+  return $ DataflowResult cfg da r Fwd
   where
     cfg = getCFG cfgLike
     elbl = cfgEntryLabel cfg
@@ -395,7 +429,7 @@ backwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
                                          , analysisTransfer = transfer
                                          } fact0 = do
   r <- graph (cfgBody cfg) (mapSingleton xlbl fact0)
-  return $ DataflowResult cfg da r
+  return $ DataflowResult cfg da r Bwd
   where
     cfg = getCFG cfgLike
     xlbl = cfgExitLabel cfg
@@ -413,7 +447,7 @@ backwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
           where
             c :: [Label] -> MaybeO e (Block Insn O C)
                  -> Fact e f -> m (Fact C f)
---            c NothingC (JustO entry) = block entry `cat` body (successors entry) bdy
+--            c NothingC (JustO entry) = block entry <=< body (successors entry) bdy
             c eps NothingO = body eps cbdy
             c _ _ = error "Bogus GADT pattern match failure"
 
@@ -477,6 +511,7 @@ backwardBlockList :: (NonLocal n, LabelsPtr entries)
 backwardBlockList entries body = reverse $ forwardBlockList entries body
 
 data Direction = Fwd | Bwd
+               deriving (Eq)
 
 -- The fixedpoint calculations (and joins) all happen in here.
 -- Try to find a spot to possibly add the phi transfer...
@@ -488,7 +523,7 @@ fixpoint :: forall m f . Direction
             -> (Fact C f -> m (Fact C f))
 fixpoint dir (DataflowAnalysis _ meet _) doBlock entries blockmap initFbase =
   -- See Note [Fixpoint]
-  loop initFbase entries
+  loop initFbase entries mempty
   where
     -- This is a map from label L to all of its dependencies; if L
     -- changes, all of its dependencies need to be re-analyzed.
@@ -500,16 +535,16 @@ fixpoint dir (DataflowAnalysis _ meet _) doBlock entries blockmap initFbase =
                                        Bwd -> successors b
                                      ]
 
-    loop :: FactBase f -> [Label] -> m (FactBase f)
-    loop fbase [] = return fbase
-    loop fbase (lbl:todo) =
+    loop :: FactBase f -> [Label] -> Set Label -> m (FactBase f)
+    loop fbase [] _ = return fbase
+    loop fbase (lbl:todo) visited  =
       case mapLookup lbl blockmap of
-        Nothing -> loop fbase todo
+        Nothing -> loop fbase todo (S.insert lbl visited)
         Just blk -> do
           outFacts <- doBlock blk fbase
           -- Fold updateFact over each fact in the result from doBlock
           -- updateFact; facts are meet-ed pairwise.
-          let (changed, fbase') = mapFoldWithKey updateFact ([], fbase) outFacts
+          let (changed, fbase') = mapFoldWithKey (updateFact visited) ([], fbase) outFacts
               depLookup l = mapFindWithDefault [] l depBlocks
               toAnalyze = filter (`notElem` todo) $ concatMap depLookup changed
 
@@ -517,20 +552,21 @@ fixpoint dir (DataflowAnalysis _ meet _) doBlock entries blockmap initFbase =
           -- that includes any new blocks added by the graph rewriting
           -- step.  This analysis does not rewrite any blocks, so we
           -- only need @newblocks@ here.
-          loop fbase' (todo ++ toAnalyze)
+          loop fbase' (todo ++ toAnalyze) (S.insert lbl visited)
 
     -- We also have a simpler update condition in updateFact since we
     -- don't carry around newBlocks.
-    updateFact :: Label
+    updateFact :: Set Label
+                  -> Label
                   -> f
                   -> ([Label], FactBase f)
                   -> ([Label], FactBase f)
-    updateFact lbl newFact acc@(cha, fbase) =
+    updateFact visited lbl newFact acc@(cha, fbase) =
       case lookupFact lbl fbase of
         Nothing -> (lbl:cha,  mapInsert lbl newFact fbase)
         Just oldFact ->
           let fact' = oldFact `meet` newFact
-          in case fact' == oldFact of
+          in case fact' == oldFact && S.member lbl visited of
             True -> acc
             False -> (lbl:cha, mapInsert lbl fact' fbase)
 
