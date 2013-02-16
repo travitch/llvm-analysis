@@ -22,18 +22,16 @@ module LLVM.Analysis.CDG (
   -- * Types
   CDG,
   HasCDG(..),
-  -- -- * Constructor
+  -- * Constructor
   controlDependenceGraph,
-  -- -- * Queries
+  -- * Queries
   directControlDependencies,
   controlDependencies,
-  -- -- * Visualization
-  -- cdgGraphvizRepr
   ) where
 
--- import Data.GraphViz
-
+import Control.Arrow ( (&&&) )
 import qualified Data.Foldable as F
+import Data.GraphViz
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Monoid
@@ -202,9 +200,12 @@ BasicBlocks.
 
 -}
 
-{-
+
 
 -- Visualization
+
+instance ToGraphviz CDG where
+  toGraphviz = cdgGraphvizRepr
 
 cdgGraphvizParams :: GraphvizParams n Instruction el BasicBlock Instruction
 cdgGraphvizParams =
@@ -219,10 +220,21 @@ cdgGraphvizParams =
       in C bb (N l)
     formatCluster bb = [GraphAttrs [toLabel (show (basicBlockName bb))]]
 
-cdgGraphvizRepr :: CDG -> DotGraph Vertex
-cdgGraphvizRepr cdg = graphElemsToDot cdgGraphvizParams ns es
+cdgGraphvizRepr :: CDG -> DotGraph Int
+cdgGraphvizRepr cdg@(CDG _ bm) = graphElemsToDot cdgGraphvizParams ns es
   where
-    g = cdgGraph cdg
-    ns = labeledVertices g
-    es = map (\(Edge s d l) -> (s, d, l)) (edges g)
--}
+    f = getFunction cdg
+    ns = map (instructionUniqueId &&& id) (functionInstructions f)
+    es = concatMap blockEdges (functionBody f)
+
+    blockEdges bb =
+      case M.lookup bb bm of
+        Nothing -> []
+        Just deps ->
+          -- Each instruction in BB gets an edge to the terminator
+          -- of each dependency
+          let depTerms = map basicBlockTerminatorInstruction deps
+          in concatMap (addEdges depTerms) (basicBlockInstructions bb)
+    addEdges depTerms i = map (addEdge i) depTerms
+    addEdge i dterm =
+      (instructionUniqueId i, instructionUniqueId dterm, ())
