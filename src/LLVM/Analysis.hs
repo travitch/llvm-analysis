@@ -9,9 +9,11 @@ module LLVM.Analysis (
   module Data.LLVM.Types,
 
   -- * Extra helpers
-  FuncLike(..)
+  FuncLike(..),
+  ToGraphviz(..)
   ) where
 
+import Data.GraphViz ( DotGraph )
 import Data.LLVM.Types
 
 -- | A class for types that can be derived from a Function.
@@ -21,6 +23,9 @@ class FuncLike a where
 instance FuncLike Function where
   fromFunction = id
 
+-- | A class for things that can be converted to graphviz graphs
+class ToGraphviz a where
+  toGraphviz :: a -> DotGraph Int
 
 -- $parsing
 --
