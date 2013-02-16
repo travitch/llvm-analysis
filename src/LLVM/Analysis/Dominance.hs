@@ -24,6 +24,10 @@ module LLVM.Analysis.Dominance (
   -- -- * Queries
   dominates,
   postdominates,
+  postdominators,
+  postdominatorsFor,
+  immediatePostdominators,
+  immediatePostdominator,
   -- nearestCommonPostdominator,
   -- instructionPostdominators,
   -- -- * Visualization
@@ -54,6 +58,11 @@ class HasDomTree a where
 instance HasDomTree DominatorTree where
   getDomTree = id
 
+-- | Note, this instance constructs the dominator tree and could be
+-- expensive
+instance HasDomTree CFG where
+  getDomTree = dominatorTree
+
 instance HasCFG DominatorTree where
   getCFG (DT cfg _) = cfg
 
@@ -81,8 +90,13 @@ data PostdominatorTree = PDT CFG (Map Instruction Instruction)
 class HasPostdomTree a where
   getPostdomTree :: a -> PostdominatorTree
 
+-- | Note that this instance constructs the postdominator tree from
+-- scratch.
 instance HasPostdomTree CFG where
   getPostdomTree = postdominatorTree
+
+instance HasPostdomTree PostdominatorTree where
+  getPostdomTree = id
 
 instance HasCFG PostdominatorTree where
   getCFG (PDT cfg _) = cfg
@@ -104,6 +118,39 @@ postdominates pdt n m = checkPDom m
     checkPDom i
       | i == n = True
       | otherwise = maybe False checkPDom (M.lookup i t)
+
+postdominators :: (HasPostdomTree t) => t -> [(Instruction, [Instruction])]
+postdominators pt =
+  zip is (map (getDominators t) is)
+  where
+    pdt@(PDT _ t) = getPostdomTree pt
+    f = getFunction pdt
+    is = functionInstructions f
+
+postdominatorsFor :: (HasPostdomTree t) => t -> Instruction -> [Instruction]
+postdominatorsFor pt = getDominators t
+  where
+    PDT _ t = getPostdomTree pt
+
+immediatePostdominator :: (HasPostdomTree t) => t -> Maybe Instruction
+immediatePostdominator = undefined
+
+immediatePostdominators :: (HasPostdomTree t) => t -> [(Instruction, Instruction)]
+immediatePostdominators = undefined
+
+-- | Return the dominators (or postdominators) of the given
+-- instruction, in order (with the nearest dominators at the beginning
+-- of the list).  Note that the instruction iself is not included
+-- (every instruction trivially dominates itself).
+getDominators :: Map Instruction Instruction
+                     -> Instruction
+                     -> [Instruction]
+getDominators m = go
+  where
+    go i =
+      case M.lookup i m of
+        Nothing -> []
+        Just dom -> dom : go dom
 
 -- Internal builder code
 

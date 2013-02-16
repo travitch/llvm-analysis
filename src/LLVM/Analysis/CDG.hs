@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
 -- | Control Dependence Graphs for the LLVM IR
 --
 -- This module follows the definition of control dependence of Cytron et al
@@ -23,31 +22,173 @@ module LLVM.Analysis.CDG (
   -- * Types
   CDG,
   HasCDG(..),
-  -- * Constructor
+  -- -- * Constructor
   controlDependenceGraph,
-  -- * Queries
+  -- -- * Queries
   directControlDependencies,
   controlDependencies,
-  controlDependentOn,
-  -- * Visualization
-  cdgGraphvizRepr
+  -- controlDependentOn,
+  -- -- * Visualization
+  -- cdgGraphvizRepr
   ) where
 
-import Data.GraphViz
-import Data.HashMap.Strict ( HashMap )
-import qualified Data.HashMap.Strict as M
-import Data.HashSet ( HashSet )
-import qualified Data.HashSet as S
-import Data.List ( foldl' )
-import Data.Maybe ( fromMaybe )
+-- import Data.GraphViz
 
-import Data.Graph.Interface
-import Data.Graph.MutableDigraph
-import Data.Graph.Algorithms.DFS
+import qualified Data.Foldable as F
+import Data.Map ( Map )
+import qualified Data.Map as M
+import Data.Monoid
+import Data.Set ( Set )
+import qualified Data.Set as S
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
 import LLVM.Analysis.Dominance
+
+class HasCDG a where
+  getCDG :: a -> CDG
+
+instance HasCDG CDG where
+  getCDG = id
+
+-- | Warning, this is an expensive instance to invoke as it constructs
+-- the CDG.
+instance HasCDG PostdominatorTree where
+  getCDG = controlDependenceGraph
+
+data CDG = CDG (Map BasicBlock [BasicBlock])
+
+{- Note [CDG Format]
+
+The CDG is a mapping BasicBlocks to the other BasicBlocks that they
+are /directly/ control dependent on.
+
+-}
+
+-- | Construct the control dependence graph for a function (from its
+-- CFG).  This follows the construction from chapter 9 of the
+-- Munchnick Compiler Design and Implementation book.
+--
+-- For an input function F:
+--
+-- 1) Construct the CFG G for F
+--
+-- 2) Construct the postdominator tree PT for F
+--
+-- 3) Let S be the set of edges m->n in G such that n does not
+--    postdominate m
+--
+-- 4) For each edge m->n in S, find the lowest common ancestor l of m
+--    and n in the postdominator tree.  All nodes on the path from
+--    l->n (not including l) in PT are control dependent on m.  If
+--    there is no common ancestor (disconnected PDT because of
+--    multiple exit nodes), the lowest common ancestor is then the
+--    virtual exit node, so /all/ of the postdominators of n are
+--    control dependent on m.
+--
+-- Note: the typical construction augments the CFG with a fake start
+-- node.  Doing that here would be a bit complicated, so the graph
+-- just isn't connected by a fake Start node.
+controlDependenceGraph :: (HasCFG f, HasPostdomTree f) => f -> CDG
+controlDependenceGraph flike =
+  CDG $ fmap S.toList $ foldr addPairs mempty (functionBody f)
+  where
+    cfg = getCFG flike
+    f = getFunction cfg
+    pdoms = M.fromList $ postdominators pdt
+    pdt = getPostdomTree flike
+    addPairs bM acc =
+      foldr (addCDGEdge pdt pdoms bM) acc (basicBlockSuccessors cfg bM)
+
+
+-- | Get the list of instructions that @i@ is control dependent upon.
+-- This list does not include @i@.  As noted above, the list will be
+-- empty if @i@ is executed unconditionally.
+--
+-- > controlDependences cdg i
+controlDependencies :: (HasCDG cdg) => cdg -> Instruction -> [Instruction]
+controlDependencies cdgLike i = undefined
+  where
+    CDG cdg = getCDG cdgLike
+    Just bb = instructionBasicBlock i
+
+-- | Get the list of instructions that @i@ is directly control
+-- dependent upon.
+directControlDependencies :: (HasCDG cdg) => cdg -> Instruction -> [Instruction]
+directControlDependencies cdgLike i =
+  maybe [] (map basicBlockTerminatorInstruction) (M.lookup bb m)
+  where
+    CDG m = getCDG cdgLike
+    Just bb = instructionBasicBlock i
+
+-- Implementation
+
+
+-- | For each block M and each successor of M, N, add (M,N) if the
+-- first instruction of N does not postdominate the terminator
+-- instruction of M.
+addCDGEdge :: PostdominatorTree -- ^ The postdominator tree
+              -> Map Instruction [Instruction] -- ^ The entire postdom relation
+              -> BasicBlock -- ^ M
+              -> BasicBlock -- ^ N
+              -> Map BasicBlock (Set BasicBlock)
+              -> Map BasicBlock (Set BasicBlock)
+addCDGEdge pdt pdoms bM bN acc
+  -- If it is a postdominator, this is not an edge in S
+  | postdominates pdt nEntry mTerm = acc
+  -- Otherwise it is and we need to find a common ancestor in the
+  -- PDT
+  | otherwise = case commonAncestor mpdoms npdoms of
+    Just l ->
+      let cdepsOnM = bN : postdomBlocks (filter (/=l) npdoms)
+      in foldr addControlDep acc cdepsOnM
+    -- If there is no common ancestor, then all of the
+    -- postdominators of n are control dependent on m.
+    Nothing ->
+      let deps = bN : postdomBlocks npdoms
+      in foldr addControlDep acc deps
+  where
+    addControlDep b = M.insertWith S.union b (S.singleton bM)
+    mTerm = basicBlockTerminatorInstruction bM
+    nEntry : _ = basicBlockInstructions bN
+    -- These lookups should never fail (unless the caller provided
+    -- the postdominator tree for a different function).  the
+    -- postdominators function just returns empty sets, and the
+    -- function handles /every/ instruction in the input function.
+    Just mpdoms = M.lookup mTerm pdoms
+    Just npdoms = M.lookup nEntry pdoms
+
+-- | Convert a list of Instructions into the list of their
+-- BasicBlocks.  There are no repetitions in the result.
+postdomBlocks :: [Instruction] -> [BasicBlock]
+postdomBlocks = S.toList . foldr addInstBlock mempty
+  where
+    addInstBlock i acc =
+      let Just bb = instructionBasicBlock i
+      in S.insert bb acc
+
+-- | Given two lists, find the first element they share in common (if
+-- any).
+commonAncestor :: [Instruction] -> [Instruction] -> Maybe Instruction
+commonAncestor l1 = F.find (`elem` l1)
+
+{- Note [CDG]
+
+We can compute the CDG based on just the blocks in the graph.  All of
+the instructions in a given basic block are always at the same level
+in the CDG and depend on the same control decisions as the first
+instruction in the block.
+
+We also only need to store the blocks, since any instruction looked up
+has a back-pointer to its block, which will let us look it up in the
+CDG.
+
+Start by finding the set S, where we just consider connected
+BasicBlocks.
+
+-}
+
+{-
 
 -- | The internal representation of the CDG.  Instructions are
 -- control-dependent on other instructions, so they are the nodes in
@@ -60,11 +201,6 @@ data CDG = CDG { cdgGraph :: CDGType
                , cdgCFG :: CFG
                }
 
-class HasCDG a where
-  getCDG :: a -> CDG
-
-instance HasCFG CDG where
-  getCFG = cdgCFG
 
 -- | Return True if @n@ is control dependent on @m@.
 --
@@ -208,3 +344,4 @@ cdgGraphvizRepr cdg = graphElemsToDot cdgGraphvizParams ns es
     g = cdgGraph cdg
     ns = labeledVertices g
     es = map (\(Edge s d l) -> (s, d, l)) (edges g)
+-}

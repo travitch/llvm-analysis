@@ -45,7 +45,7 @@ library
   exposed-modules: LLVM.Analysis,
                    LLVM.Analysis.AccessPath,
                    -- LLVM.Analysis.BlockReturnValue,
---                   LLVM.Analysis.CDG,
+                   LLVM.Analysis.CDG,
                    LLVM.Analysis.CFG,
                    LLVM.Analysis.CFG.Internal,
                    LLVM.Analysis.CallGraph,
