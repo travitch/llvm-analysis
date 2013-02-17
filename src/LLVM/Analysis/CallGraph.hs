@@ -33,9 +33,7 @@ module LLVM.Analysis.CallGraph (
   functionCallees,
   allFunctionCallees,
   functionCallers,
-  allFunctionCallers,
-  -- * Visualization
-  cgGraphvizRepr
+  allFunctionCallers
   ) where
 
 import LLVM.Analysis.CallGraph.Internal

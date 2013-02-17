@@ -23,8 +23,6 @@ module LLVM.Analysis.CallGraph.Internal (
   allFunctionCallees,
   functionCallers,
   allFunctionCallers,
-  -- * Visualization
-  cgGraphvizRepr,
 
   -- * CallGraphSCC Traversal
   ComposableAnalysis,
@@ -114,6 +112,9 @@ instance Labellable CallEdge where
 -- | An opaque wrapper for the callgraph.  The nodes are functions and
 -- the edges are calls between them.
 data CallGraph = forall pta . (PointsToAnalysis pta) => CallGraph CG pta
+
+instance ToGraphviz CallGraph where
+  toGraphviz = cgGraphvizRepr
 
 -- | Get all of the functions defined in this module from the
 -- CallGraph
