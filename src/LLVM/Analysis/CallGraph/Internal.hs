@@ -26,7 +26,6 @@ module LLVM.Analysis.CallGraph.Internal (
 
   -- * CallGraphSCC Traversal
   ComposableAnalysis,
-  Lens,
   callGraphSCCTraversal,
   parallelCallGraphSCCTraversal,
 
@@ -41,7 +40,7 @@ module LLVM.Analysis.CallGraph.Internal (
   ) where
 
 import Control.DeepSeq
-import Control.Lens ( Simple, Lens, set, (^.) )
+import Control.Lens ( Lens', set, (^.) )
 import Control.Monad ( foldM, replicateM )
 import Control.Monad.Par.Scheds.Direct
 import Data.GraphViz
@@ -314,22 +313,22 @@ data ComposableAnalysis compSumm funcLike =
   forall summary m . (NFData summary, Monoid summary, Eq summary, Monad m)
   => ComposableAnalysisM { analysisUnwrap :: m summary -> summary
                        , analysisFunctionM :: funcLike -> summary -> m summary
-                       , summaryLens :: Simple Lens compSumm summary
+                       , summaryLens :: Lens' compSumm summary
                        }
   | forall summary deps m . (NFData summary, Monoid summary, Eq summary, Monad m)
   => ComposableAnalysisDM { analysisUnwrap :: m summary -> summary
                           , analysisFunctionDM :: deps -> funcLike -> summary -> m summary
-                          , summaryLens :: Simple Lens compSumm summary
-                          , dependencyLens :: Simple Lens compSumm deps
+                          , summaryLens :: Lens' compSumm summary
+                          , dependencyLens :: Lens' compSumm deps
                          }
   | forall summary . (NFData summary, Monoid summary, Eq summary)
     => ComposableAnalysis { analysisFunction :: funcLike -> summary -> summary
-                          , summaryLens :: Simple Lens compSumm summary
+                          , summaryLens :: Lens' compSumm summary
                           }
   | forall summary deps . (NFData summary, Monoid summary, Eq summary)
     => ComposableAnalysisD { analysisFunctionD :: deps -> funcLike -> summary -> summary
-                           , summaryLens :: Simple Lens compSumm summary
-                           , dependencyLens :: Simple Lens compSumm deps
+                           , summaryLens :: Lens' compSumm summary
+                           , dependencyLens :: Lens' compSumm deps
                            }
 
 
@@ -550,7 +549,7 @@ callGraphComposeAnalysis analyses = f
 composableAnalysisM :: (NFData summary, Monoid summary, Eq summary, Monad m, FuncLike funcLike)
                        => (m summary -> summary)
                        -> (funcLike -> summary -> m summary)
-                       -> Simple Lens compSumm summary
+                       -> Lens' compSumm summary
                        -> ComposableAnalysis compSumm funcLike
 composableAnalysisM = ComposableAnalysisM
 
@@ -558,8 +557,8 @@ composableAnalysisM = ComposableAnalysisM
 composableDependencyAnalysisM :: (NFData summary, Monoid summary, Eq summary, Monad m, FuncLike funcLike)
                                  => (m summary -> summary)
                                  -> (deps -> funcLike -> summary -> m summary)
-                                 -> Simple Lens compSumm summary
-                                 -> Simple Lens compSumm deps
+                                 -> Lens' compSumm summary
+                                 -> Lens' compSumm deps
                                  -> ComposableAnalysis compSumm funcLike
 composableDependencyAnalysisM = ComposableAnalysisDM
 
@@ -570,7 +569,7 @@ composableDependencyAnalysisM = ComposableAnalysisDM
 -- is run.
 composableAnalysis :: (NFData summary, Monoid summary, Eq summary, FuncLike funcLike)
                           => (funcLike -> summary -> summary)
-                          -> Simple Lens compSumm summary
+                          -> Lens' compSumm summary
                           -> ComposableAnalysis compSumm funcLike
 composableAnalysis = ComposableAnalysis
 
@@ -585,8 +584,8 @@ composableAnalysis = ComposableAnalysis
 -- extracts a *tuple* containing all relevant analyses.
 composableDependencyAnalysis :: (NFData summary, Monoid summary, Eq summary, FuncLike funcLike)
                           => (deps -> funcLike -> summary -> summary)
-                          -> Simple Lens compSumm summary
-                          -> Simple Lens compSumm deps
+                          -> Lens' compSumm summary
+                          -> Lens' compSumm deps
                           -> ComposableAnalysis compSumm funcLike
 composableDependencyAnalysis = ComposableAnalysisD
 

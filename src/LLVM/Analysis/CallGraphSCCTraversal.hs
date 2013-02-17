@@ -18,7 +18,6 @@ module LLVM.Analysis.CallGraphSCCTraversal (
 
   -- * Types
   ComposableAnalysis,
-  Lens,
 
   -- * Adaptors
   callGraphAnalysis,
