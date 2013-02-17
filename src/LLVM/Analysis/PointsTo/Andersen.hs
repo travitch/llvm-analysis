@@ -9,9 +9,7 @@ module LLVM.Analysis.PointsTo.Andersen (
   Andersen,
   -- * Constructor
   runPointsToAnalysis,
-  runPointsToAnalysisWith,
-  -- * Debugging aids (note, subject to change and unstable)
-  andersenConstraintGraph
+  runPointsToAnalysisWith
   ) where
 
 import Control.Exception
@@ -505,6 +503,9 @@ throwErr :: ConstraintError Var Constructor -> SolvedSystem Var Constructor
 throwErr = throw
 
 -- Debugging
+
+instance ToGraphviz Andersen where
+  toGraphviz = andersenConstraintGraph
 
 andersenConstraintGraph :: Andersen -> DotGraph Int
 andersenConstraintGraph (Andersen s) =
