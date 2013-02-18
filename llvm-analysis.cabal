@@ -68,6 +68,7 @@ library
                    LLVM.Analysis.PointsTo.Andersen,
                    LLVM.Analysis.PointsTo.TrivialFunction,
                    LLVM.Analysis.NoReturn,
+                   LLVM.Analysis.NullPointers,
                    LLVM.Analysis.ScalarEffects,
                    LLVM.Analysis.Util.Names,
                    LLVM.Analysis.Util.Testing
