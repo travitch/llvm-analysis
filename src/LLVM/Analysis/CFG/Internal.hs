@@ -1,6 +1,6 @@
 {-# OPTIONS_HADDOCK not-home #-}
 {-# LANGUAGE ExistentialQuantification, GADTs #-}
-{-# LANGUAGE ViewPatterns, ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns, ScopedTypeVariables, PatternGuards #-}
 module LLVM.Analysis.CFG.Internal (
   -- * CFG
   CFG(..),
@@ -11,6 +11,7 @@ module LLVM.Analysis.CFG.Internal (
   -- * Dataflow
   DataflowAnalysis(..),
   dataflowAnalysis,
+  fwdDataflowEdgeAnalysis,
   forwardDataflow,
   backwardDataflow,
   DataflowResult(..),
@@ -347,10 +348,12 @@ toGNode i = (instructionUniqueId i, i)
 -- be stored redundantly in every dataflow fact.  If this parameter is
 -- not needed, it can safely be instantiated as () (and subsequently
 -- ignored).
-data DataflowAnalysis m f  where
+data DataflowAnalysis m f where
   DataflowAnalysis :: (Eq f, Monad m) => { analysisTop :: f
                                          , analysisMeet :: f -> f -> f
                                          , analysisTransfer :: f -> Instruction -> m f
+                                         , analysisFwdEdgeTransfer :: Maybe (f -> Instruction -> m [(BasicBlock, f)])
+                                         , analysisBwdEdgeTransfer :: Maybe ([(BasicBlock, f)] -> Instruction -> m f)
                                          } -> DataflowAnalysis m f
 
 dataflowAnalysis :: (Eq f, Monad m)
@@ -358,7 +361,27 @@ dataflowAnalysis :: (Eq f, Monad m)
                     -> (f -> f -> f) -- ^ Meet
                     -> (f -> Instruction -> m f) -- ^ Transfer
                     -> DataflowAnalysis m f
-dataflowAnalysis = DataflowAnalysis
+dataflowAnalysis top m t = DataflowAnalysis top m t Nothing Nothing
+
+-- | A dataflow analysis that provides an addition /edge transfer
+-- function/.  This function is run with each Terminator instruction
+-- (/after/ the normal transfer function, whose results are fed to the
+-- edge transfer function).  The edge transfer function allows you to
+-- let different information flow to each successor block of a
+-- terminator instruction.
+--
+-- If a BasicBlock in the edge transfer result is not a successor of
+-- the input instruction, that mapping is discarded.  Multiples are
+-- @meet@ed together.  Missing values are taken from the result of the
+-- normal transfer function.
+fwdDataflowEdgeAnalysis :: (Eq f, Monad m)
+                           => f -- ^ Top
+                           -> (f -> f -> f) -- ^ meet
+                           -> (f -> Instruction -> m f) -- ^ Transfer
+                           -> (f -> Instruction -> m [(BasicBlock, f)]) -- ^ Edge Transfer
+                           -> DataflowAnalysis m f
+fwdDataflowEdgeAnalysis top m t e =
+  DataflowAnalysis top m t (Just e) Nothing
 
 -- | The opaque result of a dataflow analysis
 data DataflowResult m f where
@@ -367,6 +390,8 @@ data DataflowResult m f where
                     -> Fact C f
                     -> Direction
                     -> DataflowResult m f
+
+-- See Note [Dataflow Results]
 
 instance (Show f) => Show (DataflowResult m f) where
   show (DataflowResult _ _ fb _) =
@@ -385,7 +410,7 @@ instance (NFData f) => NFData (DataflowResult m f) where
 dataflowResultAt :: DataflowResult m f
                     -> Instruction
                     -> m f
-dataflowResultAt (DataflowResult cfg (DataflowAnalysis top meet transfer) m dir) i = do
+dataflowResultAt (DataflowResult cfg (DataflowAnalysis top meet transfer _ _) m dir) i = do
   let Just bb = instructionBasicBlock i
       Just lbl = M.lookup bb (cfgLabelMap cfg)
       initialFactAndInsts = findInitialFact bb lbl dir
@@ -415,19 +440,6 @@ dataflowResultAt (DataflowResult cfg (DataflowAnalysis top meet transfer) m dir)
         r' <- transfer r thisI
         replayTransfer rest r'
 
-{- Note [Dataflow Results]
-
-To get a forward result, we have to look up the result for the block
-of the instruction and then run the analysis forward to the target
-instruction.
-
-For a /backward/ analysis, we have to do a bit more.  Instead, we need
-all of the successors of the block (if there are none, then we have
-to take the summary for the unique exit node).  Then we have to meet
-those and use that as the initial fact.  Then replay over the basic
-block instructoins /in reverse/.
-
--}
 
 -- | Look up the dataflow fact at the virtual exit note.  This
 -- combines the results along /all/ paths, including those ending in
@@ -436,7 +448,7 @@ block instructoins /in reverse/.
 -- If you want the result at only the return instruction(s), use
 -- 'dataflowResultAt' and 'meets' the results together.
 dataflowResult :: DataflowResult m f -> f
-dataflowResult (DataflowResult cfg (DataflowAnalysis top _ _) m _) =
+dataflowResult (DataflowResult cfg (DataflowAnalysis top _ _ _ _) m _) =
   fromMaybe top $ lookupFact (cfgExitLabel cfg) m
 
 forwardDataflow :: forall m f cfgLike . (HasCFG cfgLike)
@@ -445,7 +457,9 @@ forwardDataflow :: forall m f cfgLike . (HasCFG cfgLike)
                    -> f -- ^ Initial fact for the entry node
                    -> m (DataflowResult m f)
 forwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
+                                            , analysisMeet = meet
                                             , analysisTransfer = transfer
+                                            , analysisFwdEdgeTransfer = etransfer
                                             } fact0 = do
   r <- graph (cfgBody cfg) (mapSingleton elbl fact0)
   return $ DataflowResult cfg da r Fwd
@@ -507,10 +521,28 @@ forwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
       f' <- transfer f i
       -- Now create a new map with all of the labels mapped to
       -- f'.  Code later will handle merging this result.
-      return $ mapFromList $ zip lbls (repeat f')
+      let baseResult = mapFromList $ zip lbls (repeat f')
+      case etransfer of
+        Nothing -> return baseResult
+        Just etransfer' -> do
+          -- Now convert BasicBlocks to their labels (discarding
+          -- mappings where the label is not in @lbls@.  Duplicates
+          -- are meeted together.  Missing elements are filled in by
+          -- the result of the normal transfer function
+          blockOuts <- etransfer' f' i
+          let res = foldr (addBlockEdgeResult lbls) mapEmpty blockOuts
+          return $ mapUnion res (mapDeleteList (mapKeys res) baseResult)
     -- The unique exit doesn't do anything - it just collects the
     -- final results.
     node UniqueExit _ = return mapEmpty
+
+    addBlockEdgeResult :: [Label] -> (BasicBlock, f) -> FactBase f -> FactBase f
+    addBlockEdgeResult lbls (bb, res) acc
+      | Just lbl <- basicBlockToLabel cfg bb, lbl `elem` lbls =
+        case mapLookup lbl acc of
+          Nothing -> mapInsert lbl res acc
+          Just ex -> mapInsert lbl (meet res ex) acc
+      | otherwise = acc
 
     block :: Block Insn e x -> f -> m (Fact x f)
     block BNil = return
@@ -625,7 +657,7 @@ fixpoint :: forall m f . Direction
             -> [Label]
             -> LabelMap (Block Insn C C)
             -> (Fact C f -> m (Fact C f))
-fixpoint dir (DataflowAnalysis _ meet _) doBlock entries blockmap initFbase =
+fixpoint dir (DataflowAnalysis _ meet _ _ _) doBlock entries blockmap initFbase =
   -- See Note [Fixpoint]
   loop initFbase entries mempty
   where
@@ -680,5 +712,23 @@ In hoopl, the fixpoint returns a factbase that includes only the facts
 that are not in the body.  Facts for the body are in the rewritten
 body nodes in the DG.  Since we are not rewriting the graph, we keep
 all facts in the factbase in fixpoint.
+
+-}
+
+{- Note [Dataflow Results]
+
+To get a forward result, we have to look up the result for the block
+of the instruction and then run the analysis forward to the target
+instruction.
+
+For a /backward/ analysis, we have to do a bit more.  Instead, we need
+all of the successors of the block (if there are none, then we have
+to take the summary for the unique exit node).  Then we have to meet
+those and use that as the initial fact.  Then replay over the basic
+block instructoins /in reverse/.
+
+Also note that the dataflowResultAt function does not need to use the
+edge transfer function because the result replay only needs to work
+within a single block.
 
 -}
