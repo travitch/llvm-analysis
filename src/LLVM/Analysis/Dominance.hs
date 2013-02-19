@@ -41,9 +41,9 @@ import LLVM.Analysis
 import LLVM.Analysis.CFG
 import LLVM.Analysis.Dataflow
 
-import qualified Text.PrettyPrint.GenericPretty as PP
-import Debug.Trace
-debug = flip trace
+-- import qualified Text.PrettyPrint.GenericPretty as PP
+-- import Debug.Trace
+-- debug = flip trace
 
 data DominatorTree = DT CFG (Map Instruction Instruction)
 
@@ -74,7 +74,7 @@ dominatorTree f = DT cfg (toImmediateDominators doms)
 
 -- | Check whether n dominates m
 dominates :: (HasDomTree t) => t -> Instruction -> Instruction -> Bool
-dominates dt n m = checkDom m `debug` ("debug:\n" ++ PP.pretty (M.toList t))
+dominates dt n m = checkDom m
   where
     (DT _ t) = getDomTree dt
     -- Walk backwards in the dominator tree looking for n
