@@ -1,24 +1,25 @@
 -- | This module defines an interface for intra-procedural dataflow
 -- analysis (forward and backward).
 --
--- The user simply defines a type to represent the state of their
--- dataflow analysis as an instance of 'DataflowAnalysis'.  This class
--- adds one function, 'transfer', to the semilattices defined in the
--- lattices package.
+-- The user defines an analysis with the 'dataflowAnalysis' function,
+-- which can be constructed from a 'top' value, a 'meet' operator, and
+-- a 'transfer' function (which is run as needed for 'Instruction's).
 --
 -- To use this dataflow analysis framework, pass it an initial
--- analysis state and either a control flow graph or a function.  The
--- analysis then returns a function that maps instructions to the
--- dataflow value at that instruction.  For example,
+-- analysis state (which may be @top@ or a different value) and
+-- something providing a control flow graph, along with the opaque
+-- analysis object.  The analysis then returns an abstract result that
+-- represents dataflow facts at each 'Instruction' in the 'Function'.
+-- For example,
 --
 -- > let initialState = ...
--- >     cfg = mkCFG f
--- >     results = forwardDataflow initialState cfg
--- > in results (cfgFinalValue cfg)
+-- >     a = dataflowAnalysis top meet transfer
+-- >     results = forwardDataflow initialState analysis cfg
+-- > in dataflowResult results
 --
--- gives the dataflow value for the return instruction in function
--- @f@.  Any instruction in @f@ can be used as an argument to the
--- @result@ function.
+-- gives the dataflow value for the virtual exit node (to which all
+-- other function termination instructions flow).  To get results at
+-- other instructions, see 'dataflowResultAt'.
 module LLVM.Analysis.Dataflow (
   -- * Dataflow analysis
   DataflowAnalysis,

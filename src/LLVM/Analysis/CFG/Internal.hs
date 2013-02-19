@@ -338,16 +338,22 @@ toGNode i = (instructionUniqueId i, i)
 
 -- Dataflow analysis stuff
 
--- | A class defining the interface to a dataflow analysis.  The
--- analysis object itself that is passed to one of the dataflow
--- functions acts as the initial state.
+-- | An opaque representation of a dataflow analysis.  Analyses of
+-- this type are suitable for both forward and backward use.
 --
--- Note that the second type parameter, @c@, can be used to pass
--- information that is global and constant for the analysis of a
--- function.  This can save space by not requiring the information to
--- be stored redundantly in every dataflow fact.  If this parameter is
--- not needed, it can safely be instantiated as () (and subsequently
--- ignored).
+-- For all dataflow analyses, the standard rules apply.
+--
+-- 1) @meet a top == a@
+--
+-- 2) Your lattice @f@ must have finite height
+--
+-- The @m@ type parameter is a 'Monad'; this dataflow framework
+-- provides a /monadic/ transfer function.  This is intended to allow
+-- transfer functions to have monadic contexts that provide
+-- MonadReader and MonadWriter-like functionality.  State is also
+-- useful for caching expensive sub-computations.  Keep in mind that
+-- the analysis iterates to a fixedpoint and side effects in the monad
+-- will be repeated.
 data DataflowAnalysis m f where
   DataflowAnalysis :: (Eq f, Monad m) => { analysisTop :: f
                                          , analysisMeet :: f -> f -> f
@@ -356,6 +362,7 @@ data DataflowAnalysis m f where
                                          , analysisBwdEdgeTransfer :: Maybe ([(BasicBlock, f)] -> Instruction -> m f)
                                          } -> DataflowAnalysis m f
 
+-- | Define a basic 'DataflowAnalysis'
 dataflowAnalysis :: (Eq f, Monad m)
                     => f -- ^ Top
                     -> (f -> f -> f) -- ^ Meet
@@ -363,12 +370,12 @@ dataflowAnalysis :: (Eq f, Monad m)
                     -> DataflowAnalysis m f
 dataflowAnalysis top m t = DataflowAnalysis top m t Nothing Nothing
 
--- | A dataflow analysis that provides an addition /edge transfer
--- function/.  This function is run with each Terminator instruction
--- (/after/ the normal transfer function, whose results are fed to the
--- edge transfer function).  The edge transfer function allows you to
--- let different information flow to each successor block of a
--- terminator instruction.
+-- | A forward dataflow analysis that provides an addition /edge
+-- transfer function/.  This function is run with each Terminator
+-- instruction (/after/ the normal transfer function, whose results
+-- are fed to the edge transfer function).  The edge transfer function
+-- allows you to let different information flow to each successor
+-- block of a terminator instruction.
 --
 -- If a BasicBlock in the edge transfer result is not a successor of
 -- the input instruction, that mapping is discarded.  Multiples are
@@ -383,7 +390,8 @@ fwdDataflowEdgeAnalysis :: (Eq f, Monad m)
 fwdDataflowEdgeAnalysis top m t e =
   DataflowAnalysis top m t (Just e) Nothing
 
--- | The opaque result of a dataflow analysis
+-- | The opaque result of a dataflow analysis.  Use the functions
+-- 'dataflowResult' and 'dataflowResultAt' to extract results.
 data DataflowResult m f where
   DataflowResult :: CFG
                     -> DataflowAnalysis m f
@@ -451,9 +459,10 @@ dataflowResult :: DataflowResult m f -> f
 dataflowResult (DataflowResult cfg (DataflowAnalysis top _ _ _ _) m _) =
   fromMaybe top $ lookupFact (cfgExitLabel cfg) m
 
+-- | Run a forward dataflow analysis
 forwardDataflow :: forall m f cfgLike . (HasCFG cfgLike)
-                   => cfgLike
-                   -> DataflowAnalysis m f
+                   => cfgLike -- ^ Something providing a CFG
+                   -> DataflowAnalysis m f -- ^ The analysis to run
                    -> f -- ^ Initial fact for the entry node
                    -> m (DataflowResult m f)
 forwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
@@ -554,10 +563,10 @@ forwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
     block (BSnoc h n) = block h >=> node n
     block (BCons n t) = node n >=> block t
 
-
+-- | Run a backward dataflow analysis
 backwardDataflow :: forall m f cfgLike . (HasCFG cfgLike)
-                    => cfgLike
-                    -> DataflowAnalysis m f
+                    => cfgLike -- ^ Something providing a CFG
+                    -> DataflowAnalysis m f -- ^ The analysis to run
                     -> f -- ^ Initial fact for the entry node
                     -> m (DataflowResult m f)
 backwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
@@ -649,8 +658,7 @@ backwardBlockList entries body = reverse $ forwardBlockList entries body
 data Direction = Fwd | Bwd
                deriving (Eq)
 
--- The fixedpoint calculations (and joins) all happen in here.
--- Try to find a spot to possibly add the phi transfer...
+-- | The fixedpoint calculations (and joins) all happen in here.
 fixpoint :: forall m f . Direction
             -> DataflowAnalysis m f
             -> (Block Insn C C -> Fact C f -> m (Fact C f))
