@@ -1,1 +1,1 @@
-fromList [ ("%13", 0), ("%12", -20) ]
+fromList [ ("%if.end8", 0), ("%if.then7", -20) ]
