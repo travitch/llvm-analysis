@@ -21,9 +21,7 @@ module LLVM.Analysis.Dominance (
   dominates,
   postdominates,
   postdominators,
-  postdominatorsFor,
-  immediatePostdominators,
-  immediatePostdominator,
+  postdominatorsFor
   ) where
 
 import Control.Arrow ( (&&&) )
@@ -130,12 +128,6 @@ postdominatorsFor :: (HasPostdomTree t) => t -> Instruction -> [Instruction]
 postdominatorsFor pt = getDominators t
   where
     PDT _ t = getPostdomTree pt
-
-immediatePostdominator :: (HasPostdomTree t) => t -> Maybe Instruction
-immediatePostdominator = undefined
-
-immediatePostdominators :: (HasPostdomTree t) => t -> [(Instruction, Instruction)]
-immediatePostdominators = undefined
 
 -- | Return the dominators (or postdominators) of the given
 -- instruction, in order (with the nearest dominators at the beginning
