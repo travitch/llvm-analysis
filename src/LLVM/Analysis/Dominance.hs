@@ -41,6 +41,10 @@ import LLVM.Analysis
 import LLVM.Analysis.CFG
 import LLVM.Analysis.Dataflow
 
+import qualified Text.PrettyPrint.GenericPretty as PP
+import Debug.Trace
+debug = flip trace
+
 data DominatorTree = DT CFG (Map Instruction Instruction)
 
 class HasDomTree a where
@@ -70,7 +74,7 @@ dominatorTree f = DT cfg (toImmediateDominators doms)
 
 -- | Check whether n dominates m
 dominates :: (HasDomTree t) => t -> Instruction -> Instruction -> Bool
-dominates dt n m = checkDom m
+dominates dt n m = checkDom m `debug` ("debug:\n" ++ PP.pretty (M.toList t))
   where
     (DT _ t) = getDomTree dt
     -- Walk backwards in the dominator tree looking for n
@@ -220,11 +224,15 @@ addIdom allDoms (n, doms) acc =
     return $ M.insert n m acc
   where
     sdoms = S.delete n doms
-    -- For each p in sdom, p must also be in dom[m].  We could
-    -- probably cache some of these results to speed things up.
+    -- The immediate dominator of a node strictly dominates that node
+    -- but does not strictly dominate any other node in dom[n].
     tryOneM m =
-      let Just mdom = M.lookup m allDoms
-      in F.all (flip S.member mdom) sdoms
+      -- Return True if m is not in sdom[x] for x in sdoms
+      F.all (notInSDoms m) sdoms
+    notInSDoms m d =
+      let Just ddom = M.lookup d allDoms
+          sddom = S.delete d ddom
+      in not (S.member m sddom)
 
 
 -- Visualization
