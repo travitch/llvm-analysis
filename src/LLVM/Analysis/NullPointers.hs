@@ -16,8 +16,7 @@ module LLVM.Analysis.NullPointers (
 
 import Control.Failure
 import Control.Monad.Identity
-import Data.HashMap.Strict ( HashMap )
-import qualified Data.HashMap.Strict as HM
+import Data.Maybe ( fromMaybe )
 import Data.Monoid
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as HS
@@ -51,11 +50,9 @@ nullPointersAnalysis cdgLike =
   NPS $ runIdentity $ forwardDataflow cdg analysis f0
   where
     cdg = getCDG cdgLike
-    f = getFunction cdg
-    blkFacts = foldr (blockFacts cdg) mempty (functionBody f)
     f0 = NS mempty mempty
 
-    analysis = dataflowAnalysis Top meet (transfer blkFacts)
+    analysis = fwdDataflowEdgeAnalysis Top meet transfer edgeTransfer
 -- See Note [NULL Pointers]
 
 nullPointersAt :: NullPointersSummary -> Instruction -> [Value]
@@ -82,60 +79,27 @@ meet (NS must1 not1) (NS must2 not2) =
 -- | Add any new facts we've learned from the block state.  We could
 -- have this be a no-op for non-entry instructions, but it probably
 -- isn't a big deal.
-transfer :: (Monad m) => BlockFacts -> NULLState -> Instruction -> m NULLState
-transfer blkFacts s i
-  | not (instructionIsEntry i) = return s
-  | otherwise = do
-    let Just bb = instructionBasicBlock i
-    return $ case (HM.lookup bb blkFacts, s) of
-      (Nothing, Top) -> Top
-      (Nothing, _) -> s -- Nothing to add
-      (Just (must', not'), Top) -> NS must' not' -- No prior facts
-      (Just (must', not'), NS mnull nnull) -> -- Merge
-        NS (mnull `HS.union` must') (nnull `HS.union` not')
+transfer :: (Monad m) => NULLState -> Instruction -> m NULLState
+transfer s _ = return s
 
--- | The set of pointers with known NULL information in each
--- BasicBlock.  The first MUST be NULL, the second are NOT NULL.
-type BlockFacts = HashMap BasicBlock (HashSet Value, HashSet Value)
+addNull :: Value -> NULLState -> NULLState
+addNull v s =
+  case s of
+    Top -> NS (HS.singleton v) mempty
+    NS must notNull -> NS (HS.insert v must) notNull
 
-blockFacts :: CDG -> BasicBlock -> BlockFacts -> BlockFacts
-blockFacts cdg bb facts = foldr (addControlInfo bb) facts deps
-  where
-    i : _ = basicBlockInstructions bb
-    deps = directControlDependencies cdg i
+addNotNull :: Value -> NULLState -> NULLState
+addNotNull v s =
+  case s of
+    Top -> NS mempty (HS.singleton v)
+    NS must notNull -> NS must (HS.insert v notNull)
 
-addNotNull :: BasicBlock -> Value -> BlockFacts -> BlockFacts
-addNotNull bb v facts =
-  case HM.lookup bb facts of
-    Nothing -> HM.insert bb (mempty, HS.singleton v) facts
-    Just (must, notNull) -> HM.insert bb (must, HS.insert v notNull) facts
-
-addMustNull :: BasicBlock -> Value -> BlockFacts -> BlockFacts
-addMustNull bb v facts =
-  case HM.lookup bb facts of
-    Nothing -> HM.insert bb (HS.singleton v, mempty) facts
-    Just (must, notNull) -> HM.insert bb (HS.insert v must, notNull) facts
-
-addControlInfo :: BasicBlock -> Instruction -> BlockFacts -> BlockFacts
-addControlInfo bb BranchInst { branchTrueTarget = tt
-                             , branchFalseTarget = ft
-                             , branchCondition = (valueContent -> InstructionC ci@ICmpInst { cmpPredicate = ICmpEq })
-                             } facts
-  | bb == tt && isNullPtr (cmpV1 ci) = addMustNull bb (cmpV2 ci) facts
-  | bb == tt && isNullPtr (cmpV2 ci) = addMustNull bb (cmpV1 ci) facts
-  | bb == ft && isNullPtr (cmpV1 ci) = addNotNull bb (cmpV2 ci) facts
-  | bb == ft && isNullPtr (cmpV2 ci) = addNotNull bb (cmpV1 ci) facts
-  | otherwise = facts
-addControlInfo bb BranchInst { branchTrueTarget = tt
-                             , branchFalseTarget = ft
-                             , branchCondition = (valueContent -> InstructionC ci@ICmpInst { cmpPredicate = ICmpNe })
-                             } facts
-  | bb == tt && isNullPtr (cmpV1 ci) = addNotNull bb (cmpV2 ci) facts
-  | bb == tt && isNullPtr (cmpV2 ci) = addNotNull bb (cmpV1 ci) facts
-  | bb == ft && isNullPtr (cmpV1 ci) = addMustNull bb (cmpV2 ci) facts
-  | bb == ft && isNullPtr (cmpV2 ci) = addMustNull bb (cmpV1 ci) facts
-  | otherwise = facts
-addControlInfo _ _ facts = facts
+edgeTransfer :: (Monad m ) => NULLState -> Instruction -> m [(BasicBlock, NULLState)]
+edgeTransfer s i = return $ fromMaybe [] $ do
+  (nullBlock, nullVal, notNullBlock) <- branchNullInfo i
+  return [(nullBlock, addNull nullVal s),
+          (notNullBlock, addNotNull nullVal s)
+         ]
 
 isNullPtr :: Value -> Bool
 isNullPtr (valueContent -> ConstantC ConstantPointerNull {}) = True
