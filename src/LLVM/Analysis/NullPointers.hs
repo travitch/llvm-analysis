@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
 -- | An analysis to identify the NULL state of pointers at each
 -- Instruction in a Function.  Pointers can either be DefiniteNULL,
@@ -8,15 +9,19 @@ module LLVM.Analysis.NullPointers (
   NullPointersSummary,
   nullPointersAnalysis,
   nullPointersAt,
-  notNullPointersAt
+  notNullPointersAt,
+  branchNullInfo,
+  NullInfoError(..)
   ) where
 
+import Control.Failure
 import Control.Monad.Identity
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
 import Data.Monoid
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as HS
+import Data.Typeable ( Typeable )
 
 import LLVM.Analysis
 import LLVM.Analysis.CDG
@@ -135,6 +140,37 @@ addControlInfo _ _ facts = facts
 isNullPtr :: Value -> Bool
 isNullPtr (valueContent -> ConstantC ConstantPointerNull {}) = True
 isNullPtr _ = False
+
+data NullInfoError = NotABranchInst Instruction
+                   | NotANullTest Instruction
+                   deriving (Typeable, Show)
+
+-- | Given a BranchInst, return:
+--
+-- 1) The BasicBlock where a pointer is known to be NULL
+--
+-- 2) The value known to be NULL
+--
+-- 3) The BasicBlock where the pointer is known to be not NULL
+branchNullInfo :: (Failure NullInfoError m)
+                  => Instruction
+                  -> m (BasicBlock, Value, BasicBlock)
+branchNullInfo i@BranchInst { branchTrueTarget = tt
+                            , branchFalseTarget = ft
+                            , branchCondition = (valueContent -> InstructionC ci@ICmpInst { cmpPredicate = ICmpEq })
+                            }
+  | isNullPtr (cmpV1 ci) = return (tt, cmpV2 ci, ft)
+  | isNullPtr (cmpV2 ci) = return (tt, cmpV1 ci, ft)
+  | otherwise = failure (NotANullTest i)
+branchNullInfo i@BranchInst { branchTrueTarget = tt
+                            , branchFalseTarget = ft
+                            , branchCondition = (valueContent -> InstructionC ci@ICmpInst { cmpPredicate = ICmpNe })
+                            }
+  | isNullPtr (cmpV1 ci) = return (ft, cmpV2 ci, tt)
+  | isNullPtr (cmpV2 ci) = return (ft, cmpV1 ci, tt)
+  | otherwise = failure (NotANullTest i)
+branchNullInfo i = failure (NotABranchInst i)
+
 
 {- Note [NULL Pointers]
 
