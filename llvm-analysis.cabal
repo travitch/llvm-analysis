@@ -42,6 +42,7 @@ library
                  GenericPretty > 1,
                  hoopl >= 3.9.0.0,
                  llvm-base-types >= 0.1.1,
+                 fgl >= 5.4,
                  hbgl, boomerang, ifscs,
                  array, bytestring, containers, deepseq,
                  process, filepath, directory, unordered-containers,

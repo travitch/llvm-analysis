@@ -25,19 +25,20 @@ module LLVM.Analysis.Dominance (
   ) where
 
 import Control.Arrow ( (&&&) )
-import Control.Monad.Identity
-import qualified Data.Foldable as F
+import qualified Data.Graph.Inductive.Graph as G
+import qualified Data.Graph.Inductive.Basic as G
+import qualified Data.Graph.Inductive.PatriciaTree as G
+import qualified Data.Graph.Inductive.Query.Dominators as G
+import Data.IntMap ( IntMap )
+import qualified Data.IntMap as IM
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
 import Data.Monoid
-import Data.Set ( Set )
-import qualified Data.Set as S
 import Data.GraphViz
 
 import LLVM.Analysis
 import LLVM.Analysis.CFG
-import LLVM.Analysis.Dataflow
 
 -- import qualified Text.PrettyPrint.GenericPretty as PP
 -- import Debug.Trace
@@ -65,10 +66,18 @@ instance HasFunction DominatorTree where
 -- | Construct a DominatorTree from something that behaves like a
 -- control flow graph.
 dominatorTree :: (HasCFG cfg) => cfg -> DominatorTree
-dominatorTree f = DT cfg (toImmediateDominators doms)
+dominatorTree f = DT cfg idomMap
   where
     cfg = getCFG f
-    doms = dominatorAnalysis cfg
+    (g, revmap) = cfgToGraph cfg
+    idoms = G.iDom g (instructionUniqueId entryInst)
+    idomMap = foldr (remapInst revmap) mempty idoms
+    -- to make the rooted graph, we don't need any extra nodes here -
+    -- just pull out the entry instruction
+    entryBlock : _ = functionBody (getFunction cfg)
+    entryInst : _ = basicBlockInstructions entryBlock
+
+
 
 -- | Check whether n dominates m
 dominates :: (HasDomTree t) => t -> Instruction -> Instruction -> Bool
@@ -102,10 +111,21 @@ instance HasFunction PostdominatorTree where
 -- | Construct a PostdominatorTree from something that behaves like a
 -- control flow graph.
 postdominatorTree :: (HasCFG f) => f -> PostdominatorTree
-postdominatorTree f = PDT cfg (toImmediateDominators pdoms)
+postdominatorTree f = (PDT cfg idomMap)
   where
     cfg = getCFG f
-    pdoms = postdominatorAnalysis cfg
+    (g, revmap) = cfgToGraph cfg
+    idoms = G.iDom (G.grev g) (-1)
+    idomMap = foldr (remapInst revmap) mempty idoms
+    -- To make the rooted graph here, we need to add a virtual exit
+    -- node.  Also note that we reverse the edges in the graph because
+    -- this is a postdominator tree.
+
+remapInst :: (Ord a) => IntMap a -> (Int, Int) -> Map a a -> Map a a
+remapInst revmap (n, d) acc = fromMaybe acc $ do
+  nI <- IM.lookup n revmap
+  dI <- IM.lookup d revmap
+  return $ M.insert nI dI acc
 
 -- | Tests whether or not an Instruction n postdominates Instruction m
 postdominates :: (HasPostdomTree t) => t -> Instruction -> Instruction -> Bool
@@ -143,88 +163,49 @@ getDominators m = go
         Nothing -> []
         Just dom -> dom : go dom
 
--- Internal builder code
+-- Internal
 
-
-type Fact = Set Instruction
-
-domAnalysis :: (Monad m) => Fact -> DataflowAnalysis m Fact
-domAnalysis top = dataflowAnalysis top meet transfer
-  where
-    meet = S.intersection
-    transfer doms i = return (S.insert i doms)
-
--- | Compute the set of dominators for each instruction in the CFG.
+-- | Convert the nice CFG to a less nice Graph format; this is a
+-- linear process.  We'll then pass this new graph to dom-lt to
+-- compute immediate dominators for us efficiently.
 --
--- This is a simple dataflow analysis where top is the universal set
--- (all instructions in the function) and meet is set intersection.
--- The transfer function simply adds the current instruction to the
--- dataflow fact.
-dominatorAnalysis :: CFG -> Map Instruction (Set Instruction)
-dominatorAnalysis cfg = foldr (addInstFact dfr) mempty allInsts
+-- IDs will be Instruction UniqueIds, and the root will be the ID of
+-- the entry instruction.
+cfgToGraph :: CFG -> (G.Gr () (), IntMap Instruction)
+cfgToGraph cfg = (G.mkGraph ns es, revMap)
   where
-    s0 = S.singleton entryInst
-    top = S.fromList allInsts
-    allInsts@(entryInst:_)= functionInstructions (getFunction cfg)
-    analysis = domAnalysis top
-    dfr = runIdentity $ forwardDataflow cfg analysis s0
+    f = getFunction cfg
+    blocks = functionBody f
+    is = functionInstructions f
+    revMap = foldr (\i -> IM.insert (instructionUniqueId i) i) mempty is
+    -- Make sure we add the virtual exit node
+    ns = (-1, ()) : map (\i -> (instructionUniqueId i, ())) is
+    es = concatMap (blockEdges cfg) blocks
 
-addInstFact :: DataflowResult Identity a
-               -> Instruction
-               -> Map Instruction a
-               -> Map Instruction a
-addInstFact dfr i acc =
-  let f = runIdentity (dataflowResultAt dfr i)
-  in M.insert i f acc
-
--- | In this case, we don't have an instruction that is a unique exit
--- point.  However, we know perfectly well that the virtual exit node
--- in the CFG postdominates everything so there isn't much need to
--- explicitly track that.
---
--- Thus, we start off with the empty set in the beginning.
---
--- Everything should actually remain the same here, despite this,
--- since users can't query based on the virtual exit node anyway.
-postdominatorAnalysis :: CFG -> Map Instruction (Set Instruction)
-postdominatorAnalysis cfg = foldr (addInstFact dfr) mempty allInsts
+-- | Construct all of the edges internal to a basic block, as well as
+-- the edges from the terminator instruction to its successors.  If
+-- the terminator has no successors (it is an exit instruction), give
+-- it a virtual edge to -1.
+blockEdges :: (HasCFG cfg) => cfg -> BasicBlock -> [(UniqueId, UniqueId, ())]
+blockEdges cfg b =
+  addSuccessorEdges internalEdges
   where
-    s0 = S.empty
-    top = S.fromList allInsts
-    allInsts = functionInstructions (getFunction cfg)
-    analysis = domAnalysis top
-    dfr = runIdentity $ backwardDataflow cfg analysis s0
+    mkEdge s d = (s, d, ())
+    is = map instructionUniqueId $ basicBlockInstructions b
+    ti = instructionUniqueId $ basicBlockTerminatorInstruction b
+    succs = map blockEntryId $ basicBlockSuccessors cfg b
+    internalEdges = map (\(s, d) -> mkEdge s d) (zip is (tail is))
+    -- If we have successors, do the sensible thing.  If we don't have
+    -- successors, add an edge from ti -> -1 (a virtual catchall
+    -- exit),
+    addSuccessorEdges a
+      | null succs = mkEdge ti (-1) : a
+      | otherwise = map (\sb -> mkEdge ti sb) succs ++ a
 
--- | Compute the immediate dominators from the set of all dominators.
--- The entry instruction is not in the map because it has no immediate
--- dominator.
---
--- m `idom` n  IFF  m `sdom` n  AND  (p sdom n => p dom m)
-toImmediateDominators :: Map Instruction (Set Instruction) -> Map Instruction Instruction
-toImmediateDominators allDoms =
-  foldr (addIdom allDoms) mempty $ M.toList allDoms
-
--- | Find m such that, for each node p in sdom n, p must also be in
--- dom[m]
-addIdom :: Map Instruction (Set Instruction)
-           -> (Instruction, Set Instruction)
-           -> Map Instruction Instruction
-           -> Map Instruction Instruction
-addIdom allDoms (n, doms) acc =
-  fromMaybe acc $ do
-    m <- F.find tryOneM sdoms
-    return $ M.insert n m acc
+blockEntryId :: BasicBlock -> UniqueId
+blockEntryId bb = instructionUniqueId ei
   where
-    sdoms = S.delete n doms
-    -- The immediate dominator of a node strictly dominates that node
-    -- but does not strictly dominate any other node in dom[n].
-    tryOneM m =
-      -- Return True if m is not in sdom[x] for x in sdoms
-      F.all (notInSDoms m) sdoms
-    notInSDoms m d =
-      let Just ddom = M.lookup d allDoms
-          sddom = S.delete d ddom
-      in not (S.member m sddom)
+    ei : _ = basicBlockInstructions bb
 
 
 -- Visualization
