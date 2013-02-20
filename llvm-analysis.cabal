@@ -43,6 +43,7 @@ library
                  hoopl >= 3.9.0.0,
                  llvm-base-types >= 0.2.0,
                  fgl >= 5.4,
+                 text >= 0.11,
                  hbgl, boomerang, ifscs,
                  array, bytestring, containers, deepseq,
                  process, filepath, directory, unordered-containers,

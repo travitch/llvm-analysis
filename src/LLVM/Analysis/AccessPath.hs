@@ -28,6 +28,7 @@ import Control.Failure hiding ( failure )
 import qualified Control.Failure as F
 import Data.Hashable
 import qualified Data.List as L
+import qualified Data.Text as T
 import Data.Typeable
 import Text.PrettyPrint.GenericPretty
 
@@ -267,7 +268,7 @@ isUnionPointerType :: Type -> Bool
 isUnionPointerType t =
   case t of
     TypePointer (TypeStruct (Right name) _ _) _ ->
-      L.isPrefixOf "union." name
+      T.isPrefixOf (T.pack "union.") name
     _ -> False
 
 -- | Convert an 'AbstractAccessPath' to a format that can be written
