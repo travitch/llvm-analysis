@@ -41,7 +41,7 @@ library
                  lens >= 3.8,
                  GenericPretty > 1,
                  hoopl >= 3.9.0.0,
-                 llvm-base-types >= 0.1.1,
+                 llvm-base-types >= 0.2.0,
                  fgl >= 5.4,
                  hbgl, boomerang, ifscs,
                  array, bytestring, containers, deepseq,
@@ -88,7 +88,7 @@ test-suite CallGraphTests
                  mtl > 2,
                  HUnit, filepath, containers, bytestring,
                  llvm-analysis >= 0.2.0,
-                 llvm-data-interop >= 0.1.1
+                 llvm-data-interop >= 0.2.0
   ghc-options: -Wall
 
 test-suite BlockReturnTests
@@ -99,7 +99,7 @@ test-suite BlockReturnTests
   build-depends: base == 4.*,
                  containers, HUnit, filepath,
                  llvm-analysis >= 0.2.0,
-                 llvm-data-interop >= 0.1.1
+                 llvm-data-interop >= 0.2.0
   ghc-options: -Wall
 
 test-suite ReturnTests
@@ -108,7 +108,7 @@ test-suite ReturnTests
   build-depends: base == 4.*,
                  containers, filepath, mtl, HUnit,
                  unordered-containers,
-                 llvm-data-interop >= 0.1.1,
+                 llvm-data-interop >= 0.2.0,
                  llvm-analysis >= 0.2.0
   ghc-options: -Wall -rtsopts
   main-is: ReturnTests.hs
@@ -119,7 +119,7 @@ test-suite AccessPathTests
   type: exitcode-stdio-1.0
   build-depends: base == 4.*,
                  containers, filepath, HUnit,
-                 llvm-data-interop >= 0.1.1,
+                 llvm-data-interop >= 0.2.0,
                  llvm-analysis >= 0.2.0
   ghc-options: -Wall -rtsopts
   main-is: AccessPathTests.hs
@@ -131,7 +131,7 @@ test-suite ClassHierarchyTests
   build-depends: base == 4.*,
                  containers, filepath, HUnit, uniplate,
                  llvm-analysis >= 0.2.0,
-                 llvm-data-interop >= 0.1.1,
+                 llvm-data-interop >= 0.2.0,
                  itanium-abi
   ghc-options: -Wall -rtsopts
   main-is: ClassHierarchyTests.hs
@@ -142,7 +142,7 @@ test-suite AndersenTests
   type: exitcode-stdio-1.0
   build-depends: base == 4.*,
                  containers, filepath, HUnit,
-                 llvm-data-interop >= 0.1.1,
+                 llvm-data-interop >= 0.2.0,
                  llvm-analysis >= 0.2.0
 
   if flag(DebugAndersenGraph)

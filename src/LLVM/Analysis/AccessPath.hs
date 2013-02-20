@@ -266,7 +266,7 @@ accessPath i =
 isUnionPointerType :: Type -> Bool
 isUnionPointerType t =
   case t of
-    TypePointer (TypeStruct (Just name) _ _) _ ->
+    TypePointer (TypeStruct (Right name) _ _) _ ->
       L.isPrefixOf "union." name
     _ -> False
 

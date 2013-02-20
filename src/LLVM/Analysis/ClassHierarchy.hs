@@ -266,7 +266,7 @@ buildTypeMap f cha =
   where
     t = constructedType f
     fname = case t of
-      TypeStruct (Just tn) _ _ -> stripNamePrefix tn
+      TypeStruct (Right tn) _ _ -> stripNamePrefix tn
       _ -> error ("LLVM.Analysis.ClassHierarchy.buildTypeMap: Expected class type: " ++ show t)
 
 -- | Determine the parent classes for each class type (if any) and
@@ -352,7 +352,7 @@ addChild thisType parentType =
 constructedType :: Function -> Type
 constructedType f =
   case map argumentType $ functionParameters f of
-    TypePointer t@(TypeStruct (Just _) _ _) _ : _ -> t
+    TypePointer t@(TypeStruct (Right _) _ _) _ : _ -> t
     t -> error ("LLVM.Analysis.ClassHierarchy.constructedType: Expected pointer to struct type: " ++ show t)
 
 -- Helpers
@@ -381,7 +381,7 @@ stripNamePrefix =
   stripPrefix' "struct." . stripPrefix' "class."
 
 typeToName :: Type -> Name
-typeToName (TypeStruct (Just n) _ _) =
+typeToName (TypeStruct (Right n) _ _) =
   case parseTypeName (stripNamePrefix n) of
     Right tn -> tn
     Left e -> error ("LLVM.Analysis.ClassHierarchy.typeToName: " ++ e)
