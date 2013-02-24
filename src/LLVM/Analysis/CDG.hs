@@ -122,7 +122,8 @@ controlDependencies cdgLike i =
       | S.member cdep visited = go visited acc rest
       | otherwise =
         let newDeps = directControlDependencies cdg cdep
-        in go (S.insert cdep visited) (S.union acc (S.fromList newDeps)) rest
+            rest' = rest ++ newDeps
+        in go (S.insert cdep visited) (S.union acc (S.fromList newDeps)) rest'
 
 -- | Get the list of instructions that an instruction is directly
 -- control dependent upon (direct parents in the CDG).
