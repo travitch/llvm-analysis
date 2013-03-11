@@ -19,9 +19,13 @@ module LLVM.Analysis.Dominance (
   postdominatorTree,
   -- * Queries
   dominates,
+  immediateDominatorFor,
+  immediateDominators,
   postdominates,
   postdominators,
-  postdominatorsFor
+  postdominatorsFor,
+  immediatePostdominatorFor,
+  immediatePostdominators
   ) where
 
 import Control.Arrow ( (&&&) )
@@ -77,7 +81,15 @@ dominatorTree f = DT cfg idomMap
     entryBlock : _ = functionBody (getFunction cfg)
     entryInst : _ = basicBlockInstructions entryBlock
 
+immediateDominatorFor :: (HasDomTree t) => t -> Instruction -> Maybe Instruction
+immediateDominatorFor dt i = M.lookup i t
+  where
+    DT _ t = getDomTree dt
 
+immediateDominators :: (HasDomTree t) => t -> [(Instruction, Instruction)]
+immediateDominators dt = M.toList t
+  where
+    DT _ t = getDomTree dt
 
 -- | Check whether n dominates m
 dominates :: (HasDomTree t) => t -> Instruction -> Instruction -> Bool
@@ -126,6 +138,16 @@ remapInst revmap (n, d) acc = fromMaybe acc $ do
   nI <- IM.lookup n revmap
   dI <- IM.lookup d revmap
   return $ M.insert nI dI acc
+
+immediatePostdominatorFor :: (HasPostdomTree t) => t -> Instruction -> Maybe Instruction
+immediatePostdominatorFor pt i = M.lookup i t
+  where
+    PDT _ t = getPostdomTree pt
+
+immediatePostdominators :: (HasPostdomTree t) => t -> [(Instruction, Instruction)]
+immediatePostdominators pt = M.toList t
+  where
+    PDT _ t = getPostdomTree pt
 
 -- | Tests whether or not an Instruction n postdominates Instruction m
 postdominates :: (HasPostdomTree t) => t -> Instruction -> Instruction -> Bool
