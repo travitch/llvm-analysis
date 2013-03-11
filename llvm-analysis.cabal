@@ -18,6 +18,9 @@ description: A Haskell library for analyzing LLVM bitcode.  To convert
              This library attempts to provide some basic program analysis
              infrastructure and aims to scale to large bitcode files.
 
+             There are some useful tools built on top of this library
+             available in the llvm-tools package.
+
 flag DebugAndersenConstraints
   description: Enable debugging output for the points-to analysis (shows constraints)
   default: False
