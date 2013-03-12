@@ -19,6 +19,8 @@ module LLVM.Analysis.Dominance (
   postdominatorTree,
   -- * Queries
   dominates,
+  dominators,
+  dominatorsFor,
   immediateDominatorFor,
   immediateDominators,
   postdominates,
@@ -100,6 +102,20 @@ dominates dt n m = checkDom m
     checkDom i
       | i == n = True
       | otherwise = maybe False checkDom (M.lookup i t)
+
+dominators :: (HasDomTree t) => t -> [(Instruction, [Instruction])]
+dominators pt =
+  zip is (map (getDominators t) is)
+  where
+    dt@(DT _ t) = getDomTree pt
+    f = getFunction dt
+    is = functionInstructions f
+
+dominatorsFor :: (HasDomTree t) => t -> Instruction -> [Instruction]
+dominatorsFor pt = getDominators t
+  where
+    DT _ t = getDomTree pt
+
 
 data PostdominatorTree = PDT CFG (Map Instruction Instruction)
 
