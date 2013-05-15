@@ -75,6 +75,7 @@ library
                    LLVM.Analysis.NoReturn,
                    LLVM.Analysis.NullPointers,
                    LLVM.Analysis.ScalarEffects,
+                   LLVM.Analysis.UsesOf,
                    LLVM.Analysis.Util.Names,
                    LLVM.Analysis.Util.Testing
 
