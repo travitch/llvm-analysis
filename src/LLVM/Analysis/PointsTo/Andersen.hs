@@ -16,6 +16,7 @@ import Control.Exception
 import Control.Monad.State.Strict
 import Data.GraphViz
 import Data.Maybe ( fromMaybe, mapMaybe )
+import Data.Text ( Text, pack, unpack )
 import Data.Typeable
 
 import LLVM.Analysis
@@ -54,7 +55,7 @@ data Var = Fresh !Int
          | RetLocation !Instruction
          | GEPLocation !Value
          | PhiCopy !Instruction
-         | FieldLoc !Type !Int
+         | FieldLoc Text {-!Type-} !Int
          deriving (Eq, Ord, Show, Typeable)
 
 type SetExp = SetExpression Var Constructor
@@ -170,7 +171,7 @@ pta ignore m = do
             -- all slots of the given index in that type (one slot for
             -- all instances).
             Just (t, ix) ->
-              let var = setVariable (FieldLoc t ix)
+              let var = setVariable (FieldLoc (pack (show t)) ix)
               in ref [ atom (Atom v), var, var ]
         -- This case is a bit of a hack to deal with the conversion from
         -- an array type to a pointer to the first element (using a
@@ -188,7 +189,7 @@ pta ignore m = do
               case fieldDescriptor base is of
                 Nothing -> gepVar (getTargetIfLoad base)
                 Just (t, ix) ->
-                  let var = setVariable (FieldLoc t ix)
+                  let var = setVariable (FieldLoc (pack (show t)) ix)
                   in ref [ atom (Atom v), var, var ]
         _ -> fromMaybe (loc v) (setVarFor v)
 
@@ -524,7 +525,7 @@ fmtAndersenNode (_, l) =
     EmptySet -> [toLabel (show l)]
     UniversalSet -> [toLabel (show l)]
     SetVariable (FieldLoc t ix) ->
-      [toLabel ("Field_" ++ show t ++ "<" ++ show ix ++ ">")]
+      [toLabel ("Field_" ++ unpack t ++ "<" ++ show ix ++ ">")]
     SetVariable (Fresh i) -> [toLabel ("F" ++ show i)]
     SetVariable (PhiCopy i) -> [toLabel ("PhiCopy " ++ show i)]
     SetVariable (GEPLocation i) -> [toLabel ("GEPLoc " ++ show i)]
