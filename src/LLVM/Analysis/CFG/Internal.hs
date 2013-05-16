@@ -23,7 +23,9 @@ module LLVM.Analysis.CFG.Internal (
 
 import Compiler.Hoopl
 import Control.DeepSeq
-import Control.Monad.State.Strict
+import Control.Monad ( (>=>), (<=<) )
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.State.Strict
 import Data.Function ( on )
 import qualified Data.GraphViz as GV
 import qualified Data.List as L

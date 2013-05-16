@@ -13,7 +13,8 @@ module LLVM.Analysis.PointsTo.Andersen (
   ) where
 
 import Control.Exception
-import Control.Monad.State.Strict
+import Control.Monad ( foldM )
+import Control.Monad.Trans.State.Strict
 import Data.GraphViz
 import Data.Maybe ( fromMaybe, mapMaybe )
 import Data.Text ( Text, pack, unpack )

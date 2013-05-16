@@ -14,7 +14,8 @@ module LLVM.Analysis.NoReturn (
   noReturnAnalysis
   ) where
 
-import Control.Monad.Reader
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Reader
 import Data.HashSet ( HashSet )
 import qualified Data.HashSet as S
 

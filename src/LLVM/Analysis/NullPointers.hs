@@ -15,7 +15,7 @@ module LLVM.Analysis.NullPointers (
   ) where
 
 import Control.Failure
-import Control.Monad.Identity
+import Data.Functor.Identity
 import Data.Maybe ( fromMaybe )
 import Data.Monoid
 import Data.HashSet ( HashSet )
