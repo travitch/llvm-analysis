@@ -1,6 +1,6 @@
 module Main ( main ) where
 
-import Control.Monad.Identity
+import Data.Functor.Identity
 import Data.Foldable ( toList )
 import Data.HashSet ( HashSet )
 import Data.Monoid

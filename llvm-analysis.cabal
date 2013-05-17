@@ -90,7 +90,6 @@ test-suite CallGraphTests
   main-is: CallGraphTest.hs
   hs-source-dirs: tests
   build-depends: base == 4.*,
-                 mtl > 2,
                  HUnit, filepath, containers, bytestring,
                  llvm-analysis >= 0.2.0,
                  llvm-data-interop >= 0.2.0
@@ -111,7 +110,8 @@ test-suite ReturnTests
   default-language: Haskell2010
   type: exitcode-stdio-1.0
   build-depends: base == 4.*,
-                 containers, filepath, mtl, HUnit,
+                 transformers >= 0.3,
+                 containers, filepath, HUnit,
                  unordered-containers,
                  llvm-data-interop >= 0.2.0,
                  llvm-analysis >= 0.2.0
