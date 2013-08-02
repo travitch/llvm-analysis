@@ -183,7 +183,7 @@ buildModule clangOpts optOpts parseFile inputFilePath = do
 -- set, try a few common opt aliases.
 findOpt :: IO FilePath
 findOpt = do
-  let fbin = findBin [ "opt", "opt-3.2", "opt-3.1", "opt-3.0" ]
+  let fbin = findBin [ "opt", "opt-3.3", "opt-3.2", "opt-3.1", "opt-3.0" ]
   catchIOError (getEnv "LLVM_OPT") (const fbin)
   where
     findBin [] = E.throwIO NoOptBinaryFound
