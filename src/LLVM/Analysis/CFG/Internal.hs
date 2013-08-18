@@ -10,10 +10,11 @@ module LLVM.Analysis.CFG.Internal (
   basicBlockSuccessors,
   -- * Dataflow
   DataflowAnalysis(..),
-  dataflowAnalysis,
+  fwdDataflowAnalysis,
+  bwdDataflowAnalysis,
   fwdDataflowEdgeAnalysis,
-  forwardDataflow,
-  backwardDataflow,
+  bwdDataflowEdgeAnalysis,
+  dataflow,
   DataflowResult(..),
   dataflowResult,
   dataflowResultAt,
@@ -357,20 +358,32 @@ toGNode i = (instructionUniqueId i, i)
 -- the analysis iterates to a fixedpoint and side effects in the monad
 -- will be repeated.
 data DataflowAnalysis m f where
-  DataflowAnalysis :: (Eq f, Monad m) => { analysisTop :: f
-                                         , analysisMeet :: f -> f -> f
-                                         , analysisTransfer :: f -> Instruction -> m f
-                                         , analysisFwdEdgeTransfer :: Maybe (f -> Instruction -> m [(BasicBlock, f)])
-                                         , analysisBwdEdgeTransfer :: Maybe ([(BasicBlock, f)] -> Instruction -> m f)
-                                         } -> DataflowAnalysis m f
+  FwdDataflowAnalysis :: (Eq f, Monad m) => { analysisTop :: f
+                                            , analysisMeet :: f -> f -> f
+                                            , analysisTransfer :: f -> Instruction -> m f
+                                            , analysisFwdEdgeTransfer :: Maybe (f -> Instruction -> m [(BasicBlock, f)])
+                                            } -> DataflowAnalysis m f
+  BwdDataflowAnalysis :: (Eq f, Monad m) => { analysisTop :: f
+                                            , analysisMeet :: f -> f -> f
+                                            , analysisTransfer ::  f -> Instruction -> m f
+                                            , analysisBwdEdgeTransfer :: Maybe ([(BasicBlock, f)] -> Instruction -> m f)
+                                            } -> DataflowAnalysis m f
 
 -- | Define a basic 'DataflowAnalysis'
-dataflowAnalysis :: (Eq f, Monad m)
-                    => f -- ^ Top
-                    -> (f -> f -> f) -- ^ Meet
-                    -> (f -> Instruction -> m f) -- ^ Transfer
-                    -> DataflowAnalysis m f
-dataflowAnalysis top m t = DataflowAnalysis top m t Nothing Nothing
+fwdDataflowAnalysis :: (Eq f, Monad m)
+                       => f -- ^ Top
+                       -> (f -> f -> f) -- ^ Meet
+                       -> (f -> Instruction -> m f) -- ^ Transfer
+                       -> DataflowAnalysis m f
+fwdDataflowAnalysis top m t = FwdDataflowAnalysis top m t Nothing
+
+-- | A basic backward dataflow analysis
+bwdDataflowAnalysis :: (Eq f, Monad m)
+                       => f -- ^ Top
+                       -> (f -> f -> f) -- ^ Meet
+                       -> (f -> Instruction -> m f) -- ^ Transfer
+                       -> DataflowAnalysis m f
+bwdDataflowAnalysis top m t = BwdDataflowAnalysis top m t Nothing
 
 -- | A forward dataflow analysis that provides an addition /edge
 -- transfer function/.  This function is run with each Terminator
@@ -390,7 +403,18 @@ fwdDataflowEdgeAnalysis :: (Eq f, Monad m)
                            -> (f -> Instruction -> m [(BasicBlock, f)]) -- ^ Edge Transfer
                            -> DataflowAnalysis m f
 fwdDataflowEdgeAnalysis top m t e =
-  DataflowAnalysis top m t (Just e) Nothing
+  FwdDataflowAnalysis top m t (Just e)
+
+bwdDataflowEdgeAnalysis :: (Eq f, Monad m)
+                           => f -- ^ Top
+                           -> (f -> f -> f) -- ^ meet
+                           -> (f -> Instruction -> m f) -- ^ Transfer
+                           -> ([(BasicBlock, f)] -> Instruction -> m f) -- ^ Edge Transfer
+                           -> DataflowAnalysis m f
+bwdDataflowEdgeAnalysis top m t e =
+  BwdDataflowAnalysis top m t (Just e)
+
+
 
 -- | The opaque result of a dataflow analysis.  Use the functions
 -- 'dataflowResult' and 'dataflowResultAt' to extract results.
@@ -420,7 +444,7 @@ instance (NFData f) => NFData (DataflowResult m f) where
 dataflowResultAt :: DataflowResult m f
                     -> Instruction
                     -> m f
-dataflowResultAt (DataflowResult cfg (DataflowAnalysis top meet transfer _ _) m dir) i = do
+dataflowResultAt (DataflowResult cfg (FwdDataflowAnalysis top meet transfer _) m dir) i = do
   let Just bb = instructionBasicBlock i
       Just lbl = M.lookup bb (cfgLabelMap cfg)
       initialFactAndInsts = findInitialFact bb lbl dir
@@ -458,8 +482,22 @@ dataflowResultAt (DataflowResult cfg (DataflowAnalysis top meet transfer _ _) m 
 -- If you want the result at only the return instruction(s), use
 -- 'dataflowResultAt' and 'meets' the results together.
 dataflowResult :: DataflowResult m f -> f
-dataflowResult (DataflowResult cfg (DataflowAnalysis top _ _ _ _) m _) =
+dataflowResult (DataflowResult cfg (FwdDataflowAnalysis top _ _ _) m _) =
   fromMaybe top $ lookupFact (cfgExitLabel cfg) m
+dataflowResult (DataflowResult cfg (BwdDataflowAnalysis top _ _ _) m _) =
+  fromMaybe top $ lookupFact (cfgEntryLabel cfg) m
+
+dataflow :: forall m f cfgLike . (HasCFG cfgLike)
+            => cfgLike -- ^ Something providing a CFG
+            -> DataflowAnalysis m f -- ^ The analysis to run
+            -> f -- ^ Initial fact for the entry node
+            -> m (DataflowResult m f)
+dataflow cfgLike da@FwdDataflowAnalysis { analysisTop = top
+                                        , analysisMeet = meet
+                                        , analysisTransfer = transfer
+                                        , analysisFwdEdgeTransfer = etransfer
+                                        } fact0 = do
+{-  
 
 -- | Run a forward dataflow analysis
 forwardDataflow :: forall m f cfgLike . (HasCFG cfgLike)
@@ -472,6 +510,7 @@ forwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
                                             , analysisTransfer = transfer
                                             , analysisFwdEdgeTransfer = etransfer
                                             } fact0 = do
+-}
   r <- graph (cfgBody cfg) (mapSingleton elbl fact0)
   return $ DataflowResult cfg da r Fwd
   where
@@ -564,7 +603,7 @@ forwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
     block (BCat b1 b2) = block b1 >=> block b2
     block (BSnoc h n) = block h >=> node n
     block (BCons n t) = node n >=> block t
-
+{-
 -- | Run a backward dataflow analysis
 backwardDataflow :: forall m f cfgLike . (HasCFG cfgLike)
                     => cfgLike -- ^ Something providing a CFG
@@ -575,6 +614,11 @@ backwardDataflow cfgLike da@DataflowAnalysis { analysisTop = top
                                          , analysisMeet = meet
                                          , analysisTransfer = transfer
                                          } fact0 = do
+-}
+dataflow cfgLike da@BwdDataflowAnalysis { analysisTop = top
+                                        , analysisMeet = meet
+                                        , analysisTransfer = transfer
+                                        } fact0 = do
   r <- graph (cfgBody cfg) (mapSingleton xlbl fact0)
   return $ DataflowResult cfg da r Bwd
   where
@@ -660,17 +704,23 @@ backwardBlockList entries body = reverse $ forwardBlockList entries body
 data Direction = Fwd | Bwd
                deriving (Eq)
 
+dataflowMeet :: DataflowAnalysis m f -> (f -> f -> f)
+dataflowMeet FwdDataflowAnalysis { analysisMeet = m } = m
+dataflowMeet BwdDataflowAnalysis { analysisMeet = m } = m
+
 -- | The fixedpoint calculations (and joins) all happen in here.
-fixpoint :: forall m f . Direction
+fixpoint :: forall m f . (Monad m, Eq f)
+            => Direction
             -> DataflowAnalysis m f
             -> (Block Insn C C -> Fact C f -> m (Fact C f))
             -> [Label]
             -> LabelMap (Block Insn C C)
             -> (Fact C f -> m (Fact C f))
-fixpoint dir (DataflowAnalysis _ meet _ _ _) doBlock entries blockmap initFbase =
+fixpoint dir da doBlock entries blockmap initFbase =
   -- See Note [Fixpoint]
   loop initFbase entries mempty
   where
+    meet = dataflowMeet da
     -- This is a map from label L to all of its dependencies; if L
     -- changes, all of its dependencies need to be re-analyzed.
     depBlocks :: LabelMap [Label]

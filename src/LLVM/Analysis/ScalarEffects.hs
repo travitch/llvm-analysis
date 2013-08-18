@@ -69,9 +69,9 @@ scalarEffectAnalysis :: (Monad m, HasCFG funcLike, HasFunction funcLike)
                         -> m ScalarEffectResult
 scalarEffectAnalysis funcLike summ = do
   let cfg = getCFG funcLike
-      analysis = dataflowAnalysis SITop meet scalarTransfer
+      analysis = fwdDataflowAnalysis SITop meet scalarTransfer
 
-  localRes <- forwardDataflow cfg analysis SITop
+  localRes <- dataflow cfg analysis SITop
   let xi = case dataflowResult localRes of
         SITop -> HM.empty
         SI m -> HM.foldlWithKey' discardNothings HM.empty m

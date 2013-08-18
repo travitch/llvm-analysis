@@ -67,8 +67,8 @@ noReturnAnalysis extSummary cfgLike summ = do
   let cfg = getCFG cfgLike
       f = getFunction cfg
       env = AE extSummary summ
-      analysis = dataflowAnalysis NotReturned meet returnTransfer
-  localRes <- runReaderT (forwardDataflow cfg analysis NotReturned) env
+      analysis = fwdDataflowAnalysis NotReturned meet returnTransfer
+  localRes <- runReaderT (dataflow cfg analysis NotReturned) env
   case dataflowResult localRes of
     WillNeverReturn -> return $! S.insert f summ
     NotReturned -> return $! S.insert f summ
