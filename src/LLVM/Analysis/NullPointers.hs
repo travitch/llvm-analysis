@@ -23,7 +23,7 @@ import qualified Data.HashSet as HS
 import Data.Typeable ( Typeable )
 
 import LLVM.Analysis
-import LLVM.Analysis.CDG
+import LLVM.Analysis.CFG
 import LLVM.Analysis.Dataflow
 
 class HasNullSummary a where
@@ -45,11 +45,10 @@ newtype NullPointersSummary =
 
 -- | Determine which pointers are NULL and NotNULL at each
 -- Instruction.
-nullPointersAnalysis :: (HasCDG cdg) => cdg -> NullPointersSummary
-nullPointersAnalysis cdgLike =
-  NPS $ runIdentity $ forwardDataflow cdg analysis f0
+nullPointersAnalysis :: (HasCFG cfg) => cfg -> NullPointersSummary
+nullPointersAnalysis cfgLike =
+  NPS $ runIdentity $ dataflow cfgLike analysis f0
   where
-    cdg = getCDG cdgLike
     f0 = NS mempty mempty
 
     analysis = fwdDataflowEdgeAnalysis Top meet transfer edgeTransfer
@@ -76,24 +75,18 @@ meet other Top = other
 meet (NS must1 not1) (NS must2 not2) =
   NS (must1 `HS.intersection` must2) (not1 `HS.intersection` not2)
 
--- | Add any new facts we've learned from the block state.  We could
--- have this be a no-op for non-entry instructions, but it probably
--- isn't a big deal.
+-- | The transfer function is the identity because all work is done on
+-- the edges.
 transfer :: (Monad m) => NULLState -> Instruction -> m NULLState
 transfer s _ = return s
 
-addNull :: Value -> NULLState -> NULLState
-addNull v s =
-  case s of
-    Top -> NS (HS.singleton v) mempty
-    NS must notNull -> NS (HS.insert v must) notNull
-
-addNotNull :: Value -> NULLState -> NULLState
-addNotNull v s =
-  case s of
-    Top -> NS mempty (HS.singleton v)
-    NS must notNull -> NS must (HS.insert v notNull)
-
+-- | If this terminator is a conditional branch comparing a pointer
+-- against NULL, propagate the null/notnull info along the appropriate
+-- CFG edges.
+--
+-- We don't need to be too careful about checking for a==b (where b or
+-- a is a pointer known to be NULL) because we can rely on constant
+-- propagation from LLVM.
 edgeTransfer :: (Monad m ) => NULLState -> Instruction -> m [(BasicBlock, NULLState)]
 edgeTransfer s i = return $ fromMaybe [] $ do
   (nullBlock, nullVal, notNullBlock) <- branchNullInfo i
@@ -134,6 +127,20 @@ branchNullInfo i@BranchInst { branchTrueTarget = tt
   | isNullPtr (cmpV2 ci) = return (ft, cmpV1 ci, tt)
   | otherwise = failure (NotANullTest i)
 branchNullInfo i = failure (NotABranchInst i)
+
+
+
+addNull :: Value -> NULLState -> NULLState
+addNull v s =
+  case s of
+    Top -> NS (HS.singleton v) mempty
+    NS must notNull -> NS (HS.insert v must) notNull
+
+addNotNull :: Value -> NULLState -> NULLState
+addNotNull v s =
+  case s of
+    Top -> NS mempty (HS.singleton v)
+    NS must notNull -> NS must (HS.insert v notNull)
 
 
 {- Note [NULL Pointers]
