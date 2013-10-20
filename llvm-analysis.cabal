@@ -60,7 +60,7 @@ library
                  llvm-base-types >= 0.3.0,
                  fgl >= 5.4,
                  text >= 0.11,
-                 hbgl, boomerang, ifscs,
+                 boomerang, ifscs,
                  array, bytestring, containers, deepseq,
                  process, filepath, directory, unordered-containers,
                  -- Testing
