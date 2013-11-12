@@ -67,7 +67,7 @@ library
                  -- Testing
                  HUnit, test-framework, test-framework-hunit,
                  -- Dealing with C++ names
-                 itanium-abi,
+                 itanium-abi >= 0.1.0.0 && < 0.2.0.0,
                  uniplate == 1.*
   hs-source-dirs: src
   exposed-modules: LLVM.Analysis,
