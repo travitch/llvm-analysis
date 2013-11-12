@@ -15,16 +15,15 @@ module LLVM.Analysis.PointsTo.Andersen (
 import Control.Exception
 import Control.Monad ( foldM )
 import Control.Monad.Trans.State.Strict
-import Data.GraphViz
 import Data.Maybe ( fromMaybe, mapMaybe )
-import Data.Text ( Text, pack, unpack )
+import Data.Text ( Text, pack )
 import Data.Typeable
 
 import LLVM.Analysis
 import LLVM.Analysis.PointsTo
 
 import Constraints.Set.Solver
-import Constraints.Set.Internal
+-- import Constraints.Set.Internal
 
 #if defined(DEBUGCONSTRAINTS)
 import Debug.Trace
@@ -506,6 +505,7 @@ throwErr = throw
 
 -- Debugging
 
+{-
 instance ToGraphviz Andersen where
   toGraphviz = andersenConstraintGraph
 
@@ -558,3 +558,4 @@ fmtAndersenEdge (_, _, lbl) =
   case lbl of
     Succ -> [style solid]
     Pred -> [style dashed]
+-}
