@@ -279,7 +279,7 @@ cgGraphvizParams compMap singletons =
     clusterIDFunc cid =
       case cid `HS.member` singletons of
         True -> GV.Str ""
-        False -> GV.Int cid
+        False -> GV.Num $ GV.Int cid
     clusterByFunc n@(nid, _) =
       let cid = HM.lookupDefault (-1) nid compMap
       in case cid `HS.member` singletons of

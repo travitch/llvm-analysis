@@ -211,7 +211,7 @@ instance ToGraphviz CDG where
 cdgGraphvizParams :: GraphvizParams n Instruction el BasicBlock Instruction
 cdgGraphvizParams =
   defaultParams { fmtNode = \(_,l) -> [ toLabel (toValue l) ]
-                , clusterID = Int . basicBlockUniqueId
+                , clusterID = Num . Int . basicBlockUniqueId
                 , clusterBy = nodeCluster
                 , fmtCluster = formatCluster
                 }

@@ -4,7 +4,7 @@ synopsis: A Haskell library for analyzing LLVM bitcode
 license: BSD3
 license-file: LICENSE
 author: Tristan Ravitch
-maintainer: travitch@cs.wisc.edu
+maintainer: tristan@nochair.net
 category: Development
 build-type: Simple
 cabal-version: >=1.10
@@ -46,10 +46,10 @@ library
   default-language: Haskell2010
   build-depends: base == 4.*,
                  vector >= 0.9,
-                 transformers >= 0.3,
+                 transformers >= 0.3 && < 0.5,
                  filemanip >= 0.3.5.2,
                  monad-par >= 0.3.4.2,
-                 graphviz >= 2999.12.0.3,
+                 graphviz >= 2999.17.0.1 && < 2999.18,
                  temporary >= 1.0,
                  lens > 1,
                  hashable >= 1.1.2.0,
@@ -59,11 +59,17 @@ library
                  hoopl >= 3.9.0.0,
                  llvm-base-types >= 0.3.0,
                  fgl >= 5.4,
-                 text >= 0.11,
+                 text >= 0.11 && < 2,
                  boomerang,
                  ifscs >= 0.2.0.0 && < 0.3.0.0,
-                 array, bytestring, containers, deepseq,
-                 process, filepath, directory, unordered-containers,
+                 array,
+                 bytestring,
+                 containers,
+                 deepseq,
+                 process,
+                 filepath,
+                 directory,
+                 unordered-containers,
                  -- Testing
                  HUnit, test-framework, test-framework-hunit,
                  -- Dealing with C++ names

@@ -242,7 +242,7 @@ cfgGraphvizParams :: GV.GraphvizParams n Instruction CFGEdge BasicBlock Instruct
 cfgGraphvizParams =
   GV.defaultParams { GV.fmtNode = \(_,l) -> [GV.toLabel (toValue l)]
                    , GV.fmtEdge = formatEdge
-                   , GV.clusterID = GV.Int . basicBlockUniqueId
+                   , GV.clusterID = GV.Num . GV.Int . basicBlockUniqueId
                    , GV.fmtCluster = formatCluster
                    , GV.clusterBy = nodeCluster
                    }
