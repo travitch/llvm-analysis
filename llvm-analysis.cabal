@@ -61,7 +61,7 @@ library
                  fgl >= 5.4,
                  text >= 0.11 && < 2,
                  boomerang,
-                 ifscs >= 0.2.0.0 && < 0.3.0.0,
+                 ifscs >= 0.2.0.1 && < 0.3,
                  array,
                  bytestring,
                  containers,
